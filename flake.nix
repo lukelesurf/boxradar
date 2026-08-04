@@ -19,6 +19,8 @@
             # FHS-wrapped variant: PlatformIO downloads prebuilt xtensa
             # toolchains that need a normal /lib to run on NixOS
             platformio
+            # airspace codegen (tools/build_airspace.py)
+            (python3.withPackages (ps: [ ps.pyyaml ps.shapely ]))
           ];
         };
       });
