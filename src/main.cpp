@@ -7,6 +7,7 @@
 #include "config.h"
 #include "shared_state.h"
 #include "net_task.h"
+#include "status_led.h"
 #include "ui_task.h"
 
 constexpr uint32_t WIFI_TIMEOUT_MS = 15000;
@@ -70,6 +71,7 @@ void setup() {
   tft.init();
   tft.setRotation(1); // landscape, 320x240
 
+  statusLedInit();
   setupWifi();
   if (WiFi.status() == WL_CONNECTED) {
     setupOta();

@@ -7,6 +7,7 @@
 #include "config.h"
 #include "parse.h"
 #include "shared_state.h"
+#include "status_led.h"
 
 using radar::AircraftStore;
 
@@ -68,6 +69,12 @@ static void netTaskLoop(void *) {
       lastPoll = millis();
       poll();
     }
+    if (WiFi.status() != WL_CONNECTED)
+      statusLedSet(LedStatus::NoWifi);
+    else if (!s_prev.fetchOk || millis() - s_prev.lastFetchMs > 10000)
+      statusLedSet(LedStatus::NoData);
+    else
+      statusLedSet(LedStatus::Ok);
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }

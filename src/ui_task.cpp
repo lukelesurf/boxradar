@@ -11,6 +11,26 @@ static TFT_eSprite s_scope(&tft);
 static radar::AircraftStore s_snap;
 static UiState s_ui;
 
+static constexpr int LDR_PIN = 34;
+static constexpr int BL_PIN = 21;
+static constexpr int BL_CHANNEL = 0;
+static constexpr int BL_MIN_DUTY = 40; // never fully dark
+
+static void backlightInit() {
+  ledcSetup(BL_CHANNEL, 5000, 8);
+  ledcAttachPin(BL_PIN, BL_CHANNEL); // takes over from TFT_eSPI's digital HIGH
+  ledcWrite(BL_CHANNEL, 255);
+  analogSetPinAttenuation(LDR_PIN, ADC_11db);
+}
+
+static void backlightUpdate() {
+  // CYD LDR: bright ambient -> low reading. Smooth + invert into duty.
+  static float smoothed = 2000.0f;
+  smoothed += 0.1f * ((float)analogRead(LDR_PIN) - smoothed);
+  int duty = map((int)smoothed, 0, 4095, 255, BL_MIN_DUTY);
+  ledcWrite(BL_CHANNEL, constrain(duty, BL_MIN_DUTY, 255));
+}
+
 static void createScopeSprite() {
   uint32_t before = esp_get_free_heap_size();
   s_scope.setColorDepth(16);
@@ -29,6 +49,7 @@ static void createScopeSprite() {
 
 static void uiTaskLoop(void *) {
   createScopeSprite();
+  backlightInit();
   touchInputInit(); // keeps all touch-SPI traffic on core 1
   tft.fillScreen(TFT_BLACK);
   bool otaScreenDrawn = false; // latch: draw the OTA frame/title once, not every iteration
@@ -65,6 +86,7 @@ static void uiTaskLoop(void *) {
     drawDetailPanel(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
     drawSidePanel(tft, s_snap, s_ui);
+    backlightUpdate();
     vTaskDelay(pdMS_TO_TICKS(100)); // ~10 fps
   }
 }
