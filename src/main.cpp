@@ -43,6 +43,7 @@ void setup() {
 
   tft.init();
   tft.setRotation(1); // landscape, 320x240
+  tft.fillScreen(TFT_BLACK); // clear stale GRAM contents from a prior boot
 
   statusLedInit();
   setupWifi();

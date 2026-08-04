@@ -9,7 +9,7 @@ constexpr float RANGES_NM[] = {5, 10, 25, 50};
 constexpr int N_RANGES = 4;
 constexpr int32_t TRANSITION_ALT_FT = 6000;      // UK-ish; FL above, feet below
 struct UiState {
-  int rangeIdx = 1;          // default 25 NM
+  int rangeIdx = 1;          // default 10 NM
   uint32_t selectedHex = 0;  // 0 = none
   bool detailOpen = false;
 };

@@ -51,7 +51,7 @@ void touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
   }
   if (x >= LIST_X) { // traffic list: tap row selects
     int row = y / LIST_ROW_H;
-    if (y < STATUS_Y && row < s.count) {
+    if (y < STATUS_Y && row < LIST_ROWS && row < s.count) {
       ui.selectedHex = s.list[row].hex;
       ui.detailOpen = true;
     }

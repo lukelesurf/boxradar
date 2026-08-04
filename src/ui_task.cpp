@@ -66,7 +66,7 @@ static void createPanelSprite() {
   uint32_t before = esp_get_free_heap_size();
   s_panel.setColorDepth(8);
   if (s_panel.createSprite(LIST_W, 240) == nullptr) {
-    Serial.println("panel sprite failed, direct drawing retained");
+    Serial.println("panel sprite failed, panel disabled");
     s_panelSpriteOk = false;
     return;
   }

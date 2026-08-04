@@ -76,7 +76,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
       int ty = SCOPE_CY - (int)(tp.y * pxPerNm);
       if (tx < 0 || tx >= SCOPE_W || ty < 0 || ty >= SCOPE_H) continue;
       // 3 brightness steps oldest->newest
-      uint16_t col = t < a.trailLen / 3       ? 0x18E3   // very dark grey
+      uint16_t col = t < a.trailLen / 3       ? 0x4208   // very dark grey (0x18E3 quantized to black on 8-bit RGB332)
                      : t < (2 * a.trailLen) / 3 ? TFT_DARKGREY
                                                 : 0x8410; // mid grey
       spr.drawPixel(tx, ty, col);

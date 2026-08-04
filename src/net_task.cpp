@@ -33,8 +33,8 @@ static void setupOta() {
     // mid-transfer; disable it for the duration and re-enable on error
     // (success reboots before onEnd returns, so no need to re-enable there).
     disableCore0WDT();
-    g_otaActive = true; // pause everything else while flash is being written
     g_otaProgress = 0;
+    g_otaActive = true; // pause everything else while flash is being written
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     g_otaProgress = (uint8_t)((uint64_t)progress * 100 / total);
