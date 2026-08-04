@@ -1,6 +1,7 @@
 #include "scope.h"
 #include "side_panel.h"
 #include "projection.h"
+#include "config.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -56,6 +57,22 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
     }
     a.sx = (int16_t)sx;
     a.sy = (int16_t)sy;
+    // Trails: oldest->newest as dimming dots behind the blip
+    for (int t = 0; t < a.trailLen; t++) {
+      int idx = (a.trailHead - a.trailLen + t + 2 * radar::TRAIL_LEN) %
+                radar::TRAIL_LEN;
+      radar::Vec2 tp = radar::project(HOME_LAT, HOME_LON, a.trail[idx].lat,
+                                      a.trail[idx].lon);
+      int tx = SCOPE_CX + (int)(tp.x * pxPerNm);
+      int ty = SCOPE_CY - (int)(tp.y * pxPerNm);
+      if (tx < 0 || tx >= SCOPE_W || ty < 0 || ty >= SCOPE_H) continue;
+      // 3 brightness steps oldest->newest
+      uint16_t col = t < a.trailLen / 3       ? 0x18E3   // very dark grey
+                     : t < (2 * a.trailLen) / 3 ? TFT_DARKGREY
+                                                : 0x8410; // mid grey
+      spr.drawPixel(tx, ty, col);
+      if (t >= (2 * a.trailLen) / 3) spr.drawPixel(tx + 1, ty, col);
+    }
     drawBlip(spr, a, ui.selectedHex != 0 && a.hex == ui.selectedHex);
   }
 }
