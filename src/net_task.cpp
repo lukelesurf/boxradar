@@ -52,6 +52,7 @@ static void setupOta() {
 }
 
 static void printTable(const AircraftStore &s) {
+#ifdef BOXRADAR_SERIAL_TABLES
   Serial.printf("---- %d aircraft, heap %u ----\n", s.count,
                 esp_get_free_heap_size());
   Serial.println("hex    callsign type   lat      lon     alt   gs trk seen  rssi  rng");
@@ -61,6 +62,9 @@ static void printTable(const AircraftStore &s) {
                   (unsigned long)a.hex, a.callsign, a.type, a.lat, a.lon,
                   (long)a.altFt, a.gsKt, a.trackDeg, a.seenS, a.rssi, a.range);
   }
+#else
+  (void)s;
+#endif
 }
 
 static void poll() {
@@ -78,12 +82,18 @@ static void poll() {
     DeserializationError err = deserializeJson(
         doc, http.getStream(), DeserializationOption::Filter(filter));
     if (!err) {
-      radar::loadStore(doc, s_staging, s_prev, HOME_LAT, HOME_LON);
+      int n = radar::loadStore(doc, s_staging, s_prev, HOME_LAT, HOME_LON);
       s_staging.lastFetchMs = millis();
       s_staging.fetchOk = true;
       s_prev = s_staging;
       publishStore(s_staging);
       printTable(s_staging);
+      // Heap-margin instrumentation: feed size vs kept (post range-cap) vs
+      // free/minimum-ever-free heap, so a slow leak or transient OOM under
+      // load shows up in a 45s serial capture without needing the full table.
+      Serial.printf("feed=%d kept=%d heap=%u minheap=%u\n",
+                    (int)doc["aircraft"].size(), n, esp_get_free_heap_size(),
+                    esp_get_minimum_free_heap_size());
     } else {
       Serial.printf("parse error: %s\n", err.c_str());
       s_prev.fetchOk = false;
