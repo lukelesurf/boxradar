@@ -6,6 +6,9 @@ radar display: range rings, blips with heading vectors, fading trails,
 local controlled airspace, and a range-sorted traffic list. Successor to
 the ESP8266/Nokia 5110 original.
 
+![BOXRADAR at 10nm: traffic inside the Stansted CTA, airspace outlines and
+the airfield marker on the scope, live traffic list on the right](docs/scope-10nm.png)
+
 ## Hardware
 
 - **ESP32-2432S028R** — the "Cheap Yellow Display": ESP32 (dual-core
