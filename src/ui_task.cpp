@@ -105,13 +105,15 @@ static void uiTaskLoop(void *) {
       otaScreenDrawn = false;
     }
     snapshotStore(s_snap);
-    touchInputPoll(s_ui, s_snap);
+    drawScope(s_scope, s_snap, s_ui); // fills sx/sy for this frame's blips
+    touchInputPoll(s_ui, s_snap); // hit-tests against the coords just drawn
     if (s_ui.selectedHex && !s_snap.findByHex(s_ui.selectedHex)) {
       // selected aircraft aged out of the snapshot: clear stale selection
       s_ui.selectedHex = 0;
       s_ui.detailOpen = false;
     }
-    drawScope(s_scope, s_snap, s_ui);
+    // Selection highlight now lags one frame behind a fresh tap (drawScope
+    // already ran); the detail panel below reflects the tap immediately.
     drawDetailPanel(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
     if (s_panelSpriteOk) {
