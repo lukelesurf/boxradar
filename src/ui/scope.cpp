@@ -5,8 +5,29 @@
 #include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
+#include "airspace_data.h"
 
 static constexpr int SCOPE_MARGIN = 6; // outer ring inset from sprite edge
+
+// Dim blue-grey; expect to tune on the physical panel (LCD gamma).
+static constexpr uint16_t AIRSPACE_COLOR = 0x2124;
+
+// Outlines are closed rings (last vertex repeats the first), reprojected
+// every frame — ~200 projections, cheaper than caching per range change.
+static void drawAirspace(TFT_eSprite &spr, float pxPerNm) {
+  for (const airspace::Outline &o : airspace::OUTLINES) {
+    int prevX = 0, prevY = 0;
+    for (uint16_t i = 0; i < o.count; i++) {
+      radar::Vec2 p =
+          radar::project(HOME_LAT, HOME_LON, o.pts[i].lat, o.pts[i].lon);
+      int x = SCOPE_CX + (int)(p.x * pxPerNm);
+      int y = SCOPE_CY - (int)(p.y * pxPerNm);
+      if (i > 0) spr.drawLine(prevX, prevY, x, y, AIRSPACE_COLOR);
+      prevX = x;
+      prevY = y;
+    }
+  }
+}
 
 static void drawRings(TFT_eSprite &spr, float rangeNmOuter, float pxPerNm) {
   for (int i = 1; i <= 2; i++) { // rings at 1/2 and full range
@@ -47,6 +68,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   spr.fillSprite(TFT_BLACK);
   float rangeOuter = RANGES_NM[ui.rangeIdx];
   float pxPerNm = (float)(SCOPE_CX - SCOPE_MARGIN) / rangeOuter;
+  drawAirspace(spr, pxPerNm);
   drawRings(spr, rangeOuter, pxPerNm);
   for (int i = s.count - 1; i >= 0; i--) { // draw far->near so near wins overlap
     radar::Aircraft &a = s.list[i];
