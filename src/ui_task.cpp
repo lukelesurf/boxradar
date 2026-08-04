@@ -17,6 +17,12 @@ static constexpr int LDR_PIN = 34;
 static constexpr int BL_PIN = 21;
 static constexpr int BL_CHANNEL = 0;
 static constexpr int BL_MIN_DUTY = 40; // never fully dark
+// Empirical calibration, this unit, 2026-08-04: ambient room light and a
+// direct torch both read raw≈0 (LDR divider swings over a tiny ADC range
+// on this board); fully covered/dark reads raw jittering 0-129, smoothed
+// settles ~25-38. The only usable signal is near-darkness, so map that
+// narrow band to the full duty range instead of the theoretical 0-4095.
+static constexpr int LDR_DARK = 35;
 
 static void backlightInit() {
   ledcSetup(BL_CHANNEL, 5000, 8);
@@ -28,19 +34,14 @@ static void backlightInit() {
 static void backlightUpdate() {
   // CYD LDR: bright ambient -> low reading. Smooth + invert into duty.
   static float smoothed = 2000.0f;
-  static uint32_t callCount = 0;
-  int lastRaw = analogRead(LDR_PIN);
-  smoothed += 0.1f * ((float)lastRaw - smoothed);
-  int duty = map((int)smoothed, 0, 4095, 255, BL_MIN_DUTY);
-  duty = constrain(duty, BL_MIN_DUTY, 255);
+  smoothed += 0.1f * ((float)analogRead(LDR_PIN) - smoothed);
+  // Calibrated to LDR_DARK (see comment above) rather than the full 0-4095
+  // ADC range — map()'s output is already clamped to [BL_MIN_DUTY, 255]
+  // since the input is constrained to [0, LDR_DARK] first, so the old
+  // trailing constrain() is redundant and dropped.
+  int duty = map(constrain((int)smoothed, 0, LDR_DARK), 0, LDR_DARK, 255,
+                 BL_MIN_DUTY);
   ledcWrite(BL_CHANNEL, duty);
-  // Calibration instrumentation: no mapping changes yet, just visibility
-  // into the raw/smoothed/duty values for a human capture pass.
-  callCount++;
-  if (callCount % 10 == 0) {
-    Serial.printf("ldr raw=%d smoothed=%d duty=%d\n", lastRaw, (int)smoothed,
-                  duty);
-  }
 }
 
 static void createScopeSprite() {
