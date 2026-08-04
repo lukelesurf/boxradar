@@ -3,7 +3,6 @@
 #include <Arduino.h>
 #include <TFT_eSPI.h>
 #include <WiFi.h>
-#include <ArduinoOTA.h>
 #include "config.h"
 #include "shared_state.h"
 #include "net_task.h"
@@ -39,32 +38,6 @@ void setupWifi() {
   }
 }
 
-void setupOta() {
-  ArduinoOTA.setHostname(OTA_HOSTNAME); // registers boxradar.local via mDNS
-  ArduinoOTA.setPassword(OTA_PASSWORD);
-
-  // No tft calls here: the UI task (core 1) owns all drawing after boot to
-  // avoid a cross-core SPI race with these callbacks (core 0, via
-  // ArduinoOTA.handle() in the net task). Progress is published through
-  // g_otaActive/g_otaProgress and rendered by ui_task.cpp.
-  ArduinoOTA.onStart([]() {
-    g_otaActive = true; // pause everything else while flash is being written
-    g_otaProgress = 0;
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    g_otaProgress = (uint8_t)((uint64_t)progress * 100 / total);
-  });
-  ArduinoOTA.onEnd([]() {
-    // No visual needed here — the board reboots immediately after.
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    g_otaActive = false;
-    Serial.printf("OTA error %u\n", error);
-  });
-
-  ArduinoOTA.begin();
-}
-
 void setup() {
   Serial.begin(115200);
 
@@ -73,9 +46,8 @@ void setup() {
 
   statusLedInit();
   setupWifi();
-  if (WiFi.status() == WL_CONNECTED) {
-    setupOta();
-  }
+  // OTA is started from the net task once WiFi is up (see net_task.cpp) —
+  // that covers the case where WiFi connects after this boot-time wait.
 
   sharedStateInit();
   startNetTask();

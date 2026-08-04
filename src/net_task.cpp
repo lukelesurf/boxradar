@@ -14,6 +14,37 @@ using radar::AircraftStore;
 static AircraftStore s_staging;
 static AircraftStore s_prev;
 
+// Started lazily, the first time WiFi is up — not just at boot — so a board
+// that fails the 15s boot-time WiFi wait still becomes OTA-flashable once
+// WiFi eventually connects (previously it stayed unflashable until a power
+// cycle). setupOta() itself is not idempotent (ArduinoOTA.begin() etc.), so
+// the caller guards it with a one-shot latch.
+static void setupOta() {
+  ArduinoOTA.setHostname(OTA_HOSTNAME); // registers boxradar.local via mDNS
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+
+  // No tft calls here: the UI task (core 1) owns all drawing after boot to
+  // avoid a cross-core SPI race with these callbacks (core 0, via
+  // ArduinoOTA.handle() below). Progress is published through
+  // g_otaActive/g_otaProgress and rendered by ui_task.cpp.
+  ArduinoOTA.onStart([]() {
+    g_otaActive = true; // pause everything else while flash is being written
+    g_otaProgress = 0;
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    g_otaProgress = (uint8_t)((uint64_t)progress * 100 / total);
+  });
+  ArduinoOTA.onEnd([]() {
+    // No visual needed here — the board reboots immediately after.
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    g_otaActive = false;
+    Serial.printf("OTA error %u\n", error);
+  });
+
+  ArduinoOTA.begin();
+}
+
 static void printTable(const AircraftStore &s) {
   Serial.printf("---- %d aircraft, heap %u ----\n", s.count,
                 esp_get_free_heap_size());
@@ -63,7 +94,12 @@ static void poll() {
 static void netTaskLoop(void *) {
   uint32_t lastPoll = 0;
   for (;;) {
-    ArduinoOTA.handle();
+    static bool otaStarted = false;
+    if (!otaStarted && WiFi.status() == WL_CONNECTED) {
+      setupOta();
+      otaStarted = true;
+    }
+    if (otaStarted) ArduinoOTA.handle();
     if (!g_otaActive && WiFi.status() == WL_CONNECTED &&
         millis() - lastPoll >= POLL_INTERVAL_MS) {
       lastPoll = millis();
