@@ -12,6 +12,12 @@ static constexpr int SCOPE_MARGIN = 6; // outer ring inset from sprite edge
 // Dim blue-grey; expect to tune on the physical panel (LCD gamma).
 static constexpr uint16_t AIRSPACE_COLOR = 0x2124;
 
+// Airfield reference points (CTR arc centres = published ARPs), unlabelled.
+static constexpr struct { float lat, lon; } AIRFIELDS[] = {
+    {51.88500f, 0.23500f},   // EGSS Stansted
+    {51.87472f, -0.36833f},  // EGGW Luton
+};
+
 // Outlines are closed rings (last vertex repeats the first), reprojected
 // every frame — ~200 projections, cheaper than caching per range change.
 static void drawAirspace(TFT_eSprite &spr, float pxPerNm) {
@@ -26,6 +32,13 @@ static void drawAirspace(TFT_eSprite &spr, float pxPerNm) {
       prevX = x;
       prevY = y;
     }
+  }
+  // Airfield markers: small hollow squares, distinct from round blips
+  for (const auto &f : AIRFIELDS) {
+    radar::Vec2 p = radar::project(HOME_LAT, HOME_LON, f.lat, f.lon);
+    int x = SCOPE_CX + (int)(p.x * pxPerNm);
+    int y = SCOPE_CY - (int)(p.y * pxPerNm);
+    spr.drawRect(x - 2, y - 2, 5, 5, AIRSPACE_COLOR);
   }
 }
 
