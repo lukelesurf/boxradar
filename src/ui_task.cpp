@@ -28,10 +28,28 @@ static void createScopeSprite() {
 static void uiTaskLoop(void *) {
   createScopeSprite();
   tft.fillScreen(TFT_BLACK);
+  bool otaScreenDrawn = false; // latch: draw the OTA frame/title once, not every iteration
   for (;;) {
-    if (g_otaActive) { // OTA owns flash + screen; go quiet
-      vTaskDelay(pdMS_TO_TICKS(100));
+    if (g_otaActive) {
+      // UI task owns all drawing, including OTA progress — the callbacks in
+      // main.cpp (core 0) never touch tft, so there's no cross-core race.
+      if (!otaScreenDrawn) {
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+        tft.drawString("OTA update", 10, 90, 4);
+        tft.drawRect(10, 140, 300, 20, TFT_WHITE);
+        otaScreenDrawn = true;
+      }
+      uint8_t pct = g_otaProgress;
+      tft.fillRect(12, 142, (296 * pct) / 100, 16, TFT_GREEN);
+      vTaskDelay(pdMS_TO_TICKS(50)); // smoother bar while flashing
       continue;
+    }
+    if (otaScreenDrawn) {
+      // Fell out of OTA (error path — success reboots before we get here).
+      // Clear once so normal rendering resumes on a clean screen.
+      tft.fillScreen(TFT_BLACK);
+      otaScreenDrawn = false;
     }
     snapshotStore(s_snap);
     s_scope.fillSprite(TFT_BLACK);

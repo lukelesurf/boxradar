@@ -54,27 +54,22 @@ void setupOta() {
   ArduinoOTA.setHostname(OTA_HOSTNAME); // registers boxradar.local via mDNS
   ArduinoOTA.setPassword(OTA_PASSWORD);
 
+  // No tft calls here: the UI task (core 1) owns all drawing after boot to
+  // avoid a cross-core SPI race with these callbacks (core 0, via
+  // ArduinoOTA.handle() in the net task). Progress is published through
+  // g_otaActive/g_otaProgress and rendered by ui_task.cpp.
   ArduinoOTA.onStart([]() {
     g_otaActive = true; // pause everything else while flash is being written
-    tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.drawString("OTA update", 10, 90, 4);
-    tft.drawRect(10, 140, tft.width() - 20, 20, TFT_WHITE);
+    g_otaProgress = 0;
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    int w = (int)((uint64_t)progress * (tft.width() - 24) / total);
-    tft.fillRect(12, 142, w, 16, TFT_GREEN);
+    g_otaProgress = (uint8_t)((uint64_t)progress * 100 / total);
   });
   ArduinoOTA.onEnd([]() {
-    tft.setTextColor(TFT_GREEN, TFT_BLACK);
-    tft.drawString("done - rebooting", 10, 170, 2);
+    // No visual needed here — the board reboots immediately after.
   });
   ArduinoOTA.onError([](ota_error_t error) {
     g_otaActive = false;
-    tft.setTextColor(TFT_RED, TFT_BLACK);
-    char buf[24];
-    snprintf(buf, sizeof(buf), "OTA error %u", error);
-    tft.drawString(buf, 10, 170, 2);
     Serial.printf("OTA error %u\n", error);
   });
 

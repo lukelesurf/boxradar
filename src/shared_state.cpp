@@ -4,6 +4,7 @@
 #include <freertos/semphr.h>
 
 volatile bool g_otaActive = false;
+volatile uint8_t g_otaProgress = 0;
 
 static SemaphoreHandle_t s_mutex;
 static radar::AircraftStore s_store;
