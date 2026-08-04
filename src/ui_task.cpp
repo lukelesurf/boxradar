@@ -33,7 +33,9 @@ static void backlightInit() {
 
 static void backlightUpdate() {
   // CYD LDR: bright ambient -> low reading. Smooth + invert into duty.
-  static float smoothed = 2000.0f;
+  // Starts assuming ambient light, so boot is full-bright; a dark room
+  // converges to the dimmed duty within ~3s of the exponential filter.
+  static float smoothed = 0.0f;
   smoothed += 0.1f * ((float)analogRead(LDR_PIN) - smoothed);
   // Calibrated to LDR_DARK (see comment above) rather than the full 0-4095
   // ADC range — map()'s output is already clamped to [BL_MIN_DUTY, 255]
