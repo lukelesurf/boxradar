@@ -24,7 +24,12 @@ void drawSidePanel(TFT_eSPI &tft, const radar::AircraftStore &s,
     uint16_t bg = sel ? TFT_NAVY : TFT_BLACK;
     tft.fillRect(0, y, LIST_W, LIST_ROW_H, bg);
     if (!has) continue;
-    bool dim = a->seenS > radar::SEEN_DIM_S;
+    // Effective age anchors seenS (frozen at parse time) to the wall clock,
+    // so a receiver that's stopped answering still visibly stales on screen.
+    float acAgeS = a->seenS + (s.lastFetchMs
+                                    ? (millis() - s.lastFetchMs) / 1000.0f
+                                    : 0.0f);
+    bool dim = acAgeS > radar::SEEN_DIM_S;
     tft.setTextColor(dim ? TFT_DARKGREY : TFT_WHITE, bg);
     char cs[9];
     snprintf(cs, sizeof(cs), "%s", a->callsign[0] ? a->callsign : "-");

@@ -2,6 +2,7 @@
 #include "side_panel.h"
 #include "projection.h"
 #include "config.h"
+#include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
 
@@ -22,8 +23,8 @@ static void drawRings(TFT_eSprite &spr, float rangeNmOuter, float pxPerNm) {
   spr.drawLine(SCOPE_CX, SCOPE_CY - 4, SCOPE_CX, SCOPE_CY + 4, TFT_GREEN);
 }
 
-static void drawBlip(TFT_eSprite &spr, const radar::Aircraft &a, bool selected) {
-  bool dim = a.seenS > radar::SEEN_DIM_S;
+static void drawBlip(TFT_eSprite &spr, const radar::Aircraft &a, bool dim,
+                     bool selected) {
   uint16_t col = selected ? TFT_YELLOW : (dim ? TFT_DARKGREY : TFT_CYAN);
   spr.fillCircle(a.sx, a.sy, 2, col);
   // Heading vector: 6px + 1px per 30kt, in track direction (north-up scope)
@@ -49,6 +50,14 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   drawRings(spr, rangeOuter, pxPerNm);
   for (int i = s.count - 1; i >= 0; i--) { // draw far->near so near wins overlap
     radar::Aircraft &a = s.list[i];
+    // Effective age anchors seenS (frozen at parse time) to the wall clock,
+    // so a receiver that's stopped answering still visibly stales on screen.
+    float ageS = a.seenS +
+                 (s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
+    if (ageS > radar::SEEN_DROP_S) {
+      a.sx = a.sy = -1000; // stale: not drawn, not tappable
+      continue;
+    }
     int sx = SCOPE_CX + (int)(a.pos.x * pxPerNm);
     int sy = SCOPE_CY - (int)(a.pos.y * pxPerNm);
     if (sx < 0 || sx >= SCOPE_W || sy < 0 || sy >= SCOPE_H) {
@@ -73,7 +82,8 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
       spr.drawPixel(tx, ty, col);
       if (t >= (2 * a.trailLen) / 3) spr.drawPixel(tx + 1, ty, col);
     }
-    drawBlip(spr, a, ui.selectedHex != 0 && a.hex == ui.selectedHex);
+    drawBlip(spr, a, ageS > radar::SEEN_DIM_S,
+             ui.selectedHex != 0 && a.hex == ui.selectedHex);
   }
 }
 
