@@ -1,0 +1,9 @@
+# direnv / nix
+.direnv/
+
+# PlatformIO build output and per-user state
+.pio/
+
+# secrets — committed template lives at include/config.example.h
+include/config.h
+.env
