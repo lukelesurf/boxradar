@@ -3,15 +3,6 @@
 #include <WiFi.h>
 #include <stdio.h>
 
-void formatAltitude(char *out, size_t cap, int32_t altFt, bool onGround) {
-  if (onGround)
-    snprintf(out, cap, "GND");
-  else if (altFt >= TRANSITION_ALT_FT)
-    snprintf(out, cap, "FL%03ld", (long)((altFt + 50) / 100));
-  else
-    snprintf(out, cap, "%ld", (long)altFt);
-}
-
 void drawSidePanel(TFT_eSPI &tft, const radar::AircraftStore &s,
                    const UiState &ui) {
   // Renders at x-origin 0 — caller positions the surface (sprite or screen).
@@ -35,7 +26,7 @@ void drawSidePanel(TFT_eSPI &tft, const radar::AircraftStore &s,
     snprintf(cs, sizeof(cs), "%s", a->callsign[0] ? a->callsign : "-");
     tft.drawString(cs, 2, y + 1, 1);
     char alt[8];
-    formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
+    radar::formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
     char line2[14];
     snprintf(line2, sizeof(line2), "%-6s%s", alt, a->type);
     tft.setTextColor(dim ? TFT_DARKGREY : TFT_SILVER, bg);

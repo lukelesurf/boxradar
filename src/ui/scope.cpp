@@ -102,7 +102,7 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   spr.drawString(l1, X + 4, Y + 4, 2);
   spr.setTextColor(TFT_WHITE, TFT_BLACK);
   char alt[8], line[26];
-  formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
+  radar::formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
   snprintf(line, sizeof(line), "%-4s  %s  %ukt", a->type[0] ? a->type : "-",
            alt, a->gsKt);
   spr.drawString(line, X + 4, Y + 26, 1);

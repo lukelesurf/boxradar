@@ -7,7 +7,6 @@ constexpr int LIST_ROW_H = 20, LIST_ROWS = 9;   // rows area: y 0..179
 constexpr int STATUS_Y = 196;                    // status strip: y 196..239
 constexpr float RANGES_NM[] = {5, 10, 25, 50};
 constexpr int N_RANGES = 4;
-constexpr int32_t TRANSITION_ALT_FT = 6000;      // UK-ish; FL above, feet below
 struct UiState {
   int rangeIdx = 1;          // default 10 NM
   uint32_t selectedHex = 0;  // 0 = none
