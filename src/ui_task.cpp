@@ -4,6 +4,7 @@
 #include "ui/layout.h"
 #include "ui/scope.h"
 #include "ui/side_panel.h"
+#include "ui/touch_input.h"
 
 TFT_eSPI tft;
 static TFT_eSprite s_scope(&tft);
@@ -28,6 +29,7 @@ static void createScopeSprite() {
 
 static void uiTaskLoop(void *) {
   createScopeSprite();
+  touchInputInit(); // keeps all touch-SPI traffic on core 1
   tft.fillScreen(TFT_BLACK);
   bool otaScreenDrawn = false; // latch: draw the OTA frame/title once, not every iteration
   for (;;) {
@@ -53,7 +55,14 @@ static void uiTaskLoop(void *) {
       otaScreenDrawn = false;
     }
     snapshotStore(s_snap);
+    touchInputPoll(s_ui, s_snap);
+    if (s_ui.selectedHex && !s_snap.findByHex(s_ui.selectedHex)) {
+      // selected aircraft aged out of the snapshot: clear stale selection
+      s_ui.selectedHex = 0;
+      s_ui.detailOpen = false;
+    }
     drawScope(s_scope, s_snap, s_ui);
+    drawDetailPanel(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
     drawSidePanel(tft, s_snap, s_ui);
     vTaskDelay(pdMS_TO_TICKS(100)); // ~10 fps

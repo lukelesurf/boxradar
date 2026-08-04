@@ -1,9 +1,7 @@
 // Boot + OTA. Brings up wifi/OTA and boot status text, then hands the TFT
 // off to the UI task (ui_task.cpp) and the net task for the rest of runtime.
 #include <Arduino.h>
-#include <SPI.h>
 #include <TFT_eSPI.h>
-#include <XPT2046_Touchscreen.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include "config.h"
@@ -11,17 +9,7 @@
 #include "net_task.h"
 #include "ui_task.h"
 
-// XPT2046 on its own SPI bus (shares no pins with the TFT)
-constexpr int TOUCH_CLK = 25;
-constexpr int TOUCH_CS = 33;
-constexpr int TOUCH_MOSI = 32;
-constexpr int TOUCH_MISO = 39;
-constexpr int TOUCH_IRQ = 36;
-
 constexpr uint32_t WIFI_TIMEOUT_MS = 15000;
-
-SPIClass touchSpi(VSPI);
-XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
 
 void drawStatus(const char *msg, uint16_t colour) {
   tft.fillRect(0, 190, tft.width(), 20, TFT_BLACK);
@@ -81,10 +69,6 @@ void setup() {
 
   tft.init();
   tft.setRotation(1); // landscape, 320x240
-
-  touchSpi.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
-  touch.begin(touchSpi);
-  touch.setRotation(1);
 
   setupWifi();
   if (WiFi.status() == WL_CONNECTED) {

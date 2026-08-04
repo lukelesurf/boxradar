@@ -4,3 +4,4 @@
 #include "layout.h"
 
 void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui);
+void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s, const UiState &ui);

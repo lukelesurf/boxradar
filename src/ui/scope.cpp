@@ -1,4 +1,6 @@
 #include "scope.h"
+#include "side_panel.h"
+#include "projection.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -56,4 +58,33 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
     a.sy = (int16_t)sy;
     drawBlip(spr, a, ui.selectedHex != 0 && a.hex == ui.selectedHex);
   }
+}
+
+void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
+                     const UiState &ui) {
+  if (!ui.detailOpen || ui.selectedHex == 0) return;
+  const radar::Aircraft *a = s.findByHex(ui.selectedHex);
+  if (!a) return;
+  constexpr int W = 150, H = 92, X = 4, Y = SCOPE_H - H - 16;
+  spr.fillRect(X, Y, W, H, TFT_BLACK);
+  spr.drawRect(X, Y, W, H, TFT_YELLOW);
+  spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+  char l1[24];
+  snprintf(l1, sizeof(l1), "%s  %06lx",
+           a->callsign[0] ? a->callsign : "(no cs)", (unsigned long)a->hex);
+  spr.drawString(l1, X + 4, Y + 4, 2);
+  spr.setTextColor(TFT_WHITE, TFT_BLACK);
+  char alt[8], line[26];
+  formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
+  snprintf(line, sizeof(line), "%-4s  %s  %ukt", a->type[0] ? a->type : "-",
+           alt, a->gsKt);
+  spr.drawString(line, X + 4, Y + 26, 1);
+  snprintf(line, sizeof(line), "trk %u", a->trackDeg);
+  spr.drawString(line, X + 4, Y + 40, 1);
+  snprintf(line, sizeof(line), "%.1fnm brg %.0f", (double)a->range,
+           (double)radar::bearingDeg(a->pos));
+  spr.drawString(line, X + 4, Y + 54, 1);
+  snprintf(line, sizeof(line), "rssi %.1f  seen %.0fs", (double)a->rssi,
+           (double)a->seenS);
+  spr.drawString(line, X + 4, Y + 68, 1);
 }
