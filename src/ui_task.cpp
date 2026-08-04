@@ -8,6 +8,8 @@
 
 TFT_eSPI tft;
 static TFT_eSprite s_scope(&tft);
+static TFT_eSprite s_panel(&tft);
+static bool s_panelSpriteOk = false;
 static radar::AircraftStore s_snap;
 static UiState s_ui;
 
@@ -47,8 +49,22 @@ static void createScopeSprite() {
                 esp_get_free_heap_size());
 }
 
+static void createPanelSprite() {
+  uint32_t before = esp_get_free_heap_size();
+  s_panel.setColorDepth(8);
+  if (s_panel.createSprite(LIST_W, 240) == nullptr) {
+    Serial.println("panel sprite failed, direct drawing retained");
+    s_panelSpriteOk = false;
+    return;
+  }
+  s_panelSpriteOk = true;
+  Serial.printf("panel sprite: heap %u -> %u\n", before,
+                esp_get_free_heap_size());
+}
+
 static void uiTaskLoop(void *) {
   createScopeSprite();
+  createPanelSprite();
   backlightInit();
   touchInputInit(); // keeps all touch-SPI traffic on core 1
   tft.fillScreen(TFT_BLACK);
@@ -85,7 +101,12 @@ static void uiTaskLoop(void *) {
     drawScope(s_scope, s_snap, s_ui);
     drawDetailPanel(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
-    drawSidePanel(tft, s_snap, s_ui);
+    if (s_panelSpriteOk) {
+      drawSidePanel(s_panel, s_snap, s_ui);
+      s_panel.pushSprite(LIST_X, 0);
+    }
+    // else: panel sprite alloc failed at startup — skip rendering rather
+    // than draw with wrong (0-based) coordinates on the real screen.
     backlightUpdate();
     vTaskDelay(pdMS_TO_TICKS(100)); // ~10 fps
   }
