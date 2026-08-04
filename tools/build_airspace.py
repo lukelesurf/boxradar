@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 import yaml
-from shapely.geometry import Polygon
+from shapely.geometry import LinearRing, Polygon
 from shapely.ops import unary_union
 
 REPO_URL = "https://github.com/ahsparrow/airspace"
@@ -142,13 +142,13 @@ def _interpolate_arc(
     a_to = angle_of(to_lat, to_lon)
 
     if clockwise:
-        # CW means decreasing angle in standard math orientation
-        if a_to >= a_from:
-            a_to -= 2 * math.pi
-    else:
-        # CCW means increasing angle
+        # Bearing convention (atan2(east, north)): CW means increasing angle
         if a_to <= a_from:
             a_to += 2 * math.pi
+    else:
+        # CCW means decreasing angle
+        if a_to >= a_from:
+            a_to -= 2 * math.pi
 
     total_angle = abs(a_to - a_from)
     n_steps = max(2, int(math.ceil(total_angle / (2 * math.pi) * ARC_RESOLUTION)))
@@ -280,6 +280,8 @@ def check_ring(name: str, ring: list[list[float]]) -> None:
     for lon, lat in ring:
         if not (51.0 <= lat <= 53.0 and -1.2 <= lon <= 1.2):
             raise SystemExit(f"{name}: ({lat}, {lon}) outside local bounds")
+    if not LinearRing([(lon, lat) for lon, lat in ring]).is_simple:
+        raise SystemExit(f"{name}: ring self-intersects")
 
 
 def emit_header(outlines: list[tuple[str, list[list[float]]]], path: Path) -> None:
