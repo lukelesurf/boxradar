@@ -7,6 +7,7 @@ using namespace radar;
 // Home for tests: 51.5, -0.1
 // 4ca1d2: ~9.6 NM out. 406b9e: ~30 NM out, on ground.
 // aabbcc: no position -> skipped. badcaf: seen 70s -> skipped.
+// ~a1b2c3: TIS-B entry far from home, tilde prefix stripped -> 0xa1b2c3.
 static const char SAMPLE[] = R"({
   "now": 1722787200.0,
   "messages": 1234567,
@@ -16,7 +17,8 @@ static const char SAMPLE[] = R"({
      "category":"A3","nav_qnh":1013.6,"version":2},
     {"hex":"406b9e","lat":51.9,"lon":0.4,"alt_baro":"ground","seen":1.0,"rssi":-30.1},
     {"hex":"aabbcc","flight":"NOPOS","seen":5.0},
-    {"hex":"badcaf","lat":50.0,"lon":-3.0,"alt_baro":35000,"seen":70.0}
+    {"hex":"badcaf","lat":50.0,"lon":-3.0,"alt_baro":35000,"seen":70.0},
+    {"hex":"~a1b2c3","lat":45.0,"lon":10.0,"alt_baro":25000,"gs":450.0,"track":90.0,"seen":30.0,"rssi":-20.0}
   ]})";
 
 static void parseSample(JsonDocument &doc, bool filtered) {
@@ -36,7 +38,7 @@ static void test_loads_positioned_recent_aircraft_nearest_first() {
   AircraftStore dst, prev;
   prev.clear();
   int n = loadStore(doc, dst, prev, 51.5f, -0.1f);
-  TEST_ASSERT_EQUAL(2, n);
+  TEST_ASSERT_EQUAL(3, n);
   TEST_ASSERT_EQUAL_UINT32(0x4ca1d2, dst.list[0].hex); // nearer
   TEST_ASSERT_EQUAL_UINT32(0x406b9e, dst.list[1].hex);
 }
@@ -93,8 +95,22 @@ static void test_trails_flow_through_loadStore() {
   }
   AircraftStore dst;
   int n = loadStore(doc, dst, prev, 51.5f, -0.1f); // same positions again
-  TEST_ASSERT_EQUAL(2, n);
+  TEST_ASSERT_EQUAL(3, n);
   TEST_ASSERT_EQUAL_UINT8(1, dst.list[0].trailLen); // stationary: no dup
+}
+
+static void test_tis_b_tilde_prefix_stripped() {
+  JsonDocument doc;
+  parseSample(doc, true);
+  AircraftStore dst, prev;
+  prev.clear();
+  loadStore(doc, dst, prev, 51.5f, -0.1f);
+  const Aircraft *a = dst.findByHex(0xa1b2c3);
+  TEST_ASSERT_NOT_NULL(a);
+  TEST_ASSERT_EQUAL_UINT32(0xa1b2c3, a->hex); // tilde stripped from input
+  TEST_ASSERT_EQUAL_INT32(25000, a->altFt);
+  TEST_ASSERT_EQUAL_UINT16(450, a->gsKt);
+  TEST_ASSERT_EQUAL_UINT16(90, a->trackDeg);
 }
 
 int main(int, char **) {
@@ -104,5 +120,6 @@ int main(int, char **) {
   RUN_TEST(test_ground_altitude_and_missing_fields);
   RUN_TEST(test_filter_strips_unwanted_fields);
   RUN_TEST(test_trails_flow_through_loadStore);
+  RUN_TEST(test_tis_b_tilde_prefix_stripped);
   return UNITY_END();
 }
