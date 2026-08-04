@@ -28,9 +28,19 @@ static void backlightInit() {
 static void backlightUpdate() {
   // CYD LDR: bright ambient -> low reading. Smooth + invert into duty.
   static float smoothed = 2000.0f;
-  smoothed += 0.1f * ((float)analogRead(LDR_PIN) - smoothed);
+  static uint32_t callCount = 0;
+  int lastRaw = analogRead(LDR_PIN);
+  smoothed += 0.1f * ((float)lastRaw - smoothed);
   int duty = map((int)smoothed, 0, 4095, 255, BL_MIN_DUTY);
-  ledcWrite(BL_CHANNEL, constrain(duty, BL_MIN_DUTY, 255));
+  duty = constrain(duty, BL_MIN_DUTY, 255);
+  ledcWrite(BL_CHANNEL, duty);
+  // Calibration instrumentation: no mapping changes yet, just visibility
+  // into the raw/smoothed/duty values for a human capture pass.
+  callCount++;
+  if (callCount % 10 == 0) {
+    Serial.printf("ldr raw=%d smoothed=%d duty=%d\n", lastRaw, (int)smoothed,
+                  duty);
+  }
 }
 
 static void createScopeSprite() {
