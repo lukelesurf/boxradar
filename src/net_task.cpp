@@ -28,6 +28,11 @@ static void setupOta() {
   // ArduinoOTA.handle() below). Progress is published through
   // g_otaActive/g_otaProgress and rendered by ui_task.cpp.
   ArduinoOTA.onStart([]() {
+    // ArduinoOTA's _runUpdate read/write loop doesn't yield, which can
+    // starve the core-0 IDLE0 task long enough to trip the task watchdog
+    // mid-transfer; disable it for the duration and re-enable on error
+    // (success reboots before onEnd returns, so no need to re-enable there).
+    disableCore0WDT();
     g_otaActive = true; // pause everything else while flash is being written
     g_otaProgress = 0;
   });
@@ -39,6 +44,7 @@ static void setupOta() {
   });
   ArduinoOTA.onError([](ota_error_t error) {
     g_otaActive = false;
+    enableCore0WDT();
     Serial.printf("OTA error %u\n", error);
   });
 
