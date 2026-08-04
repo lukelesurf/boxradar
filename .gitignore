@@ -7,3 +7,4 @@
 # secrets — committed template lives at include/config.example.h
 include/config.h
 .env
+__pycache__/
