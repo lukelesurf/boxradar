@@ -13,3 +13,5 @@
 
 #define OTA_HOSTNAME "boxradar"
 #define OTA_PASSWORD "change-me"
+
+#define POLL_INTERVAL_MS 2000

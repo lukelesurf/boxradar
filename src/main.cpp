@@ -7,6 +7,8 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include "config.h"
+#include "shared_state.h"
+#include "net_task.h"
 
 // XPT2046 on its own SPI bus (shares no pins with the TFT)
 constexpr int TOUCH_CLK = 25;
@@ -20,8 +22,6 @@ constexpr uint32_t WIFI_TIMEOUT_MS = 15000;
 TFT_eSPI tft;
 SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
-
-bool otaActive = false;
 
 void drawTestPattern() {
   // Colour bars: if red/blue are swapped or colours inverted, flip the
@@ -71,7 +71,7 @@ void setupOta() {
   ArduinoOTA.setPassword(OTA_PASSWORD);
 
   ArduinoOTA.onStart([]() {
-    otaActive = true; // pause everything else while flash is being written
+    g_otaActive = true; // pause everything else while flash is being written
     tft.fillScreen(TFT_BLACK);
     tft.setTextColor(TFT_YELLOW, TFT_BLACK);
     tft.drawString("OTA update", 10, 90, 4);
@@ -86,7 +86,7 @@ void setupOta() {
     tft.drawString("done - rebooting", 10, 170, 2);
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    otaActive = false;
+    g_otaActive = false;
     tft.setTextColor(TFT_RED, TFT_BLACK);
     char buf[24];
     snprintf(buf, sizeof(buf), "OTA error %u", error);
@@ -113,23 +113,13 @@ void setup() {
     setupOta();
   }
 
-  Serial.printf("free heap: %u\n", esp_get_free_heap_size());
+  sharedStateInit();
+  startNetTask();
+  Serial.printf("free heap after net start: %u\n", esp_get_free_heap_size());
 }
 
 void loop() {
-  ArduinoOTA.handle();
-  if (otaActive) {
-    return; // no touch/TFT traffic while OTA owns the flash
-  }
-
-  if (touch.touched()) {
-    TS_Point p = touch.getPoint(); // raw 0..4095
-    Serial.printf("touch raw x=%d y=%d z=%d\n", p.x, p.y, p.z);
-    tft.fillRect(0, 214, tft.width(), 26, TFT_BLACK);
-    tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    char buf[48];
-    snprintf(buf, sizeof(buf), "raw x=%d y=%d z=%d", p.x, p.y, p.z);
-    tft.drawString(buf, 10, 214, 2);
-    delay(50);
-  }
+  // Everything runs in FreeRTOS tasks; Arduino loop idles on core 1
+  // until the UI task takes over in Task 5.
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }
