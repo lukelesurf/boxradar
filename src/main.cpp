@@ -1,5 +1,5 @@
-// Milestone 1+5: hello screen + OTA. TFT colours, touch coords, ArduinoOTA
-// with on-screen progress. Dual-core task split comes with the data layer.
+// Boot + OTA. Brings up wifi/OTA and boot status text, then hands the TFT
+// off to the UI task (ui_task.cpp) and the net task for the rest of runtime.
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
@@ -9,6 +9,7 @@
 #include "config.h"
 #include "shared_state.h"
 #include "net_task.h"
+#include "ui_task.h"
 
 // XPT2046 on its own SPI bus (shares no pins with the TFT)
 constexpr int TOUCH_CLK = 25;
@@ -19,25 +20,8 @@ constexpr int TOUCH_IRQ = 36;
 
 constexpr uint32_t WIFI_TIMEOUT_MS = 15000;
 
-TFT_eSPI tft;
 SPIClass touchSpi(VSPI);
 XPT2046_Touchscreen touch(TOUCH_CS, TOUCH_IRQ);
-
-void drawTestPattern() {
-  // Colour bars: if red/blue are swapped or colours inverted, flip the
-  // driver/inversion build flags in platformio.ini (batch variant).
-  const uint16_t bars[] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_WHITE, TFT_BLACK};
-  const char *names[] = {"RED", "GREEN", "BLUE", "WHITE", "BLACK"};
-  const int w = tft.width() / 5;
-  for (int i = 0; i < 5; i++) {
-    tft.fillRect(i * w, 0, w, 160, bars[i]);
-    tft.setTextColor(i == 4 ? TFT_WHITE : TFT_BLACK, bars[i]);
-    tft.drawString(names[i], i * w + 4, 70, 2);
-  }
-  tft.fillRect(0, 160, tft.width(), tft.height() - 160, TFT_BLACK);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.drawString("BOXRADAR v2 - hello screen", 10, 170, 2);
-}
 
 void drawStatus(const char *msg, uint16_t colour) {
   tft.fillRect(0, 190, tft.width(), 20, TFT_BLACK);
@@ -102,7 +86,6 @@ void setup() {
 
   tft.init();
   tft.setRotation(1); // landscape, 320x240
-  drawTestPattern();
 
   touchSpi.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSpi);
@@ -116,10 +99,10 @@ void setup() {
   sharedStateInit();
   startNetTask();
   Serial.printf("free heap after net start: %u\n", esp_get_free_heap_size());
+  startUiTask();
 }
 
 void loop() {
-  // Everything runs in FreeRTOS tasks; Arduino loop idles on core 1
-  // until the UI task takes over in Task 5.
+  // Everything runs in FreeRTOS tasks; Arduino loop just idles.
   vTaskDelay(pdMS_TO_TICKS(1000));
 }
