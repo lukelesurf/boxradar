@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "shared_state.h"
 #include "ui/layout.h"
+#include "ui/scope.h"
 #include "ui/side_panel.h"
 
 TFT_eSPI tft;
@@ -52,10 +53,7 @@ static void uiTaskLoop(void *) {
       otaScreenDrawn = false;
     }
     snapshotStore(s_snap);
-    s_scope.fillSprite(TFT_BLACK);
-    // Placeholder centre marker until Task 6 draws the real scope
-    s_scope.drawLine(SCOPE_CX - 4, SCOPE_CY, SCOPE_CX + 4, SCOPE_CY, TFT_GREEN);
-    s_scope.drawLine(SCOPE_CX, SCOPE_CY - 4, SCOPE_CX, SCOPE_CY + 4, TFT_GREEN);
+    drawScope(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
     drawSidePanel(tft, s_snap, s_ui);
     vTaskDelay(pdMS_TO_TICKS(100)); // ~10 fps
