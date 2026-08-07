@@ -11,9 +11,6 @@
 #include <stdio.h>
 #include "airspace_data.h"
 
-// Dim blue-grey; expect to tune on the physical panel (LCD gamma).
-static constexpr uint16_t AIRSPACE_COLOR = 0x2124;
-
 static constexpr uint32_t ALERT_FLASH_MS = 400;
 static constexpr int BANNER_H = 14;
 
@@ -22,6 +19,58 @@ static constexpr struct { float lat, lon; } AIRFIELDS[] = {
     {51.88500f, 0.23500f},   // EGSS Stansted
     {51.87472f, -0.36833f},  // EGGW Luton
 };
+
+// Runway thresholds, for extended centrelines. These are the published
+// runway ENDS, not the ARP — at 5nm range an ARP-plus-heading approximation
+// lands several pixels off the real approach path.
+//
+// The axis is taken from the two thresholds rather than a published runway
+// heading. The source dataset's heading for EGSS disagrees with its own
+// threshold coordinates by ~1.2 deg, and deriving from the endpoints at
+// least guarantees the line passes through both of them.
+static constexpr struct {
+  float lat0, lon0, lat1, lon1;
+} RUNWAYS[] = {
+    {51.875081f, 0.219933f, 51.895166f, 0.250050f},   // EGSS 04/22
+    {51.872002f, -0.383550f, 51.877201f, -0.353333f}, // EGGW 07/25
+};
+static constexpr float CENTRELINE_NM = 6.5f; // extension beyond each end
+static constexpr int DASH_ON = 6, DASH_OFF = 5;
+
+// Dashes are stepped in pixels, not nautical miles: an NM-based dash would
+// collapse into an unreadable stipple once the scope is at 50nm.
+static void drawDashedLine(TFT_eSprite &spr, float x0, float y0, float x1,
+                           float y1, uint16_t col) {
+  float dx = x1 - x0, dy = y1 - y0;
+  float len = sqrtf(dx * dx + dy * dy);
+  if (len < 1.0f) return;
+  float ux = dx / len, uy = dy / len;
+  for (float d = 0; d < len; d += DASH_ON + DASH_OFF) {
+    float e = d + DASH_ON;
+    if (e > len) e = len;
+    spr.drawLine((int)(x0 + ux * d), (int)(y0 + uy * d),
+                 (int)(x0 + ux * e), (int)(y0 + uy * e), col);
+  }
+}
+
+static void drawCentrelines(TFT_eSprite &spr, float pxPerNm) {
+  for (const auto &r : RUNWAYS) {
+    radar::Vec2 a = radar::project(HOME_LAT, HOME_LON, r.lat0, r.lon0);
+    radar::Vec2 b = radar::project(HOME_LAT, HOME_LON, r.lat1, r.lon1);
+    float dx = b.x - a.x, dy = b.y - a.y;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1e-4f) continue; // degenerate entry: skip rather than divide
+    float ux = dx / len, uy = dy / len;
+    // Extend past BOTH thresholds. The stretch between them is the runway
+    // itself, under 2nm long and not the interesting part — the approach
+    // paths either side are what make the arrival stream legible.
+    float ax = a.x - ux * CENTRELINE_NM, ay = a.y - uy * CENTRELINE_NM;
+    float bx = b.x + ux * CENTRELINE_NM, by = b.y + uy * CENTRELINE_NM;
+    drawDashedLine(spr, SCOPE_CX + ax * pxPerNm, SCOPE_CY - ay * pxPerNm,
+                   SCOPE_CX + bx * pxPerNm, SCOPE_CY - by * pxPerNm,
+                   CENTRELINE);
+  }
+}
 
 // Outlines are closed rings (last vertex repeats the first), reprojected
 // every frame — ~200 projections, cheaper than caching per range change.
@@ -33,17 +82,19 @@ static void drawAirspace(TFT_eSprite &spr, float pxPerNm) {
           radar::project(HOME_LAT, HOME_LON, o.pts[i].lat, o.pts[i].lon);
       int x = SCOPE_CX + (int)(p.x * pxPerNm);
       int y = SCOPE_CY - (int)(p.y * pxPerNm);
-      if (i > 0) spr.drawLine(prevX, prevY, x, y, AIRSPACE_COLOR);
+      if (i > 0) spr.drawLine(prevX, prevY, x, y, AIRSPACE_LINE);
       prevX = x;
       prevY = y;
     }
   }
-  // Airfield markers: small hollow squares, distinct from round blips
+  // Airfield markers: small solid squares, distinct from round blips. Solid
+  // and a shade brighter than the map lines, since a hollow marker sitting on
+  // its own centreline was all but invisible.
   for (const auto &f : AIRFIELDS) {
     radar::Vec2 p = radar::project(HOME_LAT, HOME_LON, f.lat, f.lon);
     int x = SCOPE_CX + (int)(p.x * pxPerNm);
     int y = SCOPE_CY - (int)(p.y * pxPerNm);
-    spr.drawRect(x - 2, y - 2, 5, 5, AIRSPACE_COLOR);
+    spr.fillRect(x - 2, y - 2, 5, 5, AIRFIELD_MARK);
   }
 }
 
@@ -145,6 +196,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
 
   datablocksBegin();
   drawAirspace(spr, pxPerNm);
+  drawCentrelines(spr, pxPerNm);
   drawRings(spr, rangeOuter, pxPerNm);
   // Chrome is off-limits to datablocks: status corner and range legend.
   datablockReserve(0, 0, 56, 36);

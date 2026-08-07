@@ -31,6 +31,15 @@ constexpr uint16_t BLOCK_TEXT_DIM  = rgb332(2, 2, 1);
 constexpr uint16_t TYPE_INTERESTING = rgb332(7, 5, 0);
 constexpr uint16_t LEADER_LINE     = rgb332(2, 2, 1);
 
+// Background map: airspace outlines and extended runway centrelines share a
+// colour so they read as one layer sitting under the traffic.
+constexpr uint16_t AIRSPACE_LINE = rgb332(1, 1, 0);
+constexpr uint16_t CENTRELINE = AIRSPACE_LINE;
+
+// Airfield markers are drawn a step brighter than the lines they sit on —
+// a solid square in the line colour disappears into its own centreline.
+constexpr uint16_t AIRFIELD_MARK = rgb332(3, 3, 1);
+
 constexpr uint16_t SELECT_RING = rgb332(7, 7, 3); // white
 constexpr uint16_t ALERT_RED   = rgb332(7, 0, 0);
 constexpr uint16_t ALERT_TEXT  = rgb332(7, 7, 3);

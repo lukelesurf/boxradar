@@ -2,12 +2,14 @@
 
 A desk-toy ADS-B radar scope on a £15 ESP32 touchscreen. Pulls decoded
 aircraft from a readsb/tar1090 receiver on the LAN and renders a north-up
-radar display: range rings, blips with heading vectors, fading trails,
-local controlled airspace, and a range-sorted traffic list. Successor to
-the ESP8266/Nokia 5110 original.
+radar display in the style of an ATC scope: range rings, altitude-coloured
+blips with heading vectors, two-line datablocks, fading trails, local
+controlled airspace and extended runway centrelines. Successor to the
+ESP8266/Nokia 5110 original.
 
-![BOXRADAR at 10nm: traffic inside the Stansted CTA, airspace outlines and
-the airfield marker on the scope, live traffic list on the right](docs/scope-10nm.png)
+![BOXRADAR at 10nm: traffic inside the Stansted CTA, airspace outlines,
+runway centrelines and airfield markers, with two-line datablocks on the
+scope](docs/scope-10nm.png)
 
 ## Hardware
 
@@ -22,16 +24,25 @@ in [SPEC.md](SPEC.md).
 
 ## Features
 
-- Radar scope with rings at 5/10/25/50nm (tap background to cycle),
-  aircraft blips with speed-scaled heading vectors, callsign labels,
-  fading position trails
+- Full-screen radar scope with rings at 5/10/25/50nm (tap background to
+  cycle), speed-scaled heading vectors and fading position trails
+- **Datablocks** in ATC style: callsign on line 1, then level in hundreds
+  of feet, a climb/descent arrow and the ICAO type on line 2. Two lines at
+  5/10nm, callsign only at 25/50nm
+- **Blip colour encodes altitude** — red below 2000ft through orange,
+  yellow, green and cyan to violet above FL300; grey on the ground
+- **Rare airframes stand out**: the type field turns amber for anything
+  outside the everyday short-haul fleet (A320/737 families, E-jets,
+  ATR/Dash 8), so widebodies, bizjets, props, helicopters and military
+  are obvious at a glance
+- **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
 - Stansted/Luton CTR outlines and CTA envelopes drawn under the traffic,
-  plus unlabelled airfield markers — generated offline from the
+  plus airfield markers and extended runway centrelines — airspace is
+  generated offline from the
   [ahsparrow/airspace](https://github.com/ahsparrow/airspace) UK dataset
-- Tap a blip or list row for a detail panel: callsign, hex, type, alt,
-  GS, track, range/bearing, RSSI
-- Traffic list (callsign / altitude / type) sorted by range; status strip
-  with WiFi state, aircraft count, fetch age
+- Tap a blip for a detail panel: callsign, hex, type, alt, GS, track,
+  vertical rate, range/bearing, RSSI, squawk
+- Status corner with WiFi state, aircraft count and fetch age
 - Aircraft dim after 30s without a message and drop at 60s
 - LDR-driven backlight dimming, RGB LED status (red no-WiFi / amber
   no-data), OTA updates with on-screen progress
@@ -40,11 +51,24 @@ in [SPEC.md](SPEC.md).
 
 Core 0 polls `aircraft.json` every 2s and parses it through an
 ArduinoJson filter into a fixed 32-slot store (nearest-first). Core 1
-renders the scope into a 240×240 sprite and handles touch. The two share
-a mutex-guarded double buffer — no JSON ever touches live render state.
-Positions project through a home-centred equirectangular approximation;
-`lib/radarcore` holds the portable parse/projection/format logic and is
-unit-tested natively.
+renders the scope into a single 320×240 8-bit sprite and handles touch.
+The two share a mutex-guarded double buffer — no JSON ever touches live
+render state. Positions project through a home-centred equirectangular
+approximation; `lib/radarcore` holds the portable parse/projection/
+format/classification logic and is unit-tested natively.
+
+Rendering runs in two passes with deliberately opposite orderings. Blips
+draw far→near so close traffic wins overlapping pixels; datablocks place
+near→far so close traffic wins the contested *space*. Blocks are placed
+against an 8px occupancy grid and remember their slot per aircraft
+between frames — without that memory, one blip crossing a cell boundary
+cascades into every other block moving. Placement priority is: selected,
+then alert squawks, then rare airframes, then nearest first.
+
+The sprite is 8-bit, so TFT_eSPI quantizes colours to RGB332 — 3 bits
+red, 3 green, 2 blue. `src/ui/palette.h` builds its constants from those
+surviving components rather than from 565 literals, which makes two
+colours distinct on-screen if and only if their arguments differ.
 
 ## Building
 
@@ -63,11 +87,14 @@ lottery — see Known Quirks in SPEC.md.
 
 ### Aircraft type
 
-The type column relies on the receiver embedding types in
-`aircraft.json`: point readsb at a database with
+The type field — shown in the datablock and used to decide whether an
+airframe is worth highlighting — relies on the receiver embedding types
+in `aircraft.json`: point readsb at a database with
 `--db-file=/usr/local/share/tar1090/aircraft.csv.gz` (file from the
 [tar1090-db](https://github.com/wiedehopf/tar1090-db) `csv` branch).
-Without it the type shows as `-`.
+Without it the type shows as `-`, and an unknown type is deliberately
+treated as ordinary rather than rare — flagging every database miss
+would drown the signal the highlight exists to carry.
 
 ### Regenerating airspace
 
@@ -81,12 +108,19 @@ python3 tools/build_airspace.py   # inside the devShell
 Edit `CURATED_AIRPORTS` in the script to change the selection. The
 generator refuses to emit self-intersecting or out-of-bounds rings.
 
+Runway centrelines are separate: a short hardcoded table of threshold
+coordinates near the top of `src/ui/scope.cpp`. The axis is derived from
+the two thresholds rather than a published runway heading, so the drawn
+line is guaranteed to pass through both runway ends.
+
 ## Layout
 
 ```
 src/            net task (core 0), UI task (core 1), shared store, status LED
-src/ui/         scope, side panel, touch, layout, generated airspace data
-lib/radarcore/  portable domain logic: parse, projection, formatting
+src/ui/         scope, datablocks, palette, status, touch, layout,
+                generated airspace data
+lib/radarcore/  portable domain logic: parse, projection, formatting,
+                type/squawk classification
 test/           native Unity tests for radarcore
 tools/          airspace codegen (YAIXM → C header)
 ```
