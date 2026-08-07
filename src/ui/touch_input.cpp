@@ -35,11 +35,21 @@ static const radar::Aircraft *nearestBlip(const radar::AircraftStore &s,
   return best;
 }
 
-void touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
+// Shared press-edge detector. Both callers consume the same edge, but only
+// one of them runs in any given frame — dark frames never reach the full
+// poll, and lit frames never call the tap-only path.
+static bool pressEdge() {
   bool down = s_touch.touched();
-  if (!down) { s_wasDown = false; return; }
-  if (s_wasDown) return; // act on press edge only
+  if (!down) { s_wasDown = false; return false; }
+  if (s_wasDown) return false; // act on press edge only
   s_wasDown = true;
+  return true;
+}
+
+bool touchInputTapped() { return pressEdge(); }
+
+bool touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
+  if (!pressEdge()) return false;
 
   TS_Point p = s_touch.getPoint();
   int x = map(constrain((int)p.x, RAW_X_MIN, RAW_X_MAX), RAW_X_MIN, RAW_X_MAX, 0, 319);
@@ -51,7 +61,7 @@ void touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
     // blip on the scope with no gesture to clear it.
     ui.detailOpen = false;
     ui.selectedHex = 0;
-    return;
+    return true;
   }
   // Whole panel is scope now — the traffic list that used to own x >= 240 is
   // gone, so every tap is either a blip hit or a background range cycle.
@@ -62,4 +72,5 @@ void touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
   } else {
     ui.rangeIdx = (ui.rangeIdx + 1) % N_RANGES; // background tap: cycle range
   }
+  return true;
 }

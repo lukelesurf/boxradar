@@ -6,6 +6,7 @@
 #include "config.h"
 #include "shared_state.h"
 #include "net_task.h"
+#include "night_mode.h"
 #include "status_led.h"
 #include "ui_task.h"
 
@@ -49,6 +50,10 @@ void setup() {
   setupWifi();
   // OTA is started from the net task once WiFi is up (see net_task.cpp) —
   // that covers the case where WiFi connects after this boot-time wait.
+
+  // Starts SNTP. Safe here even if WiFi failed above — it retries on its own
+  // once the network appears, and night mode stays off until a sync lands.
+  nightModeInit();
 
   sharedStateInit();
   startNetTask();

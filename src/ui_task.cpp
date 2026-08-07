@@ -1,5 +1,6 @@
 #include "ui_task.h"
 #include <Arduino.h>
+#include "night_mode.h"
 #include "shared_state.h"
 #include "ui/layout.h"
 #include "ui/scope.h"
@@ -29,7 +30,9 @@ static void backlightInit() {
   analogSetPinAttenuation(LDR_PIN, ADC_11db);
 }
 
-static void backlightUpdate() {
+static constexpr uint32_t UI_FRAME_MS = 100; // ~10 fps
+
+static void backlightUpdate(float nightScale) {
   // CYD LDR: bright ambient -> low reading. Smooth + invert into duty.
   // Starts assuming ambient light, so boot is full-bright; a dark room
   // converges to the dimmed duty within ~3s of the exponential filter.
@@ -41,7 +44,10 @@ static void backlightUpdate() {
   // trailing constrain() is redundant and dropped.
   int duty = map(constrain((int)smoothed, 0, LDR_DARK), 0, LDR_DARK, 255,
                  BL_MIN_DUTY);
-  ledcWrite(BL_CHANNEL, duty);
+  // Night mode scales on top of the LDR result and deliberately bypasses
+  // BL_MIN_DUTY — that floor exists so the display is never unreadably dim
+  // in a dark room, which is the opposite of what is wanted at 3am.
+  ledcWrite(BL_CHANNEL, (int)(duty * nightScale));
 }
 
 // Non-destructive probe for the planned full-screen (320x240) layout: the
@@ -95,6 +101,17 @@ static void uiTaskLoop(void *) {
       tft.fillScreen(TFT_BLACK);
       otaScreenDrawn = false;
     }
+    float nightScale = nightModeUpdate(UI_FRAME_MS);
+    if (nightModeDark()) {
+      // Fully dark: skip the sprite build and the 153KB SPI push entirely,
+      // but keep polling touch so a tap can still wake it. The tap is
+      // consumed here rather than passed to touchInputPoll, so waking the
+      // display never also opens a detail panel for whatever was underneath.
+      if (touchInputTapped()) nightModeWake();
+      backlightUpdate(nightScale);
+      vTaskDelay(pdMS_TO_TICKS(UI_FRAME_MS));
+      continue;
+    }
     // Published before rendering so a range change reaches the net task by
     // the next poll; existing points keep their old spacing until the ring
     // refills, which self-corrects within a few polls.
@@ -102,7 +119,9 @@ static void uiTaskLoop(void *) {
     snapshotStore(s_snap);
     snapshotMetar(s_metar);
     drawScope(s_scope, s_snap, s_metar, s_ui); // fills sx/sy for this frame
-    touchInputPoll(s_ui, s_snap); // hit-tests against the coords just drawn
+    // Any interaction during night hours extends the wake window, so poking
+    // around at 3am doesn't have the screen die under your finger.
+    if (touchInputPoll(s_ui, s_snap)) nightModeWake();
     if (s_ui.selectedHex && !s_snap.findByHex(s_ui.selectedHex)) {
       // selected aircraft aged out of the snapshot: clear stale selection
       s_ui.selectedHex = 0;
@@ -112,8 +131,8 @@ static void uiTaskLoop(void *) {
     // already ran); the detail panel below reflects the tap immediately.
     drawDetailPanel(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
-    backlightUpdate();
-    vTaskDelay(pdMS_TO_TICKS(100)); // ~10 fps
+    backlightUpdate(nightScale);
+    vTaskDelay(pdMS_TO_TICKS(UI_FRAME_MS));
   }
 }
 

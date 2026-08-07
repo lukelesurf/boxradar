@@ -29,3 +29,16 @@
 // predicting the next aircraft to pass close to overhead. Comment out to
 // disable; see lib/radarcore/overhead.h for how to remove it entirely.
 #define OVERHEAD_PREDICTION
+
+// Blank the display overnight, waking on a tap. Comment out NIGHT_BLANKING
+// to disable. Needs NTP: the board has no RTC, and until the first sync
+// lands it deliberately stays lit rather than sitting dark and looking dead.
+#define NIGHT_BLANKING
+#define NIGHT_START_HOUR 0
+#define NIGHT_END_HOUR 7        // set equal to START to disable the window
+#define NIGHT_WAKE_S 30         // how long a tap holds the display up
+#define NIGHT_FADE_MS 600       // 0 snaps instead of fading
+#define NTP_SERVER "pool.ntp.org"   // or your router / LAN time server
+// POSIX TZ rule, not an offset, so DST transitions are handled for good.
+// UK: "GMT0BST,M3.5.0/1,M10.5.0". US Eastern: "EST5EDT,M3.2.0,M11.1.0".
+#define NIGHT_TZ "GMT0BST,M3.5.0/1,M10.5.0"
