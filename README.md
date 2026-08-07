@@ -22,6 +22,20 @@ scope](docs/scope-10nm.png)
 No wiring — everything used is on the board. Pin map and board quirks are
 in [SPEC.md](SPEC.md).
 
+### Case
+
+`case.scad` is a parametric 30° wedge console enclosure in OpenSCAD: a
+wedge body with standoff bosses for the board, plus a screwed-on rear
+panel carrying a cable exit notch and vents. It includes a light path
+drilled through the bezel for the LDR.
+
+Set `part` at the top of the file to choose what to render —
+`body_print`, `panel`, `assembly` or `fit_test`. **Print `fit_test`
+first**: it's the bezel face and bosses only, so it checks board fit and
+the dimensions tagged `VERIFY` in the source without committing to a full
+print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
+(panel to corner bosses).
+
 ## Features
 
 - Full-screen radar scope with rings at 5/10/25/50nm (tap background to
@@ -136,4 +150,5 @@ lib/radarcore/  portable domain logic: parse, projection, formatting,
                 type/squawk classification
 test/           native Unity tests for radarcore
 tools/          airspace codegen (YAIXM → C header)
+case.scad       parametric OpenSCAD enclosure (see Case, above)
 ```
