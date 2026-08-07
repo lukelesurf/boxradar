@@ -39,6 +39,12 @@ CURATED_AIRPORTS = [
     ("LUTON", "LONDON LUTON CTR", "LONDON LUTON CTA"),
 ]
 
+# LOCATION-SPECIFIC sanity bounds for the generated geometry. This is a guard
+# against a mistyped feature name silently emitting airspace from the other
+# end of the country — not a projection limit. Widen it when relocating.
+BOUNDS_LAT = (51.0, 53.0)
+BOUNDS_LON = (-1.2, 1.8)  # east to 1.8 reaches past the Essex/Suffolk coast
+
 BUFFER_DEG = 0.001     # ~60m: merges near-coincident arc discretisations
 SIMPLIFY_DEG = 0.0005  # ~35m: invisible at scope scale, trims point count
 
@@ -278,7 +284,8 @@ def check_ring(name: str, ring: list[list[float]]) -> None:
     if len(ring) < 4:
         raise SystemExit(f"{name}: only {len(ring)} points")
     for lon, lat in ring:
-        if not (51.0 <= lat <= 53.0 and -1.2 <= lon <= 1.2):
+        if not (BOUNDS_LAT[0] <= lat <= BOUNDS_LAT[1]
+                and BOUNDS_LON[0] <= lon <= BOUNDS_LON[1]):
             raise SystemExit(f"{name}: ({lat}, {lon}) outside local bounds")
     if not LinearRing([(lon, lat) for lon, lat in ring]).is_simple:
         raise SystemExit(f"{name}: ring self-intersects")
@@ -350,10 +357,17 @@ def main() -> int:
     outlines = []
     for prefix, ctr_name, cta_name in CURATED_AIRPORTS:
         ctr_rings = feature_rings(find_feature(airspace_data, ctr_name))
-        if len(ctr_rings) != 1:
-            raise SystemExit(f"{ctr_name!r}: expected 1 volume, got {len(ctr_rings)}")
+        if not ctr_rings:
+            raise SystemExit(f"{ctr_name!r}: no volumes")
+        # Stansted and Luton each publish their CTR as a single volume, but
+        # that is not general — Southend's is split into three. Merge them
+        # with the same union used for the CTR+CTA envelope rather than
+        # assuming one boundary.
+        ctr_outline = (
+            ctr_rings[0] if len(ctr_rings) == 1 else envelope_ring(ctr_rings)
+        )
         cta_rings = feature_rings(find_feature(airspace_data, cta_name))
-        outlines.append((f"{prefix}_CTR", ctr_rings[0]))
+        outlines.append((f"{prefix}_CTR", ctr_outline))
         outlines.append((f"{prefix}_ENV", envelope_ring(ctr_rings + cta_rings)))
 
     for name, ring in outlines:
