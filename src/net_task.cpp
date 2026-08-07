@@ -4,6 +4,7 @@
 #include <ArduinoOTA.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <string.h>
 #include "config.h"
 #include "parse.h"
 #include "metar.h"
@@ -85,6 +86,17 @@ static void poll() {
     if (!err) {
       int n = radar::loadStore(doc, s_staging, s_prev, HOME_LAT, HOME_LON,
                                g_trailSpacingNm);
+#ifdef BOXRADAR_FAKE_ALERT
+      // Test hook. Real 7700s are a handful a year, so the banner, the
+      // flashing blip and the tier-0 datablock placement would otherwise be
+      // unverifiable — and an alert path nobody has ever seen work is an
+      // alert path you cannot trust. Stamps the nearest aircraft:
+      //   PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FAKE_ALERT pio run -e ota -t upload
+      // Re-flash without the flag to restore normal behaviour.
+      if (s_staging.count > 0)
+        strncpy(s_staging.list[0].squawk, "7700",
+                sizeof(s_staging.list[0].squawk));
+#endif
       s_staging.lastFetchMs = millis();
       s_staging.fetchOk = true;
       s_prev = s_staging;
