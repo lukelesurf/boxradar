@@ -60,7 +60,10 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
   [ahsparrow/airspace](https://github.com/ahsparrow/airspace) UK dataset
 - Tap a blip for a detail panel: callsign, hex, type, alt, GS, track,
   vertical rate, range/bearing, RSSI, squawk
-- Status corner with WiFi state, aircraft count and fetch age
+- Full-width status strip: WiFi tick/cross, aircraft **on screen** with
+  the MLAT subset in brackets, range, and — with the optional METAR feed
+  below — active runway, wind, cloud and restricted visibility. A stale
+  feed replaces the count with a warning rather than adding a line
 - Aircraft dim after 30s without a message and drop at 60s
 - LDR-driven backlight dimming, RGB LED status (red no-WiFi / amber
   no-data), OTA updates with on-screen progress
@@ -162,10 +165,12 @@ live.
 The Pi normalises the upstream API's loose types (`visib` can be the
 string `"6+"`, `wdir` can be `"VRB"`, `wgst` can be null) into fixed
 always-present integers, and derives the likely active runway from the
-wind. `conf` is 0 when wind is below 5kt — at that point the wind isn't
-choosing the runway and the value is a guess.
+wind. `conf` is 0 below `CALM_KT` (7) — at that point wind isn't choosing
+the runway and the value is a guess, which the display marks with a `?`.
 
-**The firmware does not consume this yet.** The feed stands alone for now.
+Set `METAR_URL` and `METAR_STATION` in `config.h` to consume it. Both are
+optional: comment out `METAR_URL` and the whole feature compiles out, and
+the status strip simply omits the weather segments.
 
 ## Layout
 
