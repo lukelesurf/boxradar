@@ -10,6 +10,9 @@
 #include <math.h>
 #include <stdio.h>
 #include "airspace_data.h"
+#ifdef OVERHEAD_PREDICTION
+#include "overhead_readout.h"
+#endif
 
 static constexpr uint32_t ALERT_FLASH_MS = 400;
 static constexpr int BANNER_H = 14;
@@ -205,9 +208,14 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   drawAirspace(spr, pxPerNm);
   drawCentrelines(spr, pxPerNm);
   drawRings(spr, rangeOuter, pxPerNm);
-  // The status strip is off-limits to datablocks. Both top corners are now
-  // free, which is where blocks most want to go for high traffic.
+  // The status strip is off-limits to datablocks.
   datablockReserve(0, STATUS_Y, SCOPE_W, STATUS_H);
+#ifdef OVERHEAD_PREDICTION
+  // Reserved unconditionally, not only when a prediction exists: a corner
+  // that a block occupies half the time would make the readout flicker in
+  // and out from behind it.
+  datablockReserve(0, 0, 104, 14);
+#endif
   datablockReserve(0, SCOPE_H - 14, 46, 14);
 
   // Pass 1, far -> near so near traffic wins overlapping pixels.
@@ -274,6 +282,12 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
     }
   }
 
+#ifdef OVERHEAD_PREDICTION
+  // Experimental; delete this block and the include above to remove.
+  // Drawn before the banner so a 7700 always wins the top of the screen.
+  drawOverheadReadout(
+      spr, s, s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
+#endif
   drawSquawkBanner(spr, s);
   drawStatusCorner(spr, s, metar, onScreen, mlatOnScreen, ui.rangeIdx);
 }

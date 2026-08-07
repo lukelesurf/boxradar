@@ -24,3 +24,8 @@
 // METARs are issued half-hourly and the Pi refreshes every 5 minutes, so
 // there is nothing to gain from polling this hard.
 #define METAR_POLL_INTERVAL_MS 60000
+
+// EXPERIMENTAL: "OVHD <callsign> <n>s" readout in the top-left corner,
+// predicting the next aircraft to pass close to overhead. Comment out to
+// disable; see lib/radarcore/overhead.h for how to remove it entirely.
+#define OVERHEAD_PREDICTION
