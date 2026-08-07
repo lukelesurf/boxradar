@@ -83,7 +83,8 @@ static void poll() {
     DeserializationError err = deserializeJson(
         doc, http.getStream(), DeserializationOption::Filter(filter));
     if (!err) {
-      int n = radar::loadStore(doc, s_staging, s_prev, HOME_LAT, HOME_LON);
+      int n = radar::loadStore(doc, s_staging, s_prev, HOME_LAT, HOME_LON,
+                               g_trailSpacingNm);
       s_staging.lastFetchMs = millis();
       s_staging.fetchOk = true;
       s_prev = s_staging;

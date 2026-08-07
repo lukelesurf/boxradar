@@ -36,6 +36,15 @@ inline float scopePxPerNm(int rangeIdx) {
 static_assert(2 * SCOPE_CY - SCOPE_MARGIN < STATUS_Y,
               "ring would overlap the status strip — lower SCOPE_CY");
 
+// Target gap between trail dots, in pixels. The world-space spacing is
+// derived from this and the current scale, so the dotted line reads the same
+// at every range — a fixed NM spacing would still bunch up when zoomed out.
+constexpr float TRAIL_PX_SPACING = 5.0f;
+
+inline float trailSpacingNm(int rangeIdx) {
+  return TRAIL_PX_SPACING / scopePxPerNm(rangeIdx);
+}
+
 struct UiState {
   int rangeIdx = 1;          // default 10 NM
   uint32_t selectedHex = 0;  // 0 = none

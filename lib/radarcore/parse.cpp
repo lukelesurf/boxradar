@@ -29,7 +29,8 @@ static void copyTrimmed(char *dst, size_t cap, const char *src) {
 }
 
 int loadStore(JsonVariantConst root, AircraftStore &dst,
-              const AircraftStore &prev, float homeLat, float homeLon) {
+              const AircraftStore &prev, float homeLat, float homeLon,
+              float trailSpacingNm) {
   dst.clear();
   for (JsonObjectConst o : root["aircraft"].as<JsonArrayConst>()) {
     if (!o["lat"].is<float>() || !o["lon"].is<float>()) continue;
@@ -64,7 +65,7 @@ int loadStore(JsonVariantConst root, AircraftStore &dst,
     a.range = rangeNm(a.pos);
     dst.insertByRange(a);
   }
-  dst.inheritTrails(prev);
+  dst.inheritTrails(prev, trailSpacingNm);
   return dst.count;
 }
 

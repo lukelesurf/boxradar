@@ -29,19 +29,25 @@ Aircraft *AircraftStore::findByHex(uint32_t hex) {
       static_cast<const AircraftStore *>(this)->findByHex(hex));
 }
 
-static void pushTrailPoint(Aircraft &a) {
+static void pushTrailPoint(Aircraft &a, float minSpacingNm) {
+  // A zero or negative spacing would push on every poll, which is the
+  // time-gated behaviour this replaced; floor it rather than trust callers.
+  if (!(minSpacingNm > 0.001f)) minSpacingNm = 0.001f;
   if (a.trailLen > 0) {
-    const TrailPoint &last = a.trail[(a.trailHead + TRAIL_LEN - 1) % TRAIL_LEN];
-    // ~1e-4 deg =~ 10m: skip stationary aircraft so trails show movement
-    if (fabsf(last.lat - a.lat) < 1e-4f && fabsf(last.lon - a.lon) < 1e-4f)
-      return;
+    const Vec2 &last = a.trail[(a.trailHead + TRAIL_LEN - 1) % TRAIL_LEN];
+    float dx = a.pos.x - last.x, dy = a.pos.y - last.y;
+    // Slow traffic simply skips polls until it has actually travelled far
+    // enough, so it needs no more storage than a fast jet — the ring covers
+    // the same ground distance either way, just over a longer span of time.
+    if (dx * dx + dy * dy < minSpacingNm * minSpacingNm) return;
   }
-  a.trail[a.trailHead] = {a.lat, a.lon};
+  a.trail[a.trailHead] = a.pos;
   a.trailHead = (a.trailHead + 1) % TRAIL_LEN;
   if (a.trailLen < TRAIL_LEN) a.trailLen++;
 }
 
-void AircraftStore::inheritTrails(const AircraftStore &prev) {
+void AircraftStore::inheritTrails(const AircraftStore &prev,
+                                  float minSpacingNm) {
   for (int i = 0; i < count; i++) {
     Aircraft &a = list[i];
     const Aircraft *p = prev.findByHex(a.hex);
@@ -50,7 +56,7 @@ void AircraftStore::inheritTrails(const AircraftStore &prev) {
       a.trailLen = p->trailLen;
       a.trailHead = p->trailHead;
     }
-    pushTrailPoint(a);
+    pushTrailPoint(a, minSpacingNm);
   }
 }
 

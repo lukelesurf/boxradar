@@ -231,12 +231,13 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
     a.sy = (int16_t)sy;
     onScreen++; // survived the stale and off-edge culls above
     if (a.isMlat) mlatOnScreen++;
-    // Trails: oldest->newest as dimming dots behind the blip
+    // Trails: oldest->newest as dimming dots behind the blip. Points are
+    // already in the NM frame, so this is a scale, not a reprojection —
+    // that used to be ~320 project() calls per frame.
     for (int t = 0; t < a.trailLen; t++) {
       int idx = (a.trailHead - a.trailLen + t + 2 * radar::TRAIL_LEN) %
                 radar::TRAIL_LEN;
-      radar::Vec2 tp = radar::project(HOME_LAT, HOME_LON, a.trail[idx].lat,
-                                      a.trail[idx].lon);
+      const radar::Vec2 &tp = a.trail[idx];
       int tx = SCOPE_CX + (int)(tp.x * pxPerNm);
       int ty = SCOPE_CY - (int)(tp.y * pxPerNm);
       if (tx < 0 || tx >= SCOPE_W || ty < 0 || ty >= SCOPE_H) continue;

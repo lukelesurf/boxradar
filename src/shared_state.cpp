@@ -5,6 +5,7 @@
 
 volatile bool g_otaActive = false;
 volatile uint8_t g_otaProgress = 0;
+volatile float g_trailSpacingNm = radar::TRAIL_SPACING_DEFAULT_NM;
 
 static SemaphoreHandle_t s_mutex;
 static radar::AircraftStore s_store;

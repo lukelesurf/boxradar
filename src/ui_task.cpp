@@ -95,6 +95,10 @@ static void uiTaskLoop(void *) {
       tft.fillScreen(TFT_BLACK);
       otaScreenDrawn = false;
     }
+    // Published before rendering so a range change reaches the net task by
+    // the next poll; existing points keep their old spacing until the ring
+    // refills, which self-corrects within a few polls.
+    g_trailSpacingNm = trailSpacingNm(s_ui.rangeIdx);
     snapshotStore(s_snap);
     snapshotMetar(s_metar);
     drawScope(s_scope, s_snap, s_metar, s_ui); // fills sx/sy for this frame

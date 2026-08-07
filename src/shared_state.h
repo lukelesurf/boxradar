@@ -5,6 +5,13 @@
 extern volatile bool g_otaActive;
 extern volatile uint8_t g_otaProgress; // 0-100
 
+// Trail dot spacing in NM, published by the UI task (only it knows px/nm)
+// and read by the net task, which is where trail points are appended. A
+// plain aligned float rather than mutex-guarded: a torn read is impossible
+// on this architecture, and a one-poll-stale value only affects where a
+// single dot lands.
+extern volatile float g_trailSpacingNm;
+
 void sharedStateInit();
 void publishStore(const radar::AircraftStore &s);
 void snapshotStore(radar::AircraftStore &out);

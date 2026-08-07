@@ -8,7 +8,9 @@ constexpr int TRAIL_LEN = 10;
 constexpr float SEEN_DIM_S = 30.0f;
 constexpr float SEEN_DROP_S = 60.0f;
 
-struct TrailPoint { float lat, lon; };
+// Fallback spacing until the UI publishes one, ~right for the default 10nm
+// range. Only used for the first polls after boot.
+constexpr float TRAIL_SPACING_DEFAULT_NM = 0.45f;
 
 struct Aircraft {
   uint32_t hex;
@@ -30,7 +32,10 @@ struct Aircraft {
   Vec2 pos;           // NM east/north of home
   float range;        // NM
   int16_t sx, sy;     // screen coords, filled by UI at render time
-  TrailPoint trail[TRAIL_LEN];
+  // Stored in the same NM east/north frame as `pos`, not as lat/lon. Spacing
+  // can then be compared directly in NM without projecting, and rendering no
+  // longer reprojects every trail point on every frame.
+  Vec2 trail[TRAIL_LEN];
   uint8_t trailLen;
   uint8_t trailHead;  // next write slot
 };
@@ -44,6 +49,10 @@ struct AircraftStore {
   void insertByRange(const Aircraft &a); // sorted asc by range, cap 32
   const Aircraft *findByHex(uint32_t hex) const;
   Aircraft *findByHex(uint32_t hex);
-  void inheritTrails(const AircraftStore &prev); // carry + push current pos
+  // Carry trails over from the previous poll and append the current position,
+  // but only for aircraft that have moved at least minSpacingNm since their
+  // last trail point. Distance-gated rather than time-gated so the dots are
+  // evenly spaced regardless of groundspeed.
+  void inheritTrails(const AircraftStore &prev, float minSpacingNm);
 };
 }
