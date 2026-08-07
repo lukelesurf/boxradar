@@ -1,5 +1,6 @@
 #include "ui_task.h"
 #include <Arduino.h>
+#include <string.h>
 #include "night_mode.h"
 #include "shared_state.h"
 #include "ui/layout.h"
@@ -31,6 +32,30 @@ static void backlightInit() {
 }
 
 static constexpr uint32_t UI_FRAME_MS = 100; // ~10 fps
+
+#ifdef BOXRADAR_FRAME_TIME
+// Frame budget instrument. Build with:
+//   PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FRAME_TIME pio run -e ota -t upload
+//
+// Splits the two halves that get conflated when guessing about performance:
+// R is building the sprite (the geometry — coastline, airspace, blips,
+// datablocks), P is pushing it over SPI to the panel. Only R responds to
+// anything we can optimise in the draw code; P is a fixed 153.6KB transfer.
+//
+// Exponentially smoothed, because raw per-frame figures at 10fps are
+// unreadable, and shows the PREVIOUS frame's numbers — the overlay has to be
+// drawn into the sprite before the sprite can be pushed.
+static float s_renderUs = 0.0f, s_pushUs = 0.0f;
+
+static void drawFrameTime(TFT_eSprite &spr) {
+  char buf[24];
+  snprintf(buf, sizeof(buf), "R%.1f P%.1f", s_renderUs / 1000.0f,
+           s_pushUs / 1000.0f);
+  int w = (int)strlen(buf) * 6;
+  spr.setTextColor(TFT_MAGENTA, TFT_BLACK); // obviously a debug overlay
+  spr.drawString(buf, SCOPE_W - w - 3, 3, 1);
+}
+#endif
 
 static void backlightUpdate(float nightScale) {
   // CYD LDR: bright ambient -> low reading. Smooth + invert into duty.
@@ -118,6 +143,9 @@ static void uiTaskLoop(void *) {
     g_trailSpacingNm = trailSpacingNm(s_ui.rangeIdx);
     snapshotStore(s_snap);
     snapshotMetar(s_metar);
+#ifdef BOXRADAR_FRAME_TIME
+    uint32_t t0 = micros();
+#endif
     drawScope(s_scope, s_snap, s_metar, s_ui); // fills sx/sy for this frame
     // Any interaction during night hours extends the wake window, so poking
     // around at 3am doesn't have the screen die under your finger.
@@ -130,7 +158,17 @@ static void uiTaskLoop(void *) {
     // Selection highlight now lags one frame behind a fresh tap (drawScope
     // already ran); the detail panel below reflects the tap immediately.
     drawDetailPanel(s_scope, s_snap, s_ui);
+#ifdef BOXRADAR_FRAME_TIME
+    uint32_t t1 = micros();
+    drawFrameTime(s_scope);
     s_scope.pushSprite(0, 0);
+    uint32_t t2 = micros();
+    // Unsigned subtraction survives the ~71 minute micros() wrap.
+    s_renderUs += 0.1f * ((float)(t1 - t0) - s_renderUs);
+    s_pushUs += 0.1f * ((float)(t2 - t1) - s_pushUs);
+#else
+    s_scope.pushSprite(0, 0);
+#endif
     backlightUpdate(nightScale);
     vTaskDelay(pdMS_TO_TICKS(UI_FRAME_MS));
   }
