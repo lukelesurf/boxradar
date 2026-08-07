@@ -1,5 +1,9 @@
 #include "scope.h"
-#include "side_panel.h"
+#include "status_bar.h"
+#include "datablock.h"
+#include "palette.h"
+#include "format.h"
+#include "classify.h"
 #include "projection.h"
 #include "config.h"
 #include <Arduino.h>
@@ -7,10 +11,11 @@
 #include <stdio.h>
 #include "airspace_data.h"
 
-static constexpr int SCOPE_MARGIN = 6; // outer ring inset from sprite edge
-
 // Dim blue-grey; expect to tune on the physical panel (LCD gamma).
 static constexpr uint16_t AIRSPACE_COLOR = 0x2124;
+
+static constexpr uint32_t ALERT_FLASH_MS = 400;
+static constexpr int BANNER_H = 14;
 
 // Airfield reference points (CTR arc centres = published ARPs), unlabelled.
 static constexpr struct { float lat, lon; } AIRFIELDS[] = {
@@ -57,38 +62,98 @@ static void drawRings(TFT_eSprite &spr, float rangeNmOuter, float pxPerNm) {
   spr.drawLine(SCOPE_CX, SCOPE_CY - 4, SCOPE_CX, SCOPE_CY + 4, TFT_GREEN);
 }
 
+// Warm low, cool high. Bands are in hundreds of feet to match the datablock
+// text, so a blip's colour and its printed level never disagree.
+static uint16_t altitudeColour(const radar::Aircraft &a) {
+  if (a.onGround) return ALT_GROUND;
+  int hundreds = (a.altFt + 50) / 100;
+  if (hundreds < 20) return ALT_BAND_20;
+  if (hundreds < 50) return ALT_BAND_50;
+  if (hundreds < 100) return ALT_BAND_100;
+  if (hundreds < 200) return ALT_BAND_200;
+  if (hundreds < 300) return ALT_BAND_300;
+  return ALT_BAND_TOP;
+}
+
 static void drawBlip(TFT_eSprite &spr, const radar::Aircraft &a, bool dim,
-                     bool selected) {
-  uint16_t col = selected ? TFT_YELLOW : (dim ? TFT_DARKGREY : TFT_CYAN);
+                     bool selected, bool alert, bool flashOn) {
+  // Staleness outranks altitude: a dark grey blip means "this position is old"
+  // and must not be mistaken for a low-level band.
+  uint16_t col = dim ? TFT_DARKGREY : altitudeColour(a);
+  if (alert && flashOn) col = ALERT_RED;
   spr.fillCircle(a.sx, a.sy, 2, col);
   // Heading vector: 6px + 1px per 30kt, in track direction (north-up scope)
   float rad = a.trackDeg * (float)M_PI / 180.0f;
   int len = 6 + a.gsKt / 30;
   spr.drawLine(a.sx, a.sy, a.sx + (int)(sinf(rad) * len),
                a.sy - (int)(cosf(rad) * len), col);
-  if (selected) spr.drawCircle(a.sx, a.sy, 6, TFT_YELLOW);
-  // Label: callsign, else last 4 of hex
-  char label[9];
-  if (a.callsign[0])
-    snprintf(label, sizeof(label), "%s", a.callsign);
-  else
-    snprintf(label, sizeof(label), "%04lx", (unsigned long)(a.hex & 0xFFFF));
-  spr.setTextColor(dim ? TFT_DARKGREY : TFT_SILVER, TFT_BLACK);
-  spr.drawString(label, a.sx + 5, a.sy + 3, 1);
+  if (alert && flashOn) spr.drawCircle(a.sx, a.sy, 5, ALERT_RED);
+  // Selection ring is white, not yellow: yellow now belongs to an altitude
+  // band, and a selection marker must not read as a level.
+  if (selected) spr.drawCircle(a.sx, a.sy, 6, SELECT_RING);
 }
+
+static void drawSquawkBanner(TFT_eSprite &spr, const radar::AircraftStore &s) {
+  const radar::Aircraft *first = nullptr;
+  int n = 0;
+  for (int i = 0; i < s.count; i++) { // store is range-sorted: nearest first
+    if (!radar::isAlertSquawk(s.list[i].squawk)) continue;
+    if (!first) first = &s.list[i];
+    n++;
+  }
+  if (!first) return;
+  // Overlays the status corner. An active 7700 outranks the WiFi indicator.
+  spr.fillRect(0, 0, SCOPE_W, BANNER_H, ALERT_RED);
+  spr.setTextColor(ALERT_TEXT, ALERT_RED);
+  char cs[10];
+  radar::formatCallsign(cs, sizeof(cs), first->callsign, first->hex);
+  char buf[44];
+  if (n > 1)
+    snprintf(buf, sizeof(buf), "! %s %s  (+%d more)", first->squawk, cs, n - 1);
+  else
+    snprintf(buf, sizeof(buf), "! %s %s", first->squawk, cs);
+  spr.drawString(buf, 4, 3, 1);
+}
+
+// Effective age anchors seenS (frozen at parse time) to the wall clock, so a
+// receiver that's stopped answering still visibly stales on screen.
+static float effectiveAge(const radar::Aircraft &a,
+                          const radar::AircraftStore &s) {
+  return a.seenS +
+         (s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
+}
+
+// Datablock placement tiers. Colour already shouts about alert squawks and
+// rare airframes; without this the layout contradicted it, and a 7700 forty
+// miles out could lose its block to a 738 on short final.
+static int placementTier(const radar::Aircraft &a) {
+  if (radar::isAlertSquawk(a.squawk)) return 0;
+  if (!radar::isCommonType(a.type)) return 1;
+  return 2;
+}
+static constexpr int N_TIERS = 3;
 
 void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   spr.fillSprite(TFT_BLACK);
   float rangeOuter = RANGES_NM[ui.rangeIdx];
-  float pxPerNm = (float)(SCOPE_CX - SCOPE_MARGIN) / rangeOuter;
+  // Height-bound, not width-bound: the panel is 320 wide but only 240 tall,
+  // so the ring is sized off SCOPE_CY. Traffic in the left/right margins is
+  // beyond the nominal range and still drawn — that extra E/W coverage is
+  // the point of going full-screen.
+  float pxPerNm = scopePxPerNm(ui.rangeIdx);
+  bool flashOn = (millis() / ALERT_FLASH_MS) % 2 == 0;
+
+  datablocksBegin();
   drawAirspace(spr, pxPerNm);
   drawRings(spr, rangeOuter, pxPerNm);
-  for (int i = s.count - 1; i >= 0; i--) { // draw far->near so near wins overlap
+  // Chrome is off-limits to datablocks: status corner and range legend.
+  datablockReserve(0, 0, 56, 36);
+  datablockReserve(0, SCOPE_H - 14, 46, 14);
+
+  // Pass 1, far -> near so near traffic wins overlapping pixels.
+  for (int i = s.count - 1; i >= 0; i--) {
     radar::Aircraft &a = s.list[i];
-    // Effective age anchors seenS (frozen at parse time) to the wall clock,
-    // so a receiver that's stopped answering still visibly stales on screen.
-    float ageS = a.seenS +
-                 (s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
+    float ageS = effectiveAge(a, s);
     if (ageS > radar::SEEN_DROP_S) {
       a.sx = a.sy = -1000; // stale: not drawn, not tappable
       continue;
@@ -118,8 +183,33 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
       if (t >= (2 * a.trailLen) / 3) spr.drawPixel(tx + 1, ty, col);
     }
     drawBlip(spr, a, ageS > radar::SEEN_DIM_S,
-             ui.selectedHex != 0 && a.hex == ui.selectedHex);
+             ui.selectedHex != 0 && a.hex == ui.selectedHex,
+             radar::isAlertSquawk(a.squawk), flashOn);
+    datablockReserve(a.sx - 3, a.sy - 3, 7, 7); // blocks never cover a blip
   }
+
+  // Pass 2 places blocks; whoever goes first claims the cells, so this order
+  // IS the priority. Selected, then alert squawks, then rare airframes, then
+  // nearest-first. Range order carries through inside each tier for free —
+  // s.list is already sorted ascending, so a forward sweep is nearest-first.
+  // Runs separately from pass 1 because that one has to go far -> near.
+  bool twoLine = rangeOuter <= TWO_LINE_MAX_NM;
+  const radar::Aircraft *sel =
+      ui.selectedHex ? s.findByHex(ui.selectedHex) : nullptr;
+  if (sel && sel->sx > -1000) // an explicit tap outranks every heuristic
+    drawDatablock(spr, *sel, effectiveAge(*sel, s) > radar::SEEN_DIM_S,
+                  twoLine);
+  for (int tier = 0; tier < N_TIERS; tier++) {
+    for (int i = 0; i < s.count; i++) {
+      const radar::Aircraft &a = s.list[i];
+      if (a.sx <= -1000 || &a == sel) continue;
+      if (placementTier(a) != tier) continue;
+      drawDatablock(spr, a, effectiveAge(a, s) > radar::SEEN_DIM_S, twoLine);
+    }
+  }
+
+  drawSquawkBanner(spr, s);
+  drawStatusCorner(spr, s);
 }
 
 void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
@@ -131,9 +221,10 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   spr.fillRect(X, Y, W, H, TFT_BLACK);
   spr.drawRect(X, Y, W, H, TFT_YELLOW);
   spr.setTextColor(TFT_YELLOW, TFT_BLACK);
+  char cs[10];
+  radar::formatCallsign(cs, sizeof(cs), a->callsign, a->hex);
   char l1[24];
-  snprintf(l1, sizeof(l1), "%s  %06lx",
-           a->callsign[0] ? a->callsign : "(no cs)", (unsigned long)a->hex);
+  snprintf(l1, sizeof(l1), "%s  %06lx", cs, (unsigned long)a->hex);
   spr.drawString(l1, X + 4, Y + 4, 2);
   spr.setTextColor(TFT_WHITE, TFT_BLACK);
   char alt[8], line[26];
@@ -141,12 +232,12 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   snprintf(line, sizeof(line), "%-4s  %s  %ukt", a->type[0] ? a->type : "-",
            alt, a->gsKt);
   spr.drawString(line, X + 4, Y + 26, 1);
-  snprintf(line, sizeof(line), "trk %u", a->trackDeg);
+  snprintf(line, sizeof(line), "trk %u  vs %+d", a->trackDeg, a->vertRateFpm);
   spr.drawString(line, X + 4, Y + 40, 1);
   snprintf(line, sizeof(line), "%.1fnm brg %.0f", (double)a->range,
            (double)radar::bearingDeg(a->pos));
   spr.drawString(line, X + 4, Y + 54, 1);
-  snprintf(line, sizeof(line), "rssi %.1f  seen %.0fs", (double)a->rssi,
-           (double)a->seenS);
+  snprintf(line, sizeof(line), "rssi %.1f  sqk %s", (double)a->rssi,
+           a->squawk[0] ? a->squawk : "----");
   spr.drawString(line, X + 4, Y + 68, 1);
 }

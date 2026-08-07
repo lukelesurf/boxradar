@@ -14,11 +14,14 @@ struct Aircraft {
   uint32_t hex;
   char callsign[9];   // trimmed, NUL-terminated
   char type[5];
+  char squawk[5];     // "7700"; empty when the feed omits it. String, not an
+                      // int — leading zeros are significant ("0100" != 100).
   float lat, lon;
   int32_t altFt;      // 0 when feed reports "ground"
   bool onGround;
   uint16_t gsKt;
   uint16_t trackDeg;
+  int16_t vertRateFpm; // + climb, - descent; 0 when the feed omits both rates
   float seenS;
   float rssi;
   Vec2 pos;           // NM east/north of home

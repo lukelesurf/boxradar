@@ -3,13 +3,10 @@
 #include "shared_state.h"
 #include "ui/layout.h"
 #include "ui/scope.h"
-#include "ui/side_panel.h"
 #include "ui/touch_input.h"
 
 TFT_eSPI tft;
 static TFT_eSprite s_scope(&tft);
-static TFT_eSprite s_panel(&tft);
-static bool s_panelSpriteOk = false;
 static radar::AircraftStore s_snap;
 static UiState s_ui;
 
@@ -46,38 +43,31 @@ static void backlightUpdate() {
   ledcWrite(BL_CHANNEL, duty);
 }
 
+// Non-destructive probe for the planned full-screen (320x240) layout: the
+// two current sprites total 76.8KB but in two chunks, and full-screen needs
+// that as ONE contiguous block. This board already fails a 115KB contiguous
+// alloc (see the 16-bit fallback below), so 76.8KB is an open question.
+// Allocates, reports, frees — leaves the running layout untouched.
+// 8-bit only. 16-bit at 320x240 would want 153.6KB and this board's largest
+// contiguous block is ~110KB (measured on-device 2026-08-07: 110580 B free,
+// 76800 B needed, 33.7KB headroom). No banded fallback for the same reason —
+// the margin is comfortable, so a second render path would be dead code.
 static void createScopeSprite() {
   uint32_t before = esp_get_free_heap_size();
-  s_scope.setColorDepth(16);
+  s_scope.setColorDepth(8);
   if (s_scope.createSprite(SCOPE_W, SCOPE_H) == nullptr) {
-    // RAM budget fallback per spec: 8-bit palette sprite (57KB vs 115KB)
-    Serial.println("16-bit scope sprite failed, falling back to 8-bit");
-    s_scope.setColorDepth(8);
-    if (s_scope.createSprite(SCOPE_W, SCOPE_H) == nullptr) {
-      Serial.println("FATAL: no scope sprite");
-      for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    Serial.println("FATAL: no scope sprite");
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawString("FATAL: scope sprite alloc", 10, 100, 2);
+    for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
   }
   Serial.printf("scope sprite: heap %u -> %u\n", before,
                 esp_get_free_heap_size());
 }
 
-static void createPanelSprite() {
-  uint32_t before = esp_get_free_heap_size();
-  s_panel.setColorDepth(8);
-  if (s_panel.createSprite(LIST_W, 240) == nullptr) {
-    Serial.println("panel sprite failed, panel disabled");
-    s_panelSpriteOk = false;
-    return;
-  }
-  s_panelSpriteOk = true;
-  Serial.printf("panel sprite: heap %u -> %u\n", before,
-                esp_get_free_heap_size());
-}
-
 static void uiTaskLoop(void *) {
   createScopeSprite();
-  createPanelSprite();
   backlightInit();
   touchInputInit(); // keeps all touch-SPI traffic on core 1
   tft.fillScreen(TFT_BLACK);
@@ -116,12 +106,6 @@ static void uiTaskLoop(void *) {
     // already ran); the detail panel below reflects the tap immediately.
     drawDetailPanel(s_scope, s_snap, s_ui);
     s_scope.pushSprite(0, 0);
-    if (s_panelSpriteOk) {
-      drawSidePanel(s_panel, s_snap, s_ui);
-      s_panel.pushSprite(LIST_X, 0);
-    }
-    // else: panel sprite alloc failed at startup — skip rendering rather
-    // than draw with wrong (0-based) coordinates on the real screen.
     backlightUpdate();
     vTaskDelay(pdMS_TO_TICKS(100)); // ~10 fps
   }

@@ -5,9 +5,10 @@
 
 namespace radar {
 
-static const char *const KEPT_FIELDS[] = {"hex", "flight", "t",    "lat",
-                                          "lon", "alt_baro", "gs", "track",
-                                          "seen", "rssi"};
+static const char *const KEPT_FIELDS[] = {
+    "hex",  "flight",    "t",         "lat",    "lon",    "alt_baro",
+    "gs",   "track",     "seen",      "rssi",   "squawk", "baro_rate",
+    "geom_rate"};
 
 void buildAircraftFilter(JsonDocument &filter) {
   JsonObject entry = filter["aircraft"].add<JsonObject>();
@@ -45,6 +46,14 @@ int loadStore(JsonVariantConst root, AircraftStore &dst,
     a.altFt = a.onGround ? 0 : (alt | 0);
     a.gsKt = (uint16_t)(o["gs"] | 0.0f);
     a.trackDeg = (uint16_t)(o["track"] | 0.0f);
+    // Squawk arrives as a string; a feed emitting it as a number yields
+    // nullptr here and degrades to empty rather than a mangled code.
+    copyTrimmed(a.squawk, sizeof(a.squawk), o["squawk"] | (const char *)nullptr);
+    // baro_rate is the usual source. Airframes reporting only geometric
+    // altitude omit it, so fall back to geom_rate before giving up.
+    JsonVariantConst rate = o["baro_rate"];
+    if (rate.isNull()) rate = o["geom_rate"];
+    a.vertRateFpm = (int16_t)(rate | 0);
     a.seenS = seen;
     a.rssi = o["rssi"] | 0.0f;
     a.pos = project(homeLat, homeLon, a.lat, a.lon);

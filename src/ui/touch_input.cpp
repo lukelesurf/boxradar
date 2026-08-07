@@ -45,18 +45,16 @@ void touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
   int x = map(constrain((int)p.x, RAW_X_MIN, RAW_X_MAX), RAW_X_MIN, RAW_X_MAX, 0, 319);
   int y = map(constrain((int)p.y, RAW_Y_MIN, RAW_Y_MAX), RAW_Y_MIN, RAW_Y_MAX, 0, 239);
 
-  if (ui.detailOpen) { // any tap dismisses the detail panel
+  if (ui.detailOpen) {
+    // Any tap dismisses the panel AND drops the selection. The highlight has
+    // no meaning once the panel is closed — leaving it set stranded a yellow
+    // blip on the scope with no gesture to clear it.
     ui.detailOpen = false;
+    ui.selectedHex = 0;
     return;
   }
-  if (x >= LIST_X) { // traffic list: tap row selects
-    int row = y / LIST_ROW_H;
-    if (y < STATUS_Y && row < LIST_ROWS && row < s.count) {
-      ui.selectedHex = s.list[row].hex;
-      ui.detailOpen = true;
-    }
-    return;
-  }
+  // Whole panel is scope now — the traffic list that used to own x >= 240 is
+  // gone, so every tap is either a blip hit or a background range cycle.
   const radar::Aircraft *hit = nearestBlip(s, x, y);
   if (hit) {
     ui.selectedHex = hit->hex;
