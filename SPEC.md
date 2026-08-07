@@ -70,6 +70,41 @@ ADS-B radar display on a Cheap Yellow Display. Successor to the ESP8266/Nokia 51
 - **ArduinoOTA**, same model as BOXRADAR v1 on the 8266
 - mDNS hostname `boxradar.local`; OTA password required (define in `config.h`)
 - Partition scheme: `default.csv` (two ~1.3MB OTA app slots on the 4MB flash) — plenty for this app; do not switch to `huge_app`, it removes the second OTA slot
+
+### Flash headroom / expansion option
+
+Two app slots is what makes OTA safe: the board runs from `app0` while
+espota writes `app1`, and the bootloader only switches over once the image
+has fully landed and verified. A failed upload leaves `app0` intact and
+bootable. `huge_app.csv` is a single ~3MB slot with no OTA at all — hence
+the warning above.
+
+But size and OTA are **not** a straight trade. `min_spiffs.csv` keeps both
+OTA slots and still enlarges them, by taking the space out of a SPIFFS
+partition this project never touches (no SPIFFS/LittleFS/FS.h/SD.h usage
+anywhere in `src/`, `lib/` or `include/` as of 2026-08-07):
+
+| | `default.csv` | `min_spiffs.csv` |
+|---|---|---|
+| app0 / app1 (each) | 1.25 MiB | **1.875 MiB** |
+| spiffs | 1.375 MiB (unused) | 128 KiB |
+
+At ~1.06MB of firmware that moves usage from ~81% to ~54%, for no loss of
+anything in use. One line when it's wanted:
+
+```ini
+board_build.partitions = min_spiffs.csv
+```
+
+**Caveat: this cannot be applied over OTA.** espota writes an app image into
+the inactive slot and never rewrites the partition table at 0x8000, and the
+change moves `app1` from 0x150000 to 0x1F0000. It needs a USB flash, so it
+has to wait until the board is next plugged into a host. Worth doing before
+space is actually tight rather than as an emergency.
+
+Note this is unrelated to the microSD slot — an SD-backed feature (track
+history, logging) uses the card, not SPIFFS, so this change doesn't block
+it.
 - `ArduinoOTA.handle()` polled from the net task (core 0), not the UI loop
 - During an OTA upload: pause JSON polling and rendering, show a progress bar on the TFT (onProgress callback)
 - `platformio.ini` gets two envs: `[env:usb]` for first flash / recovery, `[env:ota]` with `upload_protocol = espota`, `upload_port = boxradar.local`, auth flag
