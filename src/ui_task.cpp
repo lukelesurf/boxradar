@@ -8,6 +8,7 @@
 TFT_eSPI tft;
 static TFT_eSprite s_scope(&tft);
 static radar::AircraftStore s_snap;
+static radar::Metar s_metar;
 static UiState s_ui;
 
 static constexpr int LDR_PIN = 34;
@@ -95,7 +96,8 @@ static void uiTaskLoop(void *) {
       otaScreenDrawn = false;
     }
     snapshotStore(s_snap);
-    drawScope(s_scope, s_snap, s_ui); // fills sx/sy for this frame's blips
+    snapshotMetar(s_metar);
+    drawScope(s_scope, s_snap, s_metar, s_ui); // fills sx/sy for this frame
     touchInputPoll(s_ui, s_snap); // hit-tests against the coords just drawn
     if (s_ui.selectedHex && !s_snap.findByHex(s_ui.selectedHex)) {
       // selected aircraft aged out of the snapshot: clear stale selection

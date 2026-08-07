@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include "config.h"
 #include "parse.h"
+#include "metar.h"
 #include "shared_state.h"
 #include "status_led.h"
 
@@ -107,6 +108,39 @@ static void poll() {
   http.end();
 }
 
+#ifdef METAR_URL
+// Weather is strictly decorative: any failure leaves the previously
+// published Metar in place, and a board that has never reached the feed
+// simply shows no weather. Nothing here may disturb the aircraft path.
+static void pollMetar() {
+  static radar::Metar s_metar; // retained across calls, so a failed fetch
+                               // keeps the last good reading and its age
+  HTTPClient http;
+  http.setConnectTimeout(1500);
+  http.setTimeout(3000);
+  http.useHTTP10(true);
+  http.begin(METAR_URL);
+  int code = http.GET();
+  if (code == HTTP_CODE_OK) {
+    JsonDocument doc; // ~300 bytes on the wire; no filter needed
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    if (!err) {
+      if (radar::loadMetar(doc, METAR_STATION, s_metar)) {
+        s_metar.lastFetchMs = millis();
+        publishMetar(s_metar);
+      } else {
+        Serial.println("metar: station " METAR_STATION " not in feed");
+      }
+    } else {
+      Serial.printf("metar parse error: %s\n", err.c_str());
+    }
+  } else {
+    Serial.printf("metar http error: %d\n", code);
+  }
+  http.end();
+}
+#endif
+
 static void netTaskLoop(void *) {
   uint32_t lastPoll = 0;
   for (;;) {
@@ -121,6 +155,17 @@ static void netTaskLoop(void *) {
       lastPoll = millis();
       poll();
     }
+#ifdef METAR_URL
+    // Deliberately a separate cadence and a separate `if`, not folded into
+    // the aircraft poll: a slow or hanging weather fetch must never delay
+    // traffic, which is the thing the display exists to show.
+    static uint32_t lastMetar = 0;
+    if (!g_otaActive && WiFi.status() == WL_CONNECTED &&
+        (lastMetar == 0 || millis() - lastMetar >= METAR_POLL_INTERVAL_MS)) {
+      lastMetar = millis();
+      pollMetar();
+    }
+#endif
     if (WiFi.status() != WL_CONNECTED)
       statusLedSet(LedStatus::NoWifi);
     else if (!s_prev.fetchOk || millis() - s_prev.lastFetchMs > 10000)

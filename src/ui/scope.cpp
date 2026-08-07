@@ -103,11 +103,7 @@ static void drawRings(TFT_eSprite &spr, float rangeNmOuter, float pxPerNm) {
     int r = (int)(pxPerNm * rangeNmOuter * i / 2.0f);
     spr.drawCircle(SCOPE_CX, SCOPE_CY, r, TFT_DARKGREEN);
   }
-  // Range legend, bottom-left of scope
-  char buf[10];
-  snprintf(buf, sizeof(buf), "%.0fnm", rangeNmOuter);
-  spr.setTextColor(TFT_GREEN, TFT_BLACK);
-  spr.drawString(buf, 4, SCOPE_H - 12, 1);
+  // Range is reported by the status strip, not labelled on the scope.
   // Home marker
   spr.drawLine(SCOPE_CX - 4, SCOPE_CY, SCOPE_CX + 4, SCOPE_CY, TFT_GREEN);
   spr.drawLine(SCOPE_CX, SCOPE_CY - 4, SCOPE_CX, SCOPE_CY + 4, TFT_GREEN);
@@ -194,7 +190,8 @@ static int placementTier(const radar::Aircraft &a) {
 }
 static constexpr int N_TIERS = 3;
 
-void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
+void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
+               const radar::Metar &metar, const UiState &ui) {
   spr.fillSprite(TFT_BLACK);
   float rangeOuter = RANGES_NM[ui.rangeIdx];
   // Height-bound, not width-bound: the panel is 320 wide but only 240 tall,
@@ -208,10 +205,9 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   drawAirspace(spr, pxPerNm);
   drawCentrelines(spr, pxPerNm);
   drawRings(spr, rangeOuter, pxPerNm);
-  // Chrome is off-limits to datablocks: status corner and range legend.
-  // 64px wide covers the longest status line, "AC 32 (12)"; 46 tall leaves
-  // room for the two-line stale-feed warning below it.
-  datablockReserve(0, 0, 64, 46);
+  // The status strip is off-limits to datablocks. Both top corners are now
+  // free, which is where blocks most want to go for high traffic.
+  datablockReserve(0, STATUS_Y, SCOPE_W, STATUS_H);
   datablockReserve(0, SCOPE_H - 14, 46, 14);
 
   // Pass 1, far -> near so near traffic wins overlapping pixels.
@@ -225,7 +221,9 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
     }
     int sx = SCOPE_CX + (int)(a.pos.x * pxPerNm);
     int sy = SCOPE_CY - (int)(a.pos.y * pxPerNm);
-    if (sx < 0 || sx >= SCOPE_W || sy < 0 || sy >= SCOPE_H) {
+    // Culled at the strip, not the panel edge: the strip is drawn last, so a
+    // blip below it would be invisible yet still tappable.
+    if (sx < 0 || sx >= SCOPE_W || sy < 0 || sy >= STATUS_Y) {
       a.sx = a.sy = -1000; // off-scope: not tappable
       continue;
     }
@@ -276,7 +274,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   }
 
   drawSquawkBanner(spr, s);
-  drawStatusCorner(spr, s, onScreen, mlatOnScreen);
+  drawStatusCorner(spr, s, metar, onScreen, mlatOnScreen, ui.rangeIdx);
 }
 
 void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,

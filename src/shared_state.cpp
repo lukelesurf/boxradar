@@ -8,10 +8,12 @@ volatile uint8_t g_otaProgress = 0;
 
 static SemaphoreHandle_t s_mutex;
 static radar::AircraftStore s_store;
+static radar::Metar s_metar;
 
 void sharedStateInit() {
   s_mutex = xSemaphoreCreateMutex();
   s_store.clear();
+  s_metar = radar::Metar{}; // valid=false until the first successful fetch
 }
 
 void publishStore(const radar::AircraftStore &s) {
@@ -23,5 +25,17 @@ void publishStore(const radar::AircraftStore &s) {
 void snapshotStore(radar::AircraftStore &out) {
   xSemaphoreTake(s_mutex, portMAX_DELAY);
   out = s_store;
+  xSemaphoreGive(s_mutex);
+}
+
+void publishMetar(const radar::Metar &m) {
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+  s_metar = m;
+  xSemaphoreGive(s_mutex);
+}
+
+void snapshotMetar(radar::Metar &out) {
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+  out = s_metar;
   xSemaphoreGive(s_mutex);
 }

@@ -23,4 +23,28 @@ void formatCallsign(char *out, size_t cap, const char *callsign, uint32_t hex) {
     snprintf(out, cap, "%04lx", (unsigned long)(hex & 0xFFFF));
 }
 
+void formatWind(char *out, size_t cap, const Metar &m) {
+  // Calm is checked before direction: a 0kt wind has no meaningful direction
+  // to print even when the observation carries one.
+  if (m.windKt == 0) {
+    snprintf(out, cap, "CALM");
+  } else if (m.windDir < 0) {
+    snprintf(out, cap, "VRB/%02u", m.windKt);
+  } else if (m.gustKt > 0) {
+    snprintf(out, cap, "%03d/%02uG%u", m.windDir, m.windKt, m.gustKt);
+  } else {
+    snprintf(out, cap, "%03d/%02u", m.windDir, m.windKt);
+  }
+}
+
+void formatCloud(char *out, size_t cap, const Metar &m) {
+  const char *cover = m.cover[0] ? m.cover : "NCD";
+  if (m.ceilFt == 0) {
+    snprintf(out, cap, "%s", cover);
+    return;
+  }
+  // Hundreds of feet, METAR style: BKN012 is a 1200ft base.
+  snprintf(out, cap, "%s%03u", cover, (unsigned)((m.ceilFt + 50) / 100));
+}
+
 } // namespace radar

@@ -1,54 +1,114 @@
 #include "status_bar.h"
+#include "palette.h"
+#include "format.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <stdio.h>
+#include <string.h>
 
 // Five missed polls at POLL_INTERVAL_MS=2000. Long enough that ordinary WiFi
 // jitter or a single slow response never trips it, short enough that a truly
 // dead feed is called out well before aircraft start ageing off the scope.
 static constexpr uint32_t STALE_WARN_S = 10;
+// Weather older than this is not worth asserting; METARs are half-hourly and
+// the Pi refreshes every 5 minutes, so 20 means the feed itself has died.
+static constexpr uint32_t METAR_STALE_S = 20 * 60;
+// Below this a ceiling means you will not see anything overhead, which for a
+// look-out-of-the-window toy is the single most actionable number here.
+static constexpr uint16_t LOW_CEILING_FT = 1500;
 
-// Three short lines stacked in the corner the range ring can never reach:
-// the ring is 228px across on a 320px panel, so x < 100 at y < 30 is always
-// clear of it at every range setting.
+static constexpr int CH_W = 6;
+static constexpr int TEXT_Y = STATUS_Y + 1;
+
+// Drawn, not typed: font 1's tick/cross glyphs are codepage-dependent and a
+// wrong one reads as corruption. Two lines each, and unambiguous at 7px.
+static void drawTick(TFT_eSprite &spr, int x, uint16_t col) {
+  spr.drawLine(x, STATUS_Y + 4, x + 2, STATUS_Y + 7, col);
+  spr.drawLine(x + 2, STATUS_Y + 7, x + 6, STATUS_Y + 1, col);
+}
+
+static void drawCross(TFT_eSprite &spr, int x, uint16_t col) {
+  spr.drawLine(x, STATUS_Y + 1, x + 6, STATUS_Y + 7, col);
+  spr.drawLine(x + 6, STATUS_Y + 1, x, STATUS_Y + 7, col);
+}
+
+// Advances x past whatever it drew, so segments compose without any caller
+// having to know how wide the previous one was.
+static void seg(TFT_eSprite &spr, int &x, const char *text, uint16_t col) {
+  spr.setTextColor(col, TFT_BLACK);
+  spr.drawString(text, x, TEXT_Y, 1);
+  x += (int)strlen(text) * CH_W;
+}
+
+static void sep(TFT_eSprite &spr, int &x) {
+  seg(spr, x, " - ", BLOCK_TEXT_DIM);
+}
+
 void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
-                      int onScreen, int mlatOnScreen) {
+                      const radar::Metar &metar, int onScreen,
+                      int mlatOnScreen, int rangeIdx) {
+  spr.fillRect(0, STATUS_Y, SCOPE_W, STATUS_H, TFT_BLACK);
+  char buf[24];
+  int x = STATUS_X;
+
   bool wifiOk = WiFi.status() == WL_CONNECTED;
-  spr.setTextColor(wifiOk ? TFT_GREEN : TFT_RED, TFT_BLACK);
-  spr.drawString(wifiOk ? "WIFI" : "NO WIFI", STATUS_X, STATUS_Y, 1);
-
-  // Aircraft actually drawn, with the MLAT subset in brackets. The bracket
-  // is dropped at zero rather than showing "(0)" — MLAT is a couple of
-  // percent of traffic, so a permanent zero would be noise most of the time.
-  char buf[16];
-  if (mlatOnScreen > 0)
-    snprintf(buf, sizeof(buf), "AC %d (%d)", onScreen, mlatOnScreen);
+  if (wifiOk)
+    drawTick(spr, x, TFT_GREEN);
   else
-    snprintf(buf, sizeof(buf), "AC %d", onScreen);
-  spr.setTextColor(s.fetchOk ? TFT_WHITE : TFT_ORANGE, TFT_BLACK);
-  spr.drawString(buf, STATUS_X, STATUS_Y + 10, 1);
+    drawCross(spr, x, TFT_RED);
+  x += 7 + CH_W;
 
-  // Feed staleness is shown ONLY when there is something wrong. A healthy
-  // age counter reads 0s or 2s permanently, which is noise that trains you
-  // to stop reading the corner at all — so nothing is drawn until the feed
-  // has actually missed several polls.
-  //
-  // Split across two lines because "NO UPDATES FOR 20s" is 108px on one, and
-  // the corner is only 64px before it starts covering the scope.
-  if (!s.lastFetchMs) { // never had a successful poll since boot
-    spr.setTextColor(TFT_ORANGE, TFT_BLACK);
-    spr.drawString("NO UPDATES", STATUS_X, STATUS_Y + 20, 1);
-    spr.drawString("YET", STATUS_X, STATUS_Y + 30, 1);
-    return;
+  // Traffic count, or the staleness warning in its place. Sharing the slot
+  // rather than adding one keeps the strip to a single line, and a stale
+  // feed makes the count meaningless anyway.
+  uint32_t ageS = s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000 : 0;
+  if (!s.lastFetchMs) {
+    seg(spr, x, "NO DATA YET", TFT_ORANGE);
+  } else if (ageS >= STALE_WARN_S) {
+    snprintf(buf, sizeof(buf), "NO UPDATE %lus",
+             (unsigned long)(ageS > 999 ? 999 : ageS));
+    seg(spr, x, buf,
+        ageS >= (uint32_t)radar::SEEN_DROP_S ? TFT_RED : TFT_ORANGE);
+  } else {
+    if (mlatOnScreen > 0)
+      snprintf(buf, sizeof(buf), "AC %d (%d)", onScreen, mlatOnScreen);
+    else
+      snprintf(buf, sizeof(buf), "AC %d", onScreen);
+    seg(spr, x, buf, s.fetchOk ? TFT_WHITE : TFT_ORANGE);
   }
-  uint32_t ageS = (millis() - s.lastFetchMs) / 1000;
-  if (ageS < STALE_WARN_S) return; // healthy: draw nothing at all
-  // Red once aircraft start being dropped outright rather than just dimmed —
-  // past that point the scope is actively emptying, not merely lagging.
-  spr.setTextColor(ageS >= (uint32_t)radar::SEEN_DROP_S ? TFT_RED : TFT_ORANGE,
-                   TFT_BLACK);
-  spr.drawString("NO UPDATES", STATUS_X, STATUS_Y + 20, 1);
-  snprintf(buf, sizeof(buf), "FOR %lus",
-           (unsigned long)(ageS > 999 ? 999 : ageS));
-  spr.drawString(buf, STATUS_X, STATUS_Y + 30, 1);
+
+  sep(spr, x);
+  snprintf(buf, sizeof(buf), "%.0fnm", RANGES_NM[rangeIdx]);
+  seg(spr, x, buf, TFT_GREEN);
+
+  // Weather is optional and never allowed to break the rest of the line.
+  if (!metar.valid) return;
+  uint32_t mAgeS =
+      metar.lastFetchMs ? (millis() - metar.lastFetchMs) / 1000 : 0;
+  if (mAgeS > METAR_STALE_S) return; // silently drop rather than mislead
+
+  if (metar.runway[0]) {
+    sep(spr, x);
+    // Trailing "?" when the wind is too light to be choosing the runway —
+    // the value is still the best guess, just not an assertion.
+    snprintf(buf, sizeof(buf), "%s %s%s", metar.station, metar.runway,
+             metar.runwayConfident ? "" : "?");
+    seg(spr, x, buf, metar.runwayConfident ? TFT_CYAN : BLOCK_TEXT);
+  }
+
+  sep(spr, x);
+  radar::formatWind(buf, sizeof(buf), metar);
+  seg(spr, x, buf, BLOCK_TEXT);
+
+  sep(spr, x);
+  radar::formatCloud(buf, sizeof(buf), metar);
+  bool lowCloud = metar.ceilFt > 0 && metar.ceilFt < LOW_CEILING_FT;
+  seg(spr, x, buf, lowCloud ? TYPE_INTERESTING : BLOCK_TEXT);
+
+  // Visibility only when it is actually restricted; 9999 every day is noise.
+  if (metar.visM < 5000) {
+    sep(spr, x);
+    snprintf(buf, sizeof(buf), "%um", (unsigned)metar.visM);
+    seg(spr, x, buf, TYPE_INTERESTING);
+  }
 }

@@ -39,8 +39,12 @@ OUT_PATH = os.environ.get("METAR_OUT", "/var/www/html/metar.json")
 API = "https://aviationweather.gov/api/data/metar?ids={ids}&format=json"
 TIMEOUT_S = 20
 # Below this the wind is not choosing the runway; the airfield will be using
-# its noise-preferential or default direction instead.
-CALM_KT = 5
+# its noise-preferential or default direction instead. Set at 7 rather than 5
+# because observations here routinely sit at 4-5kt with 60-80 degrees of
+# variability (e.g. "14005KT 120V180"), and calling that confident overstates
+# what is known. The API does not expose the variable range as a field, so
+# speed is the only proxy available without parsing rawOb.
+CALM_KT = 7
 
 
 def fetch(ids):
