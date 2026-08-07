@@ -132,7 +132,13 @@ static void drawBlip(TFT_eSprite &spr, const radar::Aircraft &a, bool dim,
   // and must not be mistaken for a low-level band.
   uint16_t col = dim ? TFT_DARKGREY : altitudeColour(a);
   if (alert && flashOn) col = ALERT_RED;
-  spr.fillCircle(a.sx, a.sy, 2, col);
+  // Hollow ring for a multilaterated position: the aircraft isn't reporting
+  // where it is, we're triangulating it, so it carries a few hundred metres
+  // of error that a solid blip would overstate. Altitude colour is kept.
+  if (a.isMlat)
+    spr.drawCircle(a.sx, a.sy, 3, col);
+  else
+    spr.fillCircle(a.sx, a.sy, 2, col);
   // Heading vector: 6px + 1px per 30kt, in track direction (north-up scope)
   float rad = a.trackDeg * (float)M_PI / 180.0f;
   int len = 6 + a.gsKt / 30;
@@ -179,7 +185,11 @@ static float effectiveAge(const radar::Aircraft &a,
 // miles out could lose its block to a 738 on short final.
 static int placementTier(const radar::Aircraft &a) {
   if (radar::isAlertSquawk(a.squawk)) return 0;
-  if (!radar::isCommonType(a.type)) return 1;
+  // MLAT ranks with the rare airframes, and for the same reason: in airspace
+  // this saturated, an aircraft not sending ADS-B at all is unusual by
+  // definition. It arrives via a wholly separate mechanism from the type
+  // lookup, so the two signals corroborate rather than duplicate.
+  if (a.isMlat || !radar::isCommonType(a.type)) return 1;
   return 2;
 }
 static constexpr int N_TIERS = 3;
@@ -284,7 +294,8 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   snprintf(line, sizeof(line), "%-4s  %s  %ukt", a->type[0] ? a->type : "-",
            alt, a->gsKt);
   spr.drawString(line, X + 4, Y + 26, 1);
-  snprintf(line, sizeof(line), "trk %u  vs %+d", a->trackDeg, a->vertRateFpm);
+  snprintf(line, sizeof(line), "trk %u  vs %+d%s", a->trackDeg, a->vertRateFpm,
+           a->isMlat ? "  MLAT" : "");
   spr.drawString(line, X + 4, Y + 40, 1);
   snprintf(line, sizeof(line), "%.1fnm brg %.0f", (double)a->range,
            (double)radar::bearingDeg(a->pos));

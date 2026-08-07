@@ -35,6 +35,10 @@ in [SPEC.md](SPEC.md).
   outside the everyday short-haul fleet (A320/737 families, E-jets,
   ATR/Dash 8), so widebodies, bizjets, props, helicopters and military
   are obvious at a glance
+- **MLAT positions drawn as hollow rings** — multilaterated by the feed
+  network rather than transmitted by the aircraft, so a few hundred metres
+  less certain than ADS-B; and in saturated airspace an aircraft not
+  sending ADS-B at all is unusual in its own right
 - **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
 - Stansted/Luton CTR outlines and CTA envelopes drawn under the traffic,
   plus airfield markers and extended runway centrelines — airspace is
@@ -63,7 +67,16 @@ near→far so close traffic wins the contested *space*. Blocks are placed
 against an 8px occupancy grid and remember their slot per aircraft
 between frames — without that memory, one blip crossing a cell boundary
 cascades into every other block moving. Placement priority is: selected,
-then alert squawks, then rare airframes, then nearest first.
+then alert squawks, then rare airframes and MLAT targets, then nearest
+first.
+
+MLAT requires the receiver to be feeding a network that returns results —
+here an `mlat-client` feeding ADSBExchange with
+`--results beast,connect,127.0.0.1:30104`, which readsb ingests via
+`--net-bi-port`. Without that the `type` field is `adsb_icao` throughout
+and no blip is ever hollow. Note `type` (position source) and `t`
+(airframe type designator) are unrelated fields that collide confusingly
+in the dump1090 schema.
 
 The sprite is 8-bit, so TFT_eSPI quantizes colours to RGB332 — 3 bits
 red, 3 green, 2 blue. `src/ui/palette.h` builds its constants from those

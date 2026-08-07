@@ -22,6 +22,9 @@ struct Aircraft {
   uint16_t gsKt;
   uint16_t trackDeg;
   int16_t vertRateFpm; // + climb, - descent; 0 when the feed omits both rates
+  bool isMlat;         // position multilaterated, not transmitted by the
+                       // aircraft: lower confidence, and by definition an
+                       // airframe that isn't sending ADS-B at all
   float seenS;
   float rssi;
   Vec2 pos;           // NM east/north of home

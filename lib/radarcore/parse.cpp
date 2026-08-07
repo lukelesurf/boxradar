@@ -5,10 +5,13 @@
 
 namespace radar {
 
+// "t" is the airframe type designator ("A320"); "type" is the POSITION
+// SOURCE ("adsb_icao", "mlat", ...). Unfortunate collision in the dump1090
+// schema — they are unrelated fields and both are wanted.
 static const char *const KEPT_FIELDS[] = {
-    "hex",  "flight",    "t",         "lat",    "lon",    "alt_baro",
-    "gs",   "track",     "seen",      "rssi",   "squawk", "baro_rate",
-    "geom_rate"};
+    "hex",       "flight", "t",      "lat",       "lon",  "alt_baro",
+    "gs",        "track",  "seen",   "rssi",      "type", "squawk",
+    "baro_rate", "geom_rate"};
 
 void buildAircraftFilter(JsonDocument &filter) {
   JsonObject entry = filter["aircraft"].add<JsonObject>();
@@ -46,6 +49,7 @@ int loadStore(JsonVariantConst root, AircraftStore &dst,
     a.altFt = a.onGround ? 0 : (alt | 0);
     a.gsKt = (uint16_t)(o["gs"] | 0.0f);
     a.trackDeg = (uint16_t)(o["track"] | 0.0f);
+    a.isMlat = strcmp(o["type"] | "", "mlat") == 0;
     // Squawk arrives as a string; a feed emitting it as a number yields
     // nullptr here and degrades to empty rather than a mangled code.
     copyTrimmed(a.squawk, sizeof(a.squawk), o["squawk"] | (const char *)nullptr);

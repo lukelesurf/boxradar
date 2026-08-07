@@ -14,13 +14,13 @@ static const char SAMPLE[] = R"({
   "aircraft": [
     {"hex":"4ca1d2","flight":"RYR12QD ","t":"B738","lat":51.6,"lon":-0.3,
      "alt_baro":12000,"gs":320.5,"track":270.3,"seen":0.2,"rssi":-12.3,
-     "squawk":"7000","baro_rate":-1088,
+     "squawk":"7000","baro_rate":-1088,"type":"adsb_icao",
      "category":"A3","nav_qnh":1013.6,"version":2},
     {"hex":"406b9e","lat":51.9,"lon":0.4,"alt_baro":"ground","seen":1.0,
      "rssi":-30.1,"squawk":"0100"},
     {"hex":"aabbcc","flight":"NOPOS","seen":5.0},
     {"hex":"badcaf","lat":50.0,"lon":-3.0,"alt_baro":35000,"seen":70.0},
-    {"hex":"~a1b2c3","lat":45.0,"lon":10.0,"alt_baro":25000,"gs":450.0,"track":90.0,"seen":30.0,"rssi":-20.0,"geom_rate":1024}
+    {"hex":"~a1b2c3","lat":45.0,"lon":10.0,"alt_baro":25000,"gs":450.0,"track":90.0,"seen":30.0,"rssi":-20.0,"geom_rate":1024,"type":"mlat"}
   ]})";
 
 static void parseSample(JsonDocument &doc, bool filtered) {
@@ -164,6 +164,37 @@ static void test_squawk_absent_is_empty() {
   TEST_ASSERT_EQUAL_STRING("", dst.findByHex(0xa1b2c3)->squawk);
 }
 
+// "type" is the position source, NOT the airframe type in "t". Confusing the
+// two would flag every ADS-B aircraft as multilaterated.
+static void test_mlat_flagged_from_position_source() {
+  JsonDocument doc;
+  parseSample(doc, true);
+  AircraftStore dst, prev;
+  prev.clear();
+  loadStore(doc, dst, prev, 51.5f, -0.1f);
+  TEST_ASSERT_TRUE(dst.findByHex(0xa1b2c3)->isMlat);
+}
+
+static void test_adsb_source_is_not_mlat() {
+  JsonDocument doc;
+  parseSample(doc, true);
+  AircraftStore dst, prev;
+  prev.clear();
+  loadStore(doc, dst, prev, 51.5f, -0.1f);
+  const Aircraft *a = dst.findByHex(0x4ca1d2);
+  TEST_ASSERT_FALSE(a->isMlat);
+  TEST_ASSERT_EQUAL_STRING("B738", a->type); // airframe type still intact
+}
+
+static void test_absent_position_source_is_not_mlat() {
+  JsonDocument doc;
+  parseSample(doc, true);
+  AircraftStore dst, prev;
+  prev.clear();
+  loadStore(doc, dst, prev, 51.5f, -0.1f);
+  TEST_ASSERT_FALSE(dst.findByHex(0x406b9e)->isMlat);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_loads_positioned_recent_aircraft_nearest_first);
@@ -177,5 +208,8 @@ int main(int, char **) {
   RUN_TEST(test_vertical_rate_absent_is_zero);
   RUN_TEST(test_squawk_preserves_leading_zeros);
   RUN_TEST(test_squawk_absent_is_empty);
+  RUN_TEST(test_mlat_flagged_from_position_source);
+  RUN_TEST(test_adsb_source_is_not_mlat);
+  RUN_TEST(test_absent_position_source_is_not_mlat);
   return UNITY_END();
 }
