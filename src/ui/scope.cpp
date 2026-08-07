@@ -209,10 +209,13 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   drawCentrelines(spr, pxPerNm);
   drawRings(spr, rangeOuter, pxPerNm);
   // Chrome is off-limits to datablocks: status corner and range legend.
-  datablockReserve(0, 0, 56, 36);
+  // 64px wide covers the longest status line, "AC 32 (12)"; 46 tall leaves
+  // room for the two-line stale-feed warning below it.
+  datablockReserve(0, 0, 64, 46);
   datablockReserve(0, SCOPE_H - 14, 46, 14);
 
   // Pass 1, far -> near so near traffic wins overlapping pixels.
+  int onScreen = 0, mlatOnScreen = 0;
   for (int i = s.count - 1; i >= 0; i--) {
     radar::Aircraft &a = s.list[i];
     float ageS = effectiveAge(a, s);
@@ -228,6 +231,8 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
     }
     a.sx = (int16_t)sx;
     a.sy = (int16_t)sy;
+    onScreen++; // survived the stale and off-edge culls above
+    if (a.isMlat) mlatOnScreen++;
     // Trails: oldest->newest as dimming dots behind the blip
     for (int t = 0; t < a.trailLen; t++) {
       int idx = (a.trailHead - a.trailLen + t + 2 * radar::TRAIL_LEN) %
@@ -271,7 +276,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s, const UiState &ui) {
   }
 
   drawSquawkBanner(spr, s);
-  drawStatusCorner(spr, s);
+  drawStatusCorner(spr, s, onScreen, mlatOnScreen);
 }
 
 void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
