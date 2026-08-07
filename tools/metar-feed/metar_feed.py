@@ -32,6 +32,7 @@ import urllib.request
 STATIONS = {
     "EGSS": [("04", 43), ("22", 223)],
     "EGGW": [("07", 74), ("25", 254)],
+    "EGMC": [("05", 54), ("23", 234)],  # Southend
 }
 
 # Overridable so the script can be exercised anywhere without a web root.
