@@ -25,6 +25,12 @@
 // there is nothing to gain from polling this hard.
 #define METAR_POLL_INTERVAL_MS 60000
 
+// Draw the OSM coastline under everything else. Comment out to disable and
+// drop the generated table (~12KB of flash) from the build entirely — worth
+// doing for a landlocked site. Regenerate with tools/build_coastline.py
+// after moving, or it will keep drawing the previous area's coast.
+#define DRAW_COASTLINE
+
 // EXPERIMENTAL: "OVHD <callsign> <n>s" readout in the top-left corner,
 // predicting the next aircraft to pass close to overhead. Comment out to
 // disable; see lib/radarcore/overhead.h for how to remove it entirely.

@@ -11,6 +11,11 @@
 #include <math.h>
 #include <stdio.h>
 #include "airspace_data.h"
+#ifdef DRAW_COASTLINE
+// Guarded so the generated table is not linked in at all when disabled —
+// it is ~12KB of flash that a landlocked install has no use for.
+#include "coastline_data.h"
+#endif
 #ifdef OVERHEAD_PREDICTION
 #include "overhead_readout.h"
 #endif
@@ -40,10 +45,10 @@ static void drawDashedLine(TFT_eSprite &spr, float x0, float y0, float x1,
   }
 }
 
-static void drawCentrelines(TFT_eSprite &spr, float pxPerNm) {
+static void drawCentrelines(TFT_eSprite &spr, float pxPerNm, float lonScale) {
   for (const auto &r : RUNWAYS) {
-    radar::Vec2 a = radar::project(HOME_LAT, HOME_LON, r.lat0, r.lon0);
-    radar::Vec2 b = radar::project(HOME_LAT, HOME_LON, r.lat1, r.lon1);
+    radar::Vec2 a = radar::projectWith(lonScale, HOME_LAT, HOME_LON, r.lat0, r.lon0);
+    radar::Vec2 b = radar::projectWith(lonScale, HOME_LAT, HOME_LON, r.lat1, r.lon1);
     float dx = b.x - a.x, dy = b.y - a.y;
     float len = sqrtf(dx * dx + dy * dy);
     if (len < 1e-4f) continue; // degenerate entry: skip rather than divide
@@ -59,14 +64,57 @@ static void drawCentrelines(TFT_eSprite &spr, float pxPerNm) {
   }
 }
 
+#ifdef DRAW_COASTLINE
+// ~1900 points, an order of magnitude more than everything else on the map,
+// so this is the one layer where the per-point cost actually matters.
+//
+// Two things keep it cheap. The whole panel is converted to a lat/lon window
+// once per frame, letting an entire segment be rejected on four comparisons
+// without projecting any of its points — at 10nm inland that discards the
+// lot. Survivors then project with a hoisted longitude scale rather than
+// recomputing cosf per point.
+static void drawCoastline(TFT_eSprite &spr, float pxPerNm, float lonScale) {
+  const float invP = 1.0f / pxPerNm;
+  const float minLat = HOME_LAT + ((float)(SCOPE_CY - STATUS_Y) * invP) / 60.0f;
+  const float maxLat = HOME_LAT + ((float)SCOPE_CY * invP) / 60.0f;
+  const float minLon = HOME_LON - ((float)SCOPE_CX * invP) / lonScale;
+  const float maxLon =
+      HOME_LON + ((float)(SCOPE_W - SCOPE_CX) * invP) / lonScale;
+
+  for (const coastline::Outline &o : coastline::SEGMENTS) {
+    if (o.maxLat < minLat || o.minLat > maxLat || o.maxLon < minLon ||
+        o.minLon > maxLon)
+      continue; // wholly off-panel: no points projected at all
+    int prevX = 0, prevY = 0;
+    for (uint16_t i = 0; i < o.count; i++) {
+      radar::Vec2 p = radar::projectWith(lonScale, HOME_LAT, HOME_LON,
+                                         o.pts[i].lat, o.pts[i].lon);
+      int x = SCOPE_CX + (int)(p.x * pxPerNm);
+      int y = SCOPE_CY - (int)(p.y * pxPerNm);
+      if (i > 0) {
+        // Per-line trivial reject for the surviving segments: a segment can
+        // straddle the window while most of its individual spans do not.
+        bool offscreen = (x < 0 && prevX < 0) ||
+                         (x >= SCOPE_W && prevX >= SCOPE_W) ||
+                         (y < 0 && prevY < 0) ||
+                         (y >= STATUS_Y && prevY >= STATUS_Y);
+        if (!offscreen) spr.drawLine(prevX, prevY, x, y, COAST_LINE);
+      }
+      prevX = x;
+      prevY = y;
+    }
+  }
+}
+#endif // DRAW_COASTLINE
+
 // Outlines are closed rings (last vertex repeats the first), reprojected
 // every frame — ~200 projections, cheaper than caching per range change.
-static void drawAirspace(TFT_eSprite &spr, float pxPerNm) {
+static void drawAirspace(TFT_eSprite &spr, float pxPerNm, float lonScale) {
   for (const airspace::Outline &o : airspace::OUTLINES) {
     int prevX = 0, prevY = 0;
     for (uint16_t i = 0; i < o.count; i++) {
       radar::Vec2 p =
-          radar::project(HOME_LAT, HOME_LON, o.pts[i].lat, o.pts[i].lon);
+          radar::projectWith(lonScale, HOME_LAT, HOME_LON, o.pts[i].lat, o.pts[i].lon);
       int x = SCOPE_CX + (int)(p.x * pxPerNm);
       int y = SCOPE_CY - (int)(p.y * pxPerNm);
       if (i > 0) spr.drawLine(prevX, prevY, x, y, AIRSPACE_LINE);
@@ -78,7 +126,7 @@ static void drawAirspace(TFT_eSprite &spr, float pxPerNm) {
   // and a shade brighter than the map lines, since a hollow marker sitting on
   // its own centreline was all but invisible.
   for (const auto &f : AIRFIELDS) {
-    radar::Vec2 p = radar::project(HOME_LAT, HOME_LON, f.lat, f.lon);
+    radar::Vec2 p = radar::projectWith(lonScale, HOME_LAT, HOME_LON, f.lat, f.lon);
     int x = SCOPE_CX + (int)(p.x * pxPerNm);
     int y = SCOPE_CY - (int)(p.y * pxPerNm);
     spr.fillRect(x - 2, y - 2, 5, 5, AIRFIELD_MARK);
@@ -186,11 +234,16 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   // beyond the nominal range and still drawn — that extra E/W coverage is
   // the point of going full-screen.
   float pxPerNm = scopePxPerNm(ui.rangeIdx);
+  // One cosf per frame instead of one per projected point.
+  float lonScale = radar::lonScaleNm(HOME_LAT);
   bool flashOn = (millis() / ALERT_FLASH_MS) % 2 == 0;
 
   datablocksBegin();
-  drawAirspace(spr, pxPerNm);
-  drawCentrelines(spr, pxPerNm);
+#ifdef DRAW_COASTLINE
+  drawCoastline(spr, pxPerNm, lonScale); // bottom layer
+#endif
+  drawAirspace(spr, pxPerNm, lonScale);
+  drawCentrelines(spr, pxPerNm, lonScale);
   drawRings(spr, rangeOuter, pxPerNm);
   // The status strip is off-limits to datablocks.
   datablockReserve(0, STATUS_Y, SCOPE_W, STATUS_H);
@@ -199,6 +252,9 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   // that a block occupies half the time would make the readout flicker in
   // and out from behind it.
   datablockReserve(0, 0, 104, 14);
+#endif
+#ifdef BOXRADAR_FRAME_TIME
+  datablockReserve(SCOPE_W - 84, 0, 84, 14); // frame-time overlay, top right
 #endif
   datablockReserve(0, SCOPE_H - 14, 46, 14);
 

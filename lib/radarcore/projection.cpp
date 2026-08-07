@@ -3,10 +3,19 @@
 
 namespace radar {
 
+float lonScaleNm(float homeLat) {
+  return NM_PER_DEG_LAT * cosf(homeLat * (float)M_PI / 180.0f);
+}
+
+Vec2 projectWith(float lonScale, float homeLat, float homeLon, float lat,
+                 float lon) {
+  return {(lon - homeLon) * lonScale, (lat - homeLat) * NM_PER_DEG_LAT};
+}
+
+// Single-shot form. Defined in terms of the hoisted pair so there is only
+// one projection implementation to keep correct.
 Vec2 project(float homeLat, float homeLon, float lat, float lon) {
-  float cosLat = cosf(homeLat * (float)M_PI / 180.0f);
-  return {(lon - homeLon) * NM_PER_DEG_LAT * cosLat,
-          (lat - homeLat) * NM_PER_DEG_LAT};
+  return projectWith(lonScaleNm(homeLat), homeLat, homeLon, lat, lon);
 }
 
 float rangeNm(const Vec2 &v) { return sqrtf(v.x * v.x + v.y * v.y); }

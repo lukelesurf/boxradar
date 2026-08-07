@@ -33,12 +33,28 @@ constexpr uint16_t LEADER_LINE     = rgb332(2, 2, 1);
 
 // Background map: airspace outlines and extended runway centrelines share a
 // colour so they read as one layer sitting under the traffic.
-constexpr uint16_t AIRSPACE_LINE = rgb332(1, 1, 0);
+//
+// Raised one step from rgb332(1,1,0) to make room UNDERNEATH it for the
+// coastline. rgb332(1,1,0) is the darkest neutral grey this format has —
+// red and green have 3 bits so 1 is the dimmest non-zero step, and going
+// lower means dropping a channel, which tints rather than darkens. So the
+// only way to put the coast below the airspace was to move the airspace up.
+constexpr uint16_t AIRSPACE_LINE = rgb332(2, 2, 1);
 constexpr uint16_t CENTRELINE = AIRSPACE_LINE;
 
 // Airfield markers are drawn a step brighter than the lines they sit on —
 // a solid square in the line colour disappears into its own centreline.
 constexpr uint16_t AIRFIELD_MARK = rgb332(3, 3, 1);
+
+// Coastline: the bottom layer, and cool where the airspace lines are warm so
+// the two read as different kinds of thing rather than the same map at two
+// brightnesses.
+//
+// The darkest neutral grey available — this is the shade the airspace lines
+// used to be, now one rung below them. Neutral rather than blue: a blue
+// coastline at this luminance reads as a colour choice, a grey one reads as
+// background.
+constexpr uint16_t COAST_LINE = rgb332(1, 1, 0);
 
 constexpr uint16_t SELECT_RING = rgb332(7, 7, 3); // white
 constexpr uint16_t ALERT_RED   = rgb332(7, 0, 0);

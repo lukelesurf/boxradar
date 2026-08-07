@@ -54,6 +54,8 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
   less certain than ADS-B; and in saturated airspace an aircraft not
   sending ADS-B at all is unusual in its own right
 - **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
+- OSM coastline drawn as the bottom layer (optional — `DRAW_COASTLINE`),
+  generated offline and filtered to features ≥2km
 - Stansted/Luton CTR outlines and CTA envelopes drawn under the traffic,
   plus airfield markers and extended runway centrelines — airspace is
   generated offline from the
@@ -143,6 +145,27 @@ coordinates near the top of `src/ui/scope.cpp`. The axis is derived from
 the two thresholds rather than a published runway heading, so the drawn
 line is guaranteed to pass through both runway ends.
 
+### Regenerating the coastline
+
+`src/ui/coastline_data.h` is committed, generated output, drawn as the
+bottom layer when `DRAW_COASTLINE` is defined. Comment that out and the
+table is dropped from the build entirely (~13KB of flash) — worth doing
+for a landlocked site.
+
+```bash
+python3 tools/build_coastline.py   # inside the devShell
+```
+
+It reads `HOME_LAT`/`HOME_LON` from your `config.h`, queries OpenStreetMap
+via Overpass once, and caches the response — so **re-run it after moving**,
+or the scope will keep drawing the previous area's coast.
+
+Size is controlled by `MIN_FEATURE_KM`, not by `SIMPLIFY_M`. Simplification
+cannot reduce a two-point line, and estuaries contain thousands of tiny
+saltmarsh rings, so tightening the tolerance alone barely helps: filtering
+to features ≥2km is what takes 143KB down to 12KB, and it discards exactly
+the detail that is sub-pixel at every range.
+
 ### METAR feed (optional, receiver-side)
 
 `tools/metar-feed/` installs on the **receiver Pi**, not the display and
@@ -181,6 +204,7 @@ Four files carry location data. Nothing else needs touching.
 | `include/config.h` | `HOME_LAT`/`HOME_LON`, `METAR_STATION`, receiver URL, timezone | **no** — gitignored |
 | `include/location.h` | airfield markers and runway thresholds to draw | yes |
 | `tools/build_airspace.py` | `CURATED_AIRPORTS` — which CTR/CTA volumes | yes |
+| `tools/build_coastline.py` | re-run it; reads `HOME_*` from `config.h` | yes |
 | `tools/metar-feed/metar_feed.py` | `STATIONS` — METAR stations and runway **true** headings | yes |
 
 Home coordinates stay in the gitignored `config.h` on purpose: airfield data
