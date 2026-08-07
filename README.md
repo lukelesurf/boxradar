@@ -140,6 +140,33 @@ coordinates near the top of `src/ui/scope.cpp`. The axis is derived from
 the two thresholds rather than a published runway heading, so the drawn
 line is guaranteed to pass through both runway ends.
 
+### METAR feed (optional, receiver-side)
+
+`tools/metar-feed/` installs on the **receiver Pi**, not the display and
+not a separate server. It polls aviationweather.gov every 5 minutes and
+publishes a ~300 byte `metar.json` into the lighttpd document root, so
+the display can fetch `http://<receiver>/metar.json` over plain HTTP
+alongside the `aircraft.json` it already polls.
+
+```bash
+# on the receiver Pi
+sudo ./install.sh          # edit STATIONS in metar_feed.py first
+```
+
+Keeping it on the receiver means the whole system stays two devices —
+receiver for data, ESP32 for display — which is what makes it portable to
+another location. It also avoids TLS on the ESP32: a handshake wants
+~40KB of heap against a board whose floor is ~43KB with the render sprite
+live.
+
+The Pi normalises the upstream API's loose types (`visib` can be the
+string `"6+"`, `wdir` can be `"VRB"`, `wgst` can be null) into fixed
+always-present integers, and derives the likely active runway from the
+wind. `conf` is 0 when wind is below 5kt — at that point the wind isn't
+choosing the runway and the value is a guess.
+
+**The firmware does not consume this yet.** The feed stands alone for now.
+
 ## Layout
 
 ```
