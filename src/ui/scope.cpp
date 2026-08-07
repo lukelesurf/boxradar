@@ -6,6 +6,7 @@
 #include "classify.h"
 #include "projection.h"
 #include "config.h"
+#include "location.h"
 #include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
@@ -17,26 +18,9 @@
 static constexpr uint32_t ALERT_FLASH_MS = 400;
 static constexpr int BANNER_H = 14;
 
-// Airfield reference points (CTR arc centres = published ARPs), unlabelled.
-static constexpr struct { float lat, lon; } AIRFIELDS[] = {
-    {51.88500f, 0.23500f},   // EGSS Stansted
-    {51.87472f, -0.36833f},  // EGGW Luton
-};
-
-// Runway thresholds, for extended centrelines. These are the published
-// runway ENDS, not the ARP — at 5nm range an ARP-plus-heading approximation
-// lands several pixels off the real approach path.
-//
-// The axis is taken from the two thresholds rather than a published runway
-// heading. The source dataset's heading for EGSS disagrees with its own
-// threshold coordinates by ~1.2 deg, and deriving from the endpoints at
-// least guarantees the line passes through both of them.
-static constexpr struct {
-  float lat0, lon0, lat1, lon1;
-} RUNWAYS[] = {
-    {51.875081f, 0.219933f, 51.895166f, 0.250050f},   // EGSS 04/22
-    {51.872002f, -0.383550f, 51.877201f, -0.353333f}, // EGGW 07/25
-};
+// Airfield and runway tables live in include/location.h — all the geography
+// is in one committed file so relocating the scope does not mean hunting
+// through render code.
 static constexpr float CENTRELINE_NM = 6.5f; // extension beyond each end
 static constexpr int DASH_ON = 6, DASH_OFF = 5;
 

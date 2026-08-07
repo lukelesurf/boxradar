@@ -172,9 +172,74 @@ Set `METAR_URL` and `METAR_STATION` in `config.h` to consume it. Both are
 optional: comment out `METAR_URL` and the whole feature compiles out, and
 the status strip simply omits the weather segments.
 
+## Relocating
+
+Four files carry location data. Nothing else needs touching.
+
+| file | what | in git? |
+|---|---|---|
+| `include/config.h` | `HOME_LAT`/`HOME_LON`, `METAR_STATION`, receiver URL, timezone | **no** — gitignored |
+| `include/location.h` | airfield markers and runway thresholds to draw | yes |
+| `tools/build_airspace.py` | `CURATED_AIRPORTS` — which CTR/CTA volumes | yes |
+| `tools/metar-feed/metar_feed.py` | `STATIONS` — METAR stations and runway **true** headings | yes |
+
+Home coordinates stay in the gitignored `config.h` on purpose: airfield data
+is published AIP material, but your own position is not, and this repo may be
+mirrored somewhere public.
+
+### Worked example: Southend-on-Sea
+
+```c
+// include/config.h
+#define HOME_LAT 51.7897
+#define HOME_LON 1.1533
+#define METAR_STATION "EGMC"       // on the field — civil, so the
+                                   // inferred runway means something
+
+// include/location.h
+static constexpr AirfieldRef AIRFIELDS[] = {
+    {51.57140f, 0.69560f},   // EGMC Southend
+    {52.12750f, 0.96110f},   // EGUW Wattisham
+};
+static constexpr RunwayAxis RUNWAYS[] = {
+    {51.567200f, 0.686268f, 51.575600f, 0.704996f}, // EGMC 05/23
+    {52.120602f, 0.943800f, 52.134300f, 0.968531f}, // EGUW 05/23
+};
+```
+
+```python
+# tools/metar-feed/metar_feed.py   (headings are TRUE)
+STATIONS = {"EGMC": [("05", 54), ("23", 234)]}
+```
+
+`CURATED_AIRPORTS` in `build_airspace.py` needs the CTR/CTA feature names
+exactly as they appear in the source YAML; the generator fails loudly on a
+name it can't find, so a wrong guess is obvious rather than silent.
+
+### Gotchas
+
+- **Runway headings are TRUE, designators are MAGNETIC.** Don't derive `05`
+  into `50`. Pull both thresholds and the true heading from
+  [OurAirports `runways.csv`](https://davidmegginson.github.io/ourairports-data/runways.csv).
+- **`MAX_AIRCRAFT` is 32** (`lib/radarcore/aircraft.h`) and the store silently
+  drops the farthest beyond that. Fine for a quiet area; under a busy TMA the
+  count pins at 32 and distant contacts vanish with no other indication.
+- **`RANGES_NM`** (`src/ui/layout.h`) is `{5,10,25,50}`, which suits a busy
+  TMA. Somewhere rural may want to start higher.
+- **`isCommonType()`** (`lib/radarcore/classify.cpp`) is tuned to a London
+  short-haul mix. Somewhere with heavy GA or offshore helicopter traffic will
+  want a different "ordinary" list, or the amber highlight loses meaning.
+- **The airspace dataset is UK-only.** `ahsparrow/airspace` covers Britain;
+  the generator will not work abroad.
+- **Per-unit, not per-location:** `LDR_DARK` in `src/ui_task.cpp` is
+  calibrated to one board's light sensor and will differ on another — and
+  again once it's behind a case bezel. Panel driver flags in
+  `platformio.ini` are a batch lottery; see Known Quirks in SPEC.md.
+
 ## Layout
 
 ```
+include/        config.h (gitignored), location.h (airfields + runways)
 src/            net task (core 0), UI task (core 1), shared store, status LED
 src/ui/         scope, datablocks, palette, status, touch, layout,
                 generated airspace data
