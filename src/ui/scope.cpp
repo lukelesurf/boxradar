@@ -122,14 +122,50 @@ static void drawAirspace(TFT_eSprite &spr, float pxPerNm, float lonScale) {
       prevY = y;
     }
   }
-  // Airfield markers: small solid squares, distinct from round blips. Solid
-  // and a shade brighter than the map lines, since a hollow marker sitting on
-  // its own centreline was all but invisible.
+}
+
+// Hollow triangle plus a short label — the chart convention for a reporting
+// point, and distinct from the solid squares used for airfields.
+//
+// Drawn after the rings but before any traffic, so a datablock always wins
+// where the two overlap. Waypoints deliberately do NOT reserve occupancy
+// grid cells: they are scenery, and blocking label placement over a fixed
+// point would push live traffic around to protect static furniture.
+// Shape carries the category so the two are tellable apart at 5px without
+// reading the label: triangle for a navigation fix, square for a town.
+static void drawFixedRefs(TFT_eSprite &spr, float pxPerNm, float lonScale) {
+  // Airfields first and a shade brighter than the rest: they are the anchors
+  // you orient from, and a hollow marker sitting on its own centreline was
+  // all but invisible.
+  spr.setTextColor(AIRFIELD_MARK, TFT_BLACK);
   for (const auto &f : AIRFIELDS) {
-    radar::Vec2 p = radar::projectWith(lonScale, HOME_LAT, HOME_LON, f.lat, f.lon);
+    radar::Vec2 p =
+        radar::projectWith(lonScale, HOME_LAT, HOME_LON, f.lat, f.lon);
     int x = SCOPE_CX + (int)(p.x * pxPerNm);
     int y = SCOPE_CY - (int)(p.y * pxPerNm);
-    spr.fillRect(x - 2, y - 2, 5, 5, AIRFIELD_MARK);
+    if (x < -4 || x >= SCOPE_W || y < 4 || y >= STATUS_Y - 4) continue;
+    spr.fillRect(x - 2, y - 2, 5, 5, AIRFIELD_MARK); // solid: towns are hollow
+    spr.drawString(f.name, x + 5, y - 3, 1);
+  }
+
+  spr.setTextColor(AIRSPACE_LINE, TFT_BLACK);
+  for (const auto &w : WAYPOINTS) {
+    radar::Vec2 p =
+        radar::projectWith(lonScale, HOME_LAT, HOME_LON, w.lat, w.lon);
+    int x = SCOPE_CX + (int)(p.x * pxPerNm);
+    int y = SCOPE_CY - (int)(p.y * pxPerNm);
+    if (x < -4 || x >= SCOPE_W || y < 4 || y >= STATUS_Y - 4) continue;
+    spr.drawTriangle(x, y - 3, x - 3, y + 2, x + 3, y + 2, AIRSPACE_LINE);
+    spr.drawString(w.name, x + 5, y - 3, 1);
+  }
+  for (const auto &t : TOWNS) {
+    radar::Vec2 p =
+        radar::projectWith(lonScale, HOME_LAT, HOME_LON, t.lat, t.lon);
+    int x = SCOPE_CX + (int)(p.x * pxPerNm);
+    int y = SCOPE_CY - (int)(p.y * pxPerNm);
+    if (x < -4 || x >= SCOPE_W || y < 4 || y >= STATUS_Y - 4) continue;
+    spr.drawRect(x - 2, y - 2, 5, 5, AIRSPACE_LINE); // hollow: airfields are solid
+    spr.drawString(t.name, x + 5, y - 3, 1);
   }
 }
 
@@ -245,6 +281,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   drawAirspace(spr, pxPerNm, lonScale);
   drawCentrelines(spr, pxPerNm, lonScale);
   drawRings(spr, rangeOuter, pxPerNm);
+  drawFixedRefs(spr, pxPerNm, lonScale);
   // The status strip is off-limits to datablocks.
   datablockReserve(0, STATUS_Y, SCOPE_W, STATUS_H);
 #ifdef OVERHEAD_PREDICTION
