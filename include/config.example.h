@@ -71,4 +71,12 @@
 // accessors (HOME_LAT, METAR_URL, ...) that read the live config, so every
 // use site keeps its original spelling. NVS is an overlay, never a
 // replacement — an empty NVS behaves exactly like these defaults.
+
+// Draw the map from the runtime blob rather than the tables compiled into
+// flash. Verified on hardware 2026-08-08. Comment out to fall back to the
+// generated headers, which stay in the repo as regenerable output — the
+// blob path saves ~20KB of flash but means no map at all if there is
+// neither a cached blob nor a reachable GEO_URL.
+#define MAP_FROM_BLOB
+
 #include "site_config.h"

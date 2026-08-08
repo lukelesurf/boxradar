@@ -7,16 +7,10 @@
 #include "projection.h"
 #include "viewport.h"
 #include "config.h"
-#include "location.h"
+#include "map_source.h"
 #include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
-#include "airspace_data.h"
-#ifdef DRAW_COASTLINE
-// Guarded so the generated table is not linked in at all when disabled —
-// it is ~12KB of flash that a landlocked install has no use for.
-#include "coastline_data.h"
-#endif
 #ifdef OVERHEAD_PREDICTION
 #include "overhead_readout.h"
 #endif
@@ -48,7 +42,7 @@ static void drawDashedLine(TFT_eSprite &spr, float x0, float y0, float x1,
 
 static void drawCentrelines(TFT_eSprite &spr, const Viewport &vp,
                             float lonScale) {
-  for (const auto &r : RUNWAYS) {
+  for (const auto &r : MAP_RUNWAYS) {
     radar::Vec2 a = radar::projectWith(lonScale, HOME_LAT, HOME_LON, r.lat0, r.lon0);
     radar::Vec2 b = radar::projectWith(lonScale, HOME_LAT, HOME_LON, r.lat1, r.lon1);
     float dx = b.x - a.x, dy = b.y - a.y;
@@ -90,9 +84,12 @@ static void drawCoastline(TFT_eSprite &spr, const Viewport &vp,
   const float maxLon =
       HOME_LON + (vp.centre.x + (float)(SCOPE_W - SCOPE_CX) * invP) / lonScale;
 
-  for (const coastline::Outline &o : coastline::SEGMENTS) {
-    if (o.maxLat < minLat || o.minLat > maxLat || o.maxLon < minLon ||
-        o.minLon > maxLon)
+  MapPolyline o;
+  MapBox box;
+  for (uint16_t seg = 0; seg < mapCoastCount(); seg++) {
+    if (!mapCoast(seg, o, box)) continue;
+    if (box.maxLat < minLat || box.minLat > maxLat || box.maxLon < minLon ||
+        box.minLon > maxLon)
       continue; // wholly off-panel: no points projected at all
     int prevX = 0, prevY = 0;
     for (uint16_t i = 0; i < o.count; i++) {
@@ -120,7 +117,9 @@ static void drawCoastline(TFT_eSprite &spr, const Viewport &vp,
 // every frame — ~200 projections, cheaper than caching per range change.
 static void drawAirspace(TFT_eSprite &spr, const Viewport &vp,
                          float lonScale) {
-  for (const airspace::Outline &o : airspace::OUTLINES) {
+  MapPolyline o;
+  for (uint16_t k = 0; k < mapAirspaceCount(); k++) {
+    if (!mapAirspace(k, o)) continue;
     int prevX = 0, prevY = 0;
     for (uint16_t i = 0; i < o.count; i++) {
       radar::Vec2 p =
@@ -149,7 +148,7 @@ static void drawFixedRefs(TFT_eSprite &spr, const Viewport &vp,
   // you orient from, and a hollow marker sitting on its own centreline was
   // all but invisible.
   spr.setTextColor(AIRFIELD_MARK, TFT_BLACK);
-  for (const auto &f : AIRFIELDS) {
+  for (const auto &f : MAP_AIRFIELDS) {
     radar::Vec2 p =
         radar::projectWith(lonScale, HOME_LAT, HOME_LON, f.lat, f.lon);
     int x = vp.sx(p.x);
@@ -160,7 +159,7 @@ static void drawFixedRefs(TFT_eSprite &spr, const Viewport &vp,
   }
 
   spr.setTextColor(AIRSPACE_LINE, TFT_BLACK);
-  for (const auto &w : WAYPOINTS) {
+  for (const auto &w : MAP_WAYPOINTS) {
     radar::Vec2 p =
         radar::projectWith(lonScale, HOME_LAT, HOME_LON, w.lat, w.lon);
     int x = vp.sx(p.x);
@@ -169,7 +168,7 @@ static void drawFixedRefs(TFT_eSprite &spr, const Viewport &vp,
     spr.drawTriangle(x, y - 3, x - 3, y + 2, x + 3, y + 2, AIRSPACE_LINE);
     spr.drawString(w.name, x + 5, y - 3, 1);
   }
-  for (const auto &t : TOWNS) {
+  for (const auto &t : MAP_TOWNS) {
     radar::Vec2 p =
         radar::projectWith(lonScale, HOME_LAT, HOME_LON, t.lat, t.lon);
     int x = vp.sx(p.x);
