@@ -411,7 +411,8 @@ src/            net task (core 0), UI task (core 1), shared store,
 src/ui/         scope, datablocks, palette, status strip, overhead
                 readout, touch, layout, generated airspace + coastline
 lib/radarcore/  portable domain logic: parse, projection, formatting,
-                classification, METAR, overhead prediction
+                classification, METAR, overhead prediction, geography
+                blob reader (geoblob.h/.cpp — not yet used on device)
 test/           native Unity tests for radarcore
 tools/          airspace and coastline codegen, boxradar-site (receiver-side
                 METAR proxy; grows into the site config app)

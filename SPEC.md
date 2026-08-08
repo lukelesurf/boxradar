@@ -141,3 +141,85 @@ it.
 - On-device Beast/raw decoding — the receiver already does CPR; we consume JSON
 - Web config portal — hardcoded config is fine for one unit on one shelf
 - Sound, SD logging
+## Geography blob
+
+One binary file per site, written by `boxradar_site.geo` and read by
+`lib/radarcore/geoblob.{h,cpp}`. **The firmware does not read it yet** — the
+generated C headers are still what `scope.cpp` uses. Switching over is phase
+3b; see `docs/superpowers/specs/2026-08-08-runtime-site-config-design.md`.
+
+Little-endian throughout, since both the ESP32 and the native test host are.
+
+```
+offset  size  field
+------  ----  ---------------------------------------------------------------
+   0     4    magic "BXRG"
+   4     2    version (u16, currently 1)
+   6     2    reserved (u16, zero)
+   8     4    crc32 of everything from offset 16 to end (u32)
+  12     4    payload length in bytes, from offset 16 (u32)
+  16     4    homeLat (f32)
+  20     4    homeLon (f32)
+  24     2    section count (u16)
+  26     2    reserved (u16, zero)
+  28     ..   section table: count * 12 bytes
+              u16 kind, u16 recordCount, u32 offset, u32 byteLength
+   ..    ..   section payloads, each 4-byte aligned
+```
+
+| kind | value | record |
+|---|---|---|
+| `AIRSPACE` | 1 | `u16 count, u16 pad, then count * (f32 lat, f32 lon)` |
+| `COASTLINE` | 2 | as AIRSPACE |
+| `AIRFIELDS` | 3 | `char[8] name, f32 lat, f32 lon` |
+| `RUNWAYS` | 4 | `f32 lat0, f32 lon0, f32 lat1, f32 lon1` |
+| `WAYPOINTS` | 5 | `char[8] name, f32 lat, f32 lon` |
+| `TOWNS` | 6 | `char[8] name, f32 lat, f32 lon` |
+
+This site's complete geography is **18,192 bytes** — 13 airspace outlines, 124
+coastline segments, 10 airfields, 2 runway axes, 4 fixes, 7 towns. That is 14%
+of the 128KB data partition `min_spiffs` leaves available.
+
+### Three decisions worth not undoing
+
+**Every vertex array is 4-byte aligned, and the `u16 pad` after each polyline
+count is what achieves it.** That is the format's whole reason for existing: it
+lets the board cast into the received buffer and hand out `const Vertex*`
+directly, so the map costs one heap allocation instead of one per record and
+the render path is identical to the flash arrays it replaces. The pad is not
+spare space for a future field. An unaligned 32-bit load can fault or silently
+misread on the ESP32, so `test_geoblob` asserts the alignment of every pointer
+the reader hands out.
+
+**Names are fixed-width `char[8]`, not pooled in a string arena.** The longest
+label in `include/location.h` is five characters (`LOREL`, `ABBOT`), because
+every character is 6px competing with datablocks — the display constraint
+already bounds the data. An arena would save tens of bytes across 23 records in
+exchange for offsets, a second allocation and pointer fixup. The generator
+**rejects** a name over seven characters rather than truncating it: a wrong
+label costs more than the bytes.
+
+**Nothing derived is stored.** Coastline bounding boxes in particular are
+computed at load, even though the C header carries them and they save most of
+the per-frame reject cost. A stored bbox can disagree with its own points, and
+the result is a coastline that silently fails to draw — which the README
+already flags as the worst failure mode here.
+
+### Reading it
+
+`GeoBlob::open()` validates magic, version, CRC and length, then checks
+`homeLat`/`homeLon` against the caller's configured home and returns
+`GEO_WRONG_HOME` on a mismatch. That turns the documented trap — "regenerate
+after moving, or it will keep drawing the previous area's coast" — from a
+silent wrong-area render into a visible refusal.
+
+All multi-byte reads go through `memcpy` into a local rather than casting a
+`const uint8_t*` to a `float*`. Casting is undefined behaviour and on Xtensa
+occasionally wrong in practice; a 4-byte `memcpy` at an aligned address
+compiles to a single load.
+
+The CRC is CRC-32 IEEE 802.3 (reflected, init `0xFFFFFFFF`, final xor), to
+match Python's `zlib.crc32`. It is computed bitwise rather than from a table:
+this runs once per load, and 18KB costs well under a millisecond at 240MHz.
+`test/test_geoblob/fixture_blob.h` is generated *by* the Python writer, so the
+C++ reader accepting it is the cross-language check that the two agree.

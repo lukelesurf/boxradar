@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: implemented 2026-08-08.** All 5 tasks complete. The blob is written, read and tested; the firmware still reads the C headers, which are now byte-identical to what the retired generators produced. This site's blob is 18,192 bytes.
+
 **Goal:** One binary file per site carrying airspace, coastline and point references, written by the Pi and readable by the board — with the reader natively tested, so phase 3b is plumbing rather than discovery.
 
 **Architecture:** A single little-endian blob with a section table. Every vertex array is padded to 4-byte alignment so the board takes `const Vertex*` directly into the received buffer: zero copy, one heap allocation, and a render path byte-identical to today's flash arrays. The Python writer lives in `boxradar_site/geo/blob.py`; the reader is `lib/radarcore/geoblob.{h,cpp}`, portable and covered by Unity tests against a committed fixture. The generators keep emitting the existing C headers as well, so the firmware is untouched by this phase and every step stays shippable.

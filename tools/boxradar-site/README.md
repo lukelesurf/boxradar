@@ -3,9 +3,14 @@
 The Pi-side application for BOXRADAR. Runs on the **receiver** Pi — the box
 running readsb/tar1090 — not on the display and not on a separate server.
 
-Phase 1 is the METAR proxy. Later phases add the geography generator and the
-site configuration UI; see
-`docs/superpowers/specs/2026-08-08-runtime-site-config-design.md`.
+Two things live here: the **METAR proxy**, a long-running service the display
+polls, and the **geography generator**, offline codegen you run when relocating
+or picking up a new AIRAC cycle. A later phase adds the site configuration UI;
+see `docs/superpowers/specs/2026-08-08-runtime-site-config-design.md`.
+
+They have deliberately different dependencies — see Dependencies below. The
+service is stdlib-only so it can run on a Debian Pi with no venv; only the
+generator needs shapely.
 
 ## Why a proxy
 
@@ -120,3 +125,42 @@ importing proves nothing on a dev machine that already has shapely.
 The Pi has shapely 1.8, this repo's devShell has 2.x. Different GEOS, so
 generated vertices can differ in the last decimal and occasionally in count.
 Geometry tests compare with tolerance for exactly that reason.
+
+## Geography
+
+Airspace, coastline and point references for one site. From this directory:
+
+```bash
+SEL=boxradar_site/geo/selection.example.json
+
+python3 -m boxradar_site.geo list    --selection $SEL           # what's in reach
+python3 -m boxradar_site.geo list    --selection $SEL --kind CTR
+python3 -m boxradar_site.geo suggest --selection $SEL           # a starting set
+
+# C headers, which is what the firmware currently reads
+python3 -m boxradar_site.geo build --selection $SEL \
+  --out ../../src/ui/airspace_data.h \
+  --coastline-out ../../src/ui/coastline_data.h
+
+# the binary blob, which nothing reads yet
+python3 -m boxradar_site.geo build --selection $SEL --blob site.bin --coastline
+```
+
+`list` prints every airspace feature whose geometry intersects the box, with
+its on-screen size at the 50nm overview, distance from home and vertex count —
+so you never need to know your local CTRs by their YAIXM names. `suggest` ticks
+what the four measured rules would pick and says why it rejected the rest.
+Those rules only ever suggest; `$SEL` is what gets drawn.
+
+Airspace is selected by rule-assisted picking. **Point references are not** —
+airfields, runway centrelines, fixes and towns are curated by hand in the
+selection file, because a marker is cheap orientation while a centreline is a
+strong claim about where traffic goes. The bounding box is a search scope, not
+a selection. Pickers over OurAirports and GeoNames are a later phase.
+
+Adding `--fetch` pulls the latest YAIXM release first. A selected feature name
+that no longer exists in the dataset is reported as a warning rather than
+silently dropped, so an AIRAC cycle that renames something is visible.
+
+The blob format is specified in `SPEC.md`. It is written and tested but not yet
+consumed on device — the firmware still reads the generated C headers.
