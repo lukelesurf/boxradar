@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: tasks 1-2 complete, verified on hardware 2026-08-08. Tasks 3-4 not started.** The board fetches, validates and caches the blob, and loads it from LittleFS on boot — free heap after the 18KB allocation is 196,432 bytes. It does NOT yet draw from it; scope.cpp still reads the compiled tables.
+
+> **Task 3 stops here deliberately.** Its acceptance test is comparing the rendered panel against the compiled build, and that needs human eyes on the shelf. Leaving unverifiable render-path code in place would be worse than leaving the task open.
+
 **Goal:** The board draws its map from a blob fetched over HTTP and cached to LittleFS, instead of from tables compiled into flash.
 
 **Architecture:** Three layers, deliberately separated so only the last one can break the display. `radarcore/geomap` is a portable facade over `GeoBlob` that adds the coastline bounding boxes the blob does not store — pure, natively tested. `src/geo_store` owns the device side: LittleFS cache, HTTP fetch with `If-None-Match`, and one heap buffer the `GeoBlob` points into. Only then does `scope.cpp` switch its six loops over, behind a build flag so the compiled tables remain a fallback until the blob path is proven on hardware.
