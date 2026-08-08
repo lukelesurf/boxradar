@@ -2,6 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: implemented 2026-08-08.** All 7 tasks complete. The generated header
+is byte-identical to the one `tools/build_airspace.py` produced, apart from the
+GENERATED-by line. Cross-checked on the Pi with shapely 1.8: same 13 outlines
+and vertex counts, worst deviation 2.1m against a 56m tolerance.
+
 **Goal:** Replace `CURATED_AIRPORTS` with a selection config plus a searchable candidate list, so choosing local airspace stops requiring you to know the YAIXM feature names.
 
 **Architecture:** The airspace geometry pipeline moves out of `tools/build_airspace.py` into `boxradar_site/geo/`, split into a stdlib-only YAIXM parser and a shapely-dependent outline builder. On top of that sit two new things: a *catalog* query that lists every feature in the box with the metadata a human needs to choose (kind, on-screen size, distance, vertex count), and a *rules* module implementing the four measured defaults behind a "suggest" call. Output is still `src/ui/airspace_data.h` — the binary blob is phase 2b.

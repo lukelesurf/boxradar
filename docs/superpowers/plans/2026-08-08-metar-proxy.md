@@ -2,6 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: implemented and deployed 2026-08-08.** All 7 tasks complete. The
+proxy runs on the receiver Pi as `boxradar-site.service` on port 8081, the board
+was flashed over OTA and verified polling it every 60s, and `tools/metar-feed`
+is retired on both the Pi and in the repo.
+
 **Goal:** Replace `tools/metar-feed`'s timer-and-static-file with an on-demand caching HTTP proxy that serves any ICAO station, as the first module of the `tools/boxradar-site` Pi application.
 
 **Architecture:** A stdlib-only Python HTTP service on the receiver Pi, listening on port 8081. `GET /metar/EGSS` returns the exact JSON envelope the board already parses, built from a per-station cache in front of aviationweather.gov. The cache is what makes an on-demand endpoint safe: today's systemd timer guarantees at most one upstream call per 5 minutes, and a 300s TTL preserves that guarantee no matter how often the board asks. Normalisation logic moves verbatim out of `metar_feed.py` into a pure, unit-tested module.
