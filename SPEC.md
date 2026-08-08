@@ -71,7 +71,13 @@ ADS-B radar display on a Cheap Yellow Display. Successor to the ESP8266/Nokia 51
 - mDNS hostname `boxradar.local`; OTA password required (define in `config.h`)
 - Partition scheme: `default.csv` (two ~1.3MB OTA app slots on the 4MB flash) — plenty for this app; do not switch to `huge_app`, it removes the second OTA slot
 
-### Flash headroom / expansion option
+### Flash headroom (min_spiffs applied 2026-08-08)
+
+**This switch has been made** — `platformio.ini` uses `min_spiffs.csv`.
+Applied over USB with a preceding erase; see the caveat at the end of this
+section for why it cannot be done over OTA. The rest of this section is
+kept as the reasoning.
+
 
 Two app slots is what makes OTA safe: the board runs from `app0` while
 espota writes `app1`, and the bootloader only switches over once the image
