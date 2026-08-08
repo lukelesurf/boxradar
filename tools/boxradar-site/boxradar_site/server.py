@@ -2,18 +2,24 @@
 
     GET /metar/EGSS         one station
     GET /metar/EGSS,EGGW    several, in one upstream call
+    GET /contacts?lat=&lon=&n=   the binary traffic feed
     GET /healthz            liveness
 
 The /metar response envelope is fixed by lib/radarcore/metar.cpp and must not
 change shape: it iterates root["stations"] matching on "id". Extra keys are
 safe — ArduinoJson ignores what it does not read.
+
+/contacts is a fixed-size binary format, specified in
+docs/superpowers/specs/2026-08-08-contact-feed.md, and is the display's primary
+feed at 1Hz. Its shape is fixed by the board's reader in the same way.
 """
 
 import json
 import re
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import VERSION
+from . import VERSION, contacts, feed
 from .metar import envelope, normalise
 
 # ICAO location indicators are four letters. Validated rather than trusted:
@@ -45,7 +51,36 @@ def parse_ids(segment):
     return out or None
 
 
-def _make_handler(cache, cfg):
+# The board asks for what its static array can hold. The ceiling is here only
+# so an unauthenticated LAN request cannot ask for an unbounded response; it is
+# not a display policy and should stay well above any plausible MAX_AIRCRAFT.
+MAX_CONTACTS = 128
+
+
+def parse_site(query):
+    """(lat, lon, n) from the query string, or None if it is not acceptable.
+
+    Validated rather than trusted, as parse_ids is. Home is deliberately a
+    request parameter and not service config: NVS on the board is the single
+    authority for where "here" is, so the Pi holds no site position and two
+    boards with different homes work off one service.
+    """
+    params = urllib.parse.parse_qs(query)
+    try:
+        lat = float(params["lat"][0])
+        lon = float(params["lon"][0])
+        n = int(params["n"][0])
+    except (KeyError, IndexError, ValueError):
+        return None
+    if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+        return None
+    # NaN fails every comparison above, so it is already rejected.
+    if not (1 <= n <= MAX_CONTACTS):
+        return None
+    return lat, lon, n
+
+
+def _make_handler(cache, cfg, fetch_feed):
     class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 for the sake of curl and the future web UI. The firmware is
         # NOT a beneficiary: net_task.cpp calls http.useHTTP10(true), so the
@@ -56,14 +91,34 @@ def _make_handler(cache, cfg):
         server_version = f"boxradar-site/{VERSION}"
 
         def do_GET(self):
-            path = self.path.split("?", 1)[0]
+            path, _, query = self.path.partition("?")
             if path == "/healthz":
                 self._json(200, {"ok": True, "version": VERSION})
                 return
             if path.startswith("/metar/"):
                 self._metar(path[len("/metar/"):])
                 return
+            if path == "/contacts":
+                self._contacts(query)
+                return
             self._json(404, {"error": "not found"})
+
+        def _contacts(self, query):
+            site = parse_site(query)
+            if site is None:
+                self._json(400, {"error": "expected lat, lon and n=1.."
+                                          f"{MAX_CONTACTS}"})
+                return
+            lat, lon, n = site
+            try:
+                aircraft = fetch_feed()
+            except feed.FeedError as e:
+                # 503 rather than an empty 200: a header with no records is a
+                # legitimate answer meaning "quiet sky", and the board would
+                # believe it. Losing the receiver must not read as silence.
+                self._json(503, {"error": str(e)})
+                return
+            self._binary(200, contacts.build(aircraft, lat, lon, n))
 
         def _metar(self, segment):
             ids = parse_ids(segment)
@@ -86,6 +141,14 @@ def _make_handler(cache, cfg):
             ]
             self._json(200, envelope(stations, fetched_at, stale))
 
+        def _binary(self, status, body):
+            self.send_response(status)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
         def _json(self, status, payload):
             body = (json.dumps(payload, separators=(",", ":")) + "\n").encode()
             self.send_response(status)
@@ -102,9 +165,13 @@ def _make_handler(cache, cfg):
     return Handler
 
 
-def make_server(addr, cache, cfg):
+def make_server(addr, cache, cfg, fetch_feed=None):
     """Threading so a slow upstream fetch cannot block an unrelated request.
+
+    Threading matters more now than it did for weather alone: /contacts is on
+    the display's 1Hz path and must not queue behind a stalled METAR refresh.
 
     Pass port 0 to let the OS choose — used by the tests.
     """
-    return ThreadingHTTPServer(addr, _make_handler(cache, cfg))
+    return ThreadingHTTPServer(
+        addr, _make_handler(cache, cfg, fetch_feed or feed.fetch))

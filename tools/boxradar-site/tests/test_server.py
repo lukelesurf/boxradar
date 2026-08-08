@@ -4,7 +4,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from boxradar_site import server
+from boxradar_site import contacts, feed, server
 from boxradar_site.config import SiteConfig
 
 
@@ -20,13 +20,28 @@ class FakeCache:
         return self.observations, self.at, self.stale
 
 
+class FakeFeed:
+    def __init__(self):
+        self.aircraft = []
+        self.error = None
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.aircraft
+
+
 class ServerTest(unittest.TestCase):
     def setUp(self):
         self.cache = FakeCache()
+        self.feed = FakeFeed()
         self.cfg = SiteConfig({"EGSS": [("04", 43), ("22", 223)]})
         # Port 0 lets the OS choose, so tests never collide with the real
         # service or with each other.
-        self.httpd = server.make_server(("127.0.0.1", 0), self.cache, self.cfg)
+        self.httpd = server.make_server(("127.0.0.1", 0), self.cache, self.cfg,
+                                        fetch_feed=self.feed)
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever,
                                        daemon=True)
@@ -141,6 +156,89 @@ class TestMetarRoute(ServerTest):
         with urllib.request.urlopen(url, timeout=5) as r:
             self.assertEqual(r.headers["Content-Type"], "application/json")
             self.assertEqual(r.headers["Cache-Control"], "no-store")
+
+
+class TestParseSite(unittest.TestCase):
+    def test_accepts_a_well_formed_query(self):
+        self.assertEqual(server.parse_site("lat=51.9&lon=0.03&n=32"),
+                         (51.9, 0.03, 32))
+
+    def test_negative_longitude(self):
+        self.assertEqual(server.parse_site("lat=51.9&lon=-0.36&n=1")[1], -0.36)
+
+    def test_missing_parameters_are_rejected(self):
+        self.assertIsNone(server.parse_site("lat=51.9&lon=0.03"))
+        self.assertIsNone(server.parse_site("n=32"))
+        self.assertIsNone(server.parse_site(""))
+
+    def test_unparseable_values_are_rejected(self):
+        self.assertIsNone(server.parse_site("lat=north&lon=0.03&n=32"))
+        self.assertIsNone(server.parse_site("lat=51.9&lon=0.03&n=lots"))
+
+    def test_out_of_range_positions_are_rejected(self):
+        self.assertIsNone(server.parse_site("lat=91&lon=0&n=32"))
+        self.assertIsNone(server.parse_site("lat=0&lon=181&n=32"))
+
+    def test_nan_is_rejected_by_the_range_check(self):
+        self.assertIsNone(server.parse_site("lat=nan&lon=0&n=32"))
+
+    def test_count_must_be_within_the_ceiling(self):
+        self.assertIsNone(server.parse_site("lat=51.9&lon=0.03&n=0"))
+        self.assertIsNone(
+            server.parse_site(f"lat=51.9&lon=0.03&n={server.MAX_CONTACTS + 1}"))
+
+
+class TestContactsRoute(ServerTest):
+    HOME = "lat=51.88501837&lon=0.23502732"
+
+    def get_binary(self, path):
+        url = f"http://127.0.0.1:{self.port}{path}"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return r.status, r.read(), r.headers
+
+    def test_serves_a_parseable_feed(self):
+        self.feed.aircraft = [
+            {"hex": "400abc", "lat": 52.0, "lon": 0.1, "seen": 1.0,
+             "flight": "BAW123 ", "t": "A320", "alt_baro": 3000},
+        ]
+        status, body, _ = self.get_binary(f"/contacts?{self.HOME}&n=32")
+        self.assertEqual(status, 200)
+        got = contacts.read(body)
+        self.assertEqual(got["total"], 1)
+        self.assertEqual(got["contacts"][0]["callsign"], "BAW123")
+
+    def test_content_type_is_binary_and_uncached(self):
+        _, _, headers = self.get_binary(f"/contacts?{self.HOME}&n=32")
+        self.assertEqual(headers["Content-Type"], "application/octet-stream")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+
+    def test_quiet_sky_is_a_valid_empty_feed(self):
+        status, body, _ = self.get_binary(f"/contacts?{self.HOME}&n=32")
+        self.assertEqual(status, 200)
+        self.assertEqual(contacts.read(body)["contacts"], [])
+
+    def test_n_caps_the_records_but_not_the_total(self):
+        self.feed.aircraft = [
+            {"hex": f"4000{i:02x}", "lat": 52.0 + i / 100.0, "lon": 0.1,
+             "seen": 1.0}
+            for i in range(10)
+        ]
+        _, body, _ = self.get_binary(f"/contacts?{self.HOME}&n=4")
+        got = contacts.read(body)
+        self.assertEqual(len(got["contacts"]), 4)
+        self.assertEqual(got["total"], 10)
+
+    def test_a_dead_receiver_is_503_not_an_empty_feed(self):
+        self.feed.error = feed.FeedError("connection refused")
+        status, body = self.get_expecting_error(f"/contacts?{self.HOME}&n=32")
+        self.assertEqual(status, 503)
+        self.assertIn("error", body)
+
+    def test_a_bad_query_is_400_and_never_touches_the_receiver(self):
+        status, body = self.get_expecting_error("/contacts?lat=51.9&n=32")
+        self.assertEqual(status, 400)
+        self.assertIn("error", body)
+        self.assertEqual(self.feed.calls, 0)
 
 
 class TestHealthRoute(ServerTest):

@@ -13,7 +13,8 @@ import unittest
 PKG = pathlib.Path(__file__).resolve().parents[1] / "boxradar_site"
 
 SERVICE_MODULES = ["metar.py", "cache.py", "server.py", "upstream.py",
-                   "config.py", "__main__.py", "__init__.py"]
+                   "config.py", "contacts.py", "feed.py", "__main__.py",
+                   "__init__.py"]
 
 # Anything not in the standard library, plus the geo subpackage itself.
 FORBIDDEN_IN_SERVICE = {"shapely", "yaml", "boxradar_site.geo", "geo"}

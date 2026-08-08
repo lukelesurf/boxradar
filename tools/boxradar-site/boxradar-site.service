@@ -1,5 +1,5 @@
 [Unit]
-Description=BOXRADAR site application (METAR proxy)
+Description=BOXRADAR site application (contact feed and METAR proxy)
 Documentation=https://aviationweather.gov/data/api/
 After=network-online.target
 Wants=network-online.target
