@@ -33,10 +33,28 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 OUTPUT_PATH = REPO_ROOT / "src" / "ui" / "airspace_data.h"
 
-# (output name prefix, CTR feature name, CTA feature name)
+# (output name prefix, CTR feature name, CTA feature name or None)
+#
+# The CTA is optional. Heathrow is the case that forced it: the dataset has
+# no HEATHROW feature at all, because its zone is "LONDON CTR" (class D, SFC
+# to 2500ft) sitting directly under the TMA base at 2500ft. It needs no
+# intervening CTA — the TMA is its CTA. Fields further out (Stansted, Luton,
+# Gatwick, City) each have one to step up from their CTR into the TMA.
+# The London TMA is deliberately absent. Measured at 50nm it is 827px of
+# outline on its own — more than everything below combined — and unlike a
+# CTR it encloses nothing you can see, so it reads as an arbitrary line
+# across the panel rather than as information.
 CURATED_AIRPORTS = [
     ("STANSTED", "LONDON STANSTED CTR", "LONDON STANSTED CTA"),
     ("LUTON", "LONDON LUTON CTR", "LONDON LUTON CTA"),
+    ("CITY", "LONDON CITY CTR", "LONDON CITY CTA"),
+    ("GATWICK", "LONDON GATWICK CTR", "LONDON GATWICK CTA"),
+    ("SOUTHEND", "SOUTHEND CTR", "SOUTHEND CTA"),
+    ("HEATHROW", "LONDON CTR", None),  # zone only; see the note above
+    # Two disjoint lobes, SFC-1500ft, sitting under the 04 and 22 approaches.
+    # Emitted as STANSTED_TMZ0/1 rather than merged — the gap between them is
+    # real airspace, not a discretisation artefact.
+    ("STANSTED_TMZ", "LONDON STANSTED TMZ", None),
 ]
 
 # LOCATION-SPECIFIC sanity bounds for the generated geometry. This is a guard
@@ -266,8 +284,14 @@ def feature_rings(feature: dict) -> list[list[list[float]]]:
     return rings
 
 
-def envelope_ring(rings: list[list[list[float]]]) -> list[list[float]]:
-    """Exterior ring of the union of all rings, as a closed [lon,lat] ring.
+def merge_rings(rings: list[list[list[float]]]) -> list[list[list[float]]]:
+    """Exterior ring(s) of the union of all rings, as closed [lon,lat] rings.
+
+    Returns ONE ring when the volumes touch or overlap — the common case,
+    where a CTR and its CTA shelves form a single envelope. Returns several
+    when they are genuinely disjoint, which is not an error: the Stansted TMZ
+    is two separate lobes either side of the field, under the 04 and 22
+    approaches, and merging them would invent airspace between them.
 
     Adjacent volumes discretise shared arcs from different endpoints, so
     their edges are near- but not exactly coincident; the buffer in/out
@@ -275,9 +299,24 @@ def envelope_ring(rings: list[list[list[float]]]) -> list[list[float]]:
     """
     polys = [Polygon(r).buffer(BUFFER_DEG) for r in rings]
     merged = unary_union(polys).buffer(-BUFFER_DEG).simplify(SIMPLIFY_DEG)
-    if merged.geom_type != "Polygon":
-        raise SystemExit(f"union produced {merged.geom_type}, expected Polygon")
-    return [[round(lon, 6), round(lat, 6)] for lon, lat in merged.exterior.coords]
+    geoms = list(merged.geoms) if merged.geom_type == "MultiPolygon" else [merged]
+    out = []
+    for g in geoms:
+        if g.geom_type != "Polygon":
+            raise SystemExit(f"union produced {g.geom_type}, expected Polygon")
+        out.append([[round(lon, 6), round(lat, 6)] for lon, lat in g.exterior.coords])
+    return out
+
+
+def add_outline(outlines, base: str, rings: list[list[list[float]]]) -> None:
+    """Append one outline, or several suffixed ones if the volumes are
+    disjoint. Replaces the old assumption that a feature is a single shape."""
+    merged = merge_rings(rings)
+    if len(merged) == 1:
+        outlines.append((base, merged[0]))
+        return
+    for i, r in enumerate(merged):
+        outlines.append((f"{base}{i}", r))
 
 
 def check_ring(name: str, ring: list[list[float]]) -> None:
@@ -359,16 +398,10 @@ def main() -> int:
         ctr_rings = feature_rings(find_feature(airspace_data, ctr_name))
         if not ctr_rings:
             raise SystemExit(f"{ctr_name!r}: no volumes")
-        # Stansted and Luton each publish their CTR as a single volume, but
-        # that is not general — Southend's is split into three. Merge them
-        # with the same union used for the CTR+CTA envelope rather than
-        # assuming one boundary.
-        ctr_outline = (
-            ctr_rings[0] if len(ctr_rings) == 1 else envelope_ring(ctr_rings)
-        )
-        cta_rings = feature_rings(find_feature(airspace_data, cta_name))
-        outlines.append((f"{prefix}_CTR", ctr_outline))
-        outlines.append((f"{prefix}_ENV", envelope_ring(ctr_rings + cta_rings)))
+        add_outline(outlines, f"{prefix}_CTR", ctr_rings)
+        if cta_name:
+            cta_rings = feature_rings(find_feature(airspace_data, cta_name))
+            add_outline(outlines, f"{prefix}_ENV", ctr_rings + cta_rings)
 
     for name, ring in outlines:
         check_ring(name, ring)
