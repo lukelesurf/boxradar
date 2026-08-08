@@ -131,7 +131,7 @@ bool geoStoreBegin() {
 }
 
 bool geoStoreRefresh() {
-#ifndef GEO_URL
+#ifndef GEO_ENABLED
   return s_map.valid();
 #else
   if (WiFi.status() != WL_CONNECTED) return s_map.valid();

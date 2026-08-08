@@ -14,6 +14,14 @@
 
 using radar::AircraftStore;
 
+// WiFi.status() reports WL_CONNECTED before DHCP has bound an address, so the
+// first fetch after boot fails with a connection error every time. Harmless
+// for the 60s weather poll; expensive for the 10-minute geography poll, where
+// it would mean ten minutes on a possibly stale cache after every reboot.
+static bool netReady() {
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP() != INADDR_NONE;
+}
+
 static AircraftStore s_staging;
 static AircraftStore s_prev;
 
@@ -122,7 +130,7 @@ static void poll() {
   http.end();
 }
 
-#ifdef METAR_URL
+#ifdef METAR_ENABLED
 // Weather is strictly decorative: any failure leaves the previously
 // published Metar in place, and a board that has never reached the feed
 // simply shows no weather. Nothing here may disturb the aircraft path.
@@ -143,7 +151,9 @@ static void pollMetar() {
         s_metar.lastFetchMs = millis();
         publishMetar(s_metar);
       } else {
-        Serial.println("metar: station " METAR_STATION " not in feed");
+        // printf, not literal concatenation: METAR_STATION is now an
+        // expression reading the runtime config, not a string literal.
+        Serial.printf("metar: station %s not in feed\n", METAR_STATION);
       }
     } else {
       Serial.printf("metar parse error: %s\n", err.c_str());
@@ -164,29 +174,29 @@ static void netTaskLoop(void *) {
       otaStarted = true;
     }
     if (otaStarted) ArduinoOTA.handle();
-    if (!g_otaActive && WiFi.status() == WL_CONNECTED &&
+    if (!g_otaActive && netReady() &&
         millis() - lastPoll >= POLL_INTERVAL_MS) {
       lastPoll = millis();
       poll();
     }
-#ifdef GEO_URL
+#ifdef GEO_ENABLED
     // Geography is fetched once WiFi is up and then only occasionally: it is a
     // per-site file that changes when you regenerate it, not live data. Same
     // discipline as the weather below — its own cadence and its own `if`, so a
     // slow fetch can never delay traffic or the OTA handler.
     static uint32_t lastGeo = 0;
-    if (!g_otaActive && WiFi.status() == WL_CONNECTED &&
+    if (!g_otaActive && netReady() &&
         (lastGeo == 0 || millis() - lastGeo >= GEO_POLL_INTERVAL_MS)) {
       lastGeo = millis();
       geoStoreRefresh();
     }
 #endif
-#ifdef METAR_URL
+#ifdef METAR_ENABLED
     // Deliberately a separate cadence and a separate `if`, not folded into
     // the aircraft poll: a slow or hanging weather fetch must never delay
     // traffic, which is the thing the display exists to show.
     static uint32_t lastMetar = 0;
-    if (!g_otaActive && WiFi.status() == WL_CONNECTED &&
+    if (!g_otaActive && netReady() &&
         (lastMetar == 0 || millis() - lastMetar >= METAR_POLL_INTERVAL_MS)) {
       lastMetar = millis();
       pollMetar();

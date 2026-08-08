@@ -41,6 +41,34 @@ void setupWifi() {
 
 void setup() {
   Serial.begin(115200);
+  // Before anything reads config: WiFi, the tasks, night mode. NVS is an
+  // overlay on the compiled defaults, so this cannot make the board
+  // unreachable even if what is stored is nonsense.
+  siteConfigBegin();
+
+#ifdef CFG_SELFTEST
+  // One-boot proof that the NVS overlay round-trips, so 3a-1 is verified
+  // rather than merely compiled. Writes a distinctive override, reloads,
+  // clears, reloads again — and leaves NVS as it found it.
+  Serial.println("selftest: --- 1. as booted ---");
+  Serial.printf("selftest: duty=%u station=%s fromNvs=%d\n",
+                siteConfig().nightClockDuty, siteConfig().metarStation,
+                (int)siteConfigFromNvs());
+  siteConfigSetU32("nduty", 42);
+  siteConfigSetString("station", "EGLL");
+  siteConfigBegin();
+  Serial.println("selftest: --- 2. after writing nduty=42 station=EGLL ---");
+  Serial.printf("selftest: duty=%u station=%s fromNvs=%d\n",
+                siteConfig().nightClockDuty, siteConfig().metarStation,
+                (int)siteConfigFromNvs());
+  siteConfigClear();
+  siteConfigBegin();
+  Serial.println("selftest: --- 3. after clearing ---");
+  Serial.printf("selftest: duty=%u station=%s fromNvs=%d\n",
+                siteConfig().nightClockDuty, siteConfig().metarStation,
+                (int)siteConfigFromNvs());
+#endif
+  Serial.begin(115200);
 
   tft.init();
   tft.setRotation(1); // landscape, 320x240
