@@ -101,13 +101,50 @@ Not a concern. Measured frame cost is R6–15ms of sprite build against a
 38ms SPI push and a 100ms budget. Panning changes what is drawn, not how
 much — the same reject logic applies with a different window.
 
-## Open questions
+## Settled
 
-- **Is detail fixed at 10nm, or should it still cycle?** Fixing it loses
-  5nm entirely, which is the range where a single airport's approach is
-  clearest.
-- **What does the overhead readout mean when panned away?** It predicts
-  passes over *home*, which is arguably still what you want, but it would
-  be sitting on a screen showing somewhere else.
-- **Should overview draw datablocks at all?** If it exists purely to choose
-  a region, bare blips might read better than 20+ callsign labels.
+**Overview keeps its labels.** Identifying which aircraft is the target is
+the whole point of choosing where to zoom, so bare blips are not enough.
+
+**But the rarity signal has to move.** Overview shows callsign-only
+datablocks, and the amber "not an everyday airframe" marker currently lives
+on the *type* field on line 2 — which does not render at 50nm. So the cue is
+invisible in precisely the mode that exists to choose what is worth looking
+at. Fix: in overview, colour the **callsign** amber instead. Same glyphs,
+same ink, signal delivered where the decision is made.
+
+**The overhead readout stays as-is.** It predicts passes over *home*, and
+the store is home-centred and holds everything within 50nm regardless of
+where the viewport is looking, so panning away never starves it. The worry
+about it going stale belonged to the free-panning design, which would have
+needed a view-centred store.
+
+> If the store is ever changed to sort by view centre, this stops being
+> true — the readout would then be predicting from data with home's traffic
+> missing, and must be hidden or re-based.
+
+## Open question: getting to 5nm
+
+5nm is wanted — it is the range where a single airport's approach is
+clearest, and centring on Stansted is much of the point. The problem is the
+gesture budget: detail mode already spends both taps (blip selects,
+background exits).
+
+Two credible options:
+
+**A. Dedicated hit zone.** The `10nm` readout in the status strip becomes
+the zoom toggle. No timing, no ambiguity, and exit stays a single tap. The
+drawn strip is 10px but the hit zone need not match it — a ~24px band at
+the bottom-left would be usable with a finger on a resistive panel.
+
+**B. Extend the cycle.** Background tap goes OVERVIEW → 10nm → 5nm →
+OVERVIEW. Needs no new interface at all and is entirely predictable, but
+exiting from 10nm means passing through 5nm, so the most frequent action
+gets slower.
+
+Leaning A, on the grounds that exit is the common case and should not
+degrade. B is tempting for requiring nothing new.
+
+Rejected: long-press (no feedback during the hold, finicky on resistive)
+and double-tap (would force a ~400ms delay onto every exit while waiting to
+see if a second tap arrives).
