@@ -7,6 +7,7 @@
 #include "shared_state.h"
 #include "net_task.h"
 #include "night_mode.h"
+#include "portal.h"
 #include "status_led.h"
 #include "ui_task.h"
 
@@ -36,6 +37,24 @@ void setupWifi() {
   } else {
     drawStatus("wifi: FAILED (OTA unavailable)", TFT_RED);
     Serial.println("wifi connect failed");
+  }
+
+  // Only reached when association failed, so a working board can never be
+  // pushed into the portal by accident. The portal is time-boxed and hands
+  // back in STA mode, so even a spurious trigger self-heals into a board that
+  // is back on the LAN and reachable over OTA.
+  if (portalShouldRun(WiFi.status() == WL_CONNECTED)) {
+    portalRun();
+    // One more attempt with whatever is now stored. If this also fails the net
+    // task keeps retrying in the background, exactly as before.
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.begin(WIFI_SSID, WIFI_PASS);
+      uint32_t retry = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - retry < WIFI_TIMEOUT_MS)
+        delay(250);
+      Serial.printf("wifi after portal: %s\n",
+                    WiFi.status() == WL_CONNECTED ? "connected" : "still down");
+    }
   }
 }
 
