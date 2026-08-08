@@ -46,7 +46,12 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="boxradar_site.geo")
     p.add_argument("command", choices=["list", "suggest", "build"])
     p.add_argument("--selection", required=True)
-    p.add_argument("--out")
+    p.add_argument("--out", help="write the airspace C header here")
+    p.add_argument("--blob", help="also write the binary geography blob")
+    p.add_argument("--coastline-out",
+                   help="write the coastline C header here (needs Overpass)")
+    p.add_argument("--coastline", action="store_true",
+                   help="include coastline in the blob (needs Overpass)")
     p.add_argument("--fetch", action="store_true",
                    help="git pull the YAIXM source first")
     p.add_argument("--kind", action="append",
@@ -93,14 +98,52 @@ def main(argv=None):
         print(f"PROBLEM: {problem}", file=sys.stderr)
     if problems:
         return 1
-    text = emit.render_header(outlines)
     if args.out:
-        pathlib.Path(args.out).write_text(text)
+        pathlib.Path(args.out).write_text(emit.render_header(outlines))
         total = sum(len(r) for _, r in outlines)
         print(f"wrote {args.out}: {len(outlines)} outlines, {total} vertices",
               file=sys.stderr)
-    else:
-        sys.stdout.write(text)
+    elif not args.blob and not args.coastline_out:
+        sys.stdout.write(emit.render_header(outlines))
+
+    coast = None
+    if args.coastline or args.coastline_out:
+        from . import coastline
+        cache = pathlib.Path("~/.cache/boxradar-coastline").expanduser()
+        box = coastline.query_box(sel.home_lat, sel.home_lon)
+        coast = coastline.segments(coastline.fetch(box, cache),
+                                   sel.home_lat, sel.home_lon)
+        if args.coastline_out:
+            pathlib.Path(args.coastline_out).write_text(
+                coastline.render_header(coast))
+            print(f"wrote {args.coastline_out}: {len(coast)} segments, "
+                  f"{sum(len(s) for s in coast)} points", file=sys.stderr)
+
+    if args.blob:
+        from . import blob as blobmod
+        sections = {
+            # outlines carry [lon, lat] from the GeoJSON convention; the blob
+            # stores lat, lon to match the firmware's Vertex.
+            blobmod.KIND_AIRSPACE: [[(lat, lon) for lon, lat in ring]
+                                    for _, ring in outlines],
+            blobmod.KIND_AIRFIELDS: sel.airfields,
+            blobmod.KIND_RUNWAYS: sel.runways,
+            blobmod.KIND_WAYPOINTS: sel.waypoints,
+            blobmod.KIND_TOWNS: sel.towns,
+        }
+        if coast:
+            sections[blobmod.KIND_COASTLINE] = coast
+        data = blobmod.write(sel.home_lat, sel.home_lon, sections)
+        pathlib.Path(args.blob).write_bytes(data)
+        counts = ", ".join(f"{len(v)} {k}" for k, v in
+                           (("airspace", sections[blobmod.KIND_AIRSPACE]),
+                            ("coastline", coast or []),
+                            ("airfields", sel.airfields),
+                            ("runways", sel.runways),
+                            ("fixes", sel.waypoints),
+                            ("towns", sel.towns)))
+        print(f"wrote {args.blob}: {len(data)} bytes ({counts})",
+              file=sys.stderr)
     return 0
 
 

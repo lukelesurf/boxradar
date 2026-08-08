@@ -35,11 +35,21 @@ class Group:
 
 
 class Selection:
-    def __init__(self, home_lat, home_lon, reach_nm, groups):
+    def __init__(self, home_lat, home_lon, reach_nm, groups,
+                 airfields=None, runways=None, waypoints=None, towns=None):
         self.home_lat = home_lat
         self.home_lon = home_lon
         self.reach_nm = reach_nm
         self.groups = groups
+        # Point references are curated, not filtered. include/location.h says
+        # why: "a marker is cheap orientation, whereas an extended centreline
+        # is a strong visual claim about where traffic is going. Mark plenty;
+        # draw centrelines only for the fields whose approach paths you
+        # actually care about." Bbox is the search scope, never the selection.
+        self.airfields = list(airfields or [])
+        self.runways = list(runways or [])
+        self.waypoints = list(waypoints or [])
+        self.towns = list(towns or [])
 
     def feature_names(self):
         out = []
@@ -90,7 +100,24 @@ def load(path):
                             [str(e) for e in envelope]))
 
     return Selection(float(raw["home_lat"]), float(raw["home_lon"]),
-                     float(reach), groups)
+                     float(reach), groups,
+                     airfields=_points(raw, "airfields", 3, path),
+                     runways=_points(raw, "runways", 4, path),
+                     waypoints=_points(raw, "waypoints", 3, path),
+                     towns=_points(raw, "towns", 3, path))
+
+
+def _points(raw, key, arity, path):
+    """Validate a list of fixed-arity tuples. Raises naming the offending row."""
+    entries = raw.get(key, [])
+    if not isinstance(entries, list):
+        raise ValueError(f"{path}: {key} must be a list")
+    out = []
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, (list, tuple)) or len(entry) != arity:
+            raise ValueError(f"{path}: {key}[{i}] must have {arity} fields")
+        out.append(tuple(entry))
+    return out
 
 
 def missing_features(sel, features):
