@@ -96,3 +96,27 @@ stdlib only — no venv, no pip. Debian's Python is externally managed
 (PEP 668) and this must stay installable on a receiver box without either.
 `upstream.py` is the only module that opens a socket, which is what lets the
 cache be tested against a fake fetcher and a fake clock.
+
+## Dependencies
+
+Two profiles in one package, and the split is enforced by
+`tests/test_dependency_boundary.py`:
+
+| part | needs | why |
+|---|---|---|
+| METAR service (`boxradar_site/*.py`) | stdlib only | runs as a systemd unit on a Debian Pi where PEP 668 blocks pip and a venv would be extra machinery |
+| geography generator (`boxradar_site/geo/*`) | PyYAML, shapely | polygon union and simplification have no stdlib equivalent |
+
+Install the generator's dependencies from apt, which is outside PEP 668's
+scope:
+
+```bash
+sudo apt install python3-shapely python3-yaml
+```
+
+The boundary is checked by source inspection rather than by import, because
+importing proves nothing on a dev machine that already has shapely.
+
+The Pi has shapely 1.8, this repo's devShell has 2.x. Different GEOS, so
+generated vertices can differ in the last decimal and occasionally in count.
+Geometry tests compare with tolerance for exactly that reason.

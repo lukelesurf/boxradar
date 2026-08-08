@@ -19,7 +19,9 @@
             # FHS-wrapped variant: PlatformIO downloads prebuilt xtensa
             # toolchains that need a normal /lib to run on NixOS
             platformio
-            # airspace codegen (tools/build_airspace.py)
+            # airspace codegen (boxradar_site.geo) — note the Pi runs
+            # shapely 1.8 from apt while this is 2.x, so geometry tests
+            # compare with tolerance rather than equality
             (python3.withPackages (ps: [ ps.pyyaml ps.shapely ]))
           ];
         };

@@ -29,6 +29,16 @@ if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,7) else 1)'; t
   exit 1
 fi
 
+# The METAR service is stdlib-only on purpose, so it is installed and started
+# regardless. The geography generator additionally needs shapely and yaml;
+# report rather than fail, so a receiver that only wants weather still works.
+if python3 -c 'import shapely, yaml' 2>/dev/null; then
+  echo "geography generator dependencies present"
+else
+  echo "note: geography generation unavailable (that is fine for METAR only)"
+  echo "      to enable: sudo apt install python3-shapely python3-yaml"
+fi
+
 # Fail early rather than leaving a unit in a restart loop against whatever
 # already owns the port. Skipped when our own service is what holds it, which
 # is the normal case when re-running this to upgrade.
