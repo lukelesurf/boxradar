@@ -7,6 +7,7 @@ ESP32 whose heap floor is ~43KB with the render sprite live.
 """
 
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -28,13 +29,24 @@ def fetch(ids, timeout_s=20.0):
     """
     url = API.format(ids=",".join(ids))
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    # Logged unconditionally, because "did the cache actually go upstream?" is
+    # the operational question about this service and request logs alone cannot
+    # answer it. One line per real fetch makes the TTL visible in journald.
+    started = time.monotonic()
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as r:
             raw = json.load(r)
     except (urllib.error.URLError, TimeoutError, OSError) as e:
+        print(f"upstream: FAILED for {','.join(ids)}: {e}", flush=True)
         raise UpstreamError(f"fetch failed: {e}") from e
     except json.JSONDecodeError as e:
+        print(f"upstream: BAD JSON for {','.join(ids)}: {e}", flush=True)
         raise UpstreamError(f"bad JSON upstream: {e}") from e
     if not isinstance(raw, list):
+        print(f"upstream: BAD SHAPE for {','.join(ids)}", flush=True)
         raise UpstreamError(f"expected a JSON array, got {type(raw).__name__}")
-    return [obs for obs in raw if isinstance(obs, dict)]
+    obs = [o for o in raw if isinstance(o, dict)]
+    ms = (time.monotonic() - started) * 1000
+    print(f"upstream: fetched {','.join(ids)} -> {len(obs)} obs in {ms:.0f}ms",
+          flush=True)
+    return obs

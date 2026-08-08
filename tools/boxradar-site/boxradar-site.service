@@ -1,0 +1,31 @@
+[Unit]
+Description=BOXRADAR site application (METAR proxy)
+Documentation=https://aviationweather.gov/data/api/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# A long-running service replaces the oneshot timer this supersedes. It needs
+# no write access anywhere — the old script ran as root only to write into
+# lighttpd's document root, and there is no file to write any more.
+DynamicUser=yes
+Environment=PYTHONPATH=/usr/local/lib/boxradar-site
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m boxradar_site --port 8081
+Restart=always
+RestartSec=5
+Nice=10
+
+# Needs outbound HTTPS, one read-only config file, and a listening socket.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
