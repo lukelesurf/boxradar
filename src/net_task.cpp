@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include <string.h>
 #include "config.h"
+#include "geo_store.h"
 #include "parse.h"
 #include "metar.h"
 #include "shared_state.h"
@@ -168,6 +169,18 @@ static void netTaskLoop(void *) {
       lastPoll = millis();
       poll();
     }
+#ifdef GEO_URL
+    // Geography is fetched once WiFi is up and then only occasionally: it is a
+    // per-site file that changes when you regenerate it, not live data. Same
+    // discipline as the weather below — its own cadence and its own `if`, so a
+    // slow fetch can never delay traffic or the OTA handler.
+    static uint32_t lastGeo = 0;
+    if (!g_otaActive && WiFi.status() == WL_CONNECTED &&
+        (lastGeo == 0 || millis() - lastGeo >= GEO_POLL_INTERVAL_MS)) {
+      lastGeo = millis();
+      geoStoreRefresh();
+    }
+#endif
 #ifdef METAR_URL
     // Deliberately a separate cadence and a separate `if`, not folded into
     // the aircraft poll: a slow or hanging weather fetch must never delay
@@ -190,5 +203,9 @@ static void netTaskLoop(void *) {
 }
 
 void startNetTask() {
+  // Mounting LittleFS and opening the cached blob does no network work, so it
+  // happens before the task starts rather than racing WiFi.
+  geoStoreBegin();
+
   xTaskCreatePinnedToCore(netTaskLoop, "net", 12288, nullptr, 2, nullptr, 0);
 }
