@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status: tasks 1-2 complete, verified on hardware 2026-08-08. Tasks 3-4 not started.** The board fetches, validates and caches the blob, and loads it from LittleFS on boot — free heap after the 18KB allocation is 196,432 bytes. It does NOT yet draw from it; scope.cpp still reads the compiled tables.
+**Status: tasks 1-3 complete, verified on hardware 2026-08-08. Task 4 (deleting the compiled tables) not done and probably unnecessary.** The board fetches, validates and caches the blob, and loads it from LittleFS on boot — free heap after the 18KB allocation is 196,432 bytes. It does NOT yet draw from it; scope.cpp still reads the compiled tables.
 
-> **Task 3 stops here deliberately.** Its acceptance test is comparing the rendered panel against the compiled build, and that needs human eyes on the shelf. Leaving unverifiable render-path code in place would be worse than leaving the task open.
+> Task 3 is done: Luke compared the rendered panel against the compiled build and confirmed it. MAP_FROM_BLOB is now the default in config.h. The generated headers stay in the repo as regenerable output and remain one build flag away, so task 4's deletion buys little and costs the fallback.
 
 **Goal:** The board draws its map from a blob fetched over HTTP and cached to LittleFS, instead of from tables compiled into flash.
 
