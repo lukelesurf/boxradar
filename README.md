@@ -203,23 +203,34 @@ would drown the signal the highlight exists to carry.
 ### Regenerating airspace
 
 `src/ui/airspace_data.h` is committed, generated output. To change which
-volumes are drawn or pick up a new AIRAC cycle:
+volumes are drawn or pick up a new AIRAC cycle, from
+`tools/boxradar-site/` inside the devShell:
 
 ```bash
-python3 tools/build_airspace.py   # inside the devShell
+SEL=boxradar_site/geo/selection.example.json
+python3 -m boxradar_site.geo build --selection $SEL --fetch \
+  --out ../../src/ui/airspace_data.h
 ```
 
-Edit `CURATED_AIRPORTS` — entries are `(prefix, CTR name, CTA name or
-None)`. The CTA is optional because not every field has one; Heathrow's
-zone is `LONDON CTR` sitting directly under the TMA. Multi-volume
-features are merged, and genuinely disjoint ones (the two Stansted TMZ
-lobes) are emitted separately rather than unioned into airspace that
-doesn't exist. The generator refuses self-intersecting or out-of-bounds
-rings, and `BOUNDS_LAT`/`BOUNDS_LON` are themselves location-specific.
+Which airspace is drawn is the selection file, not a rule. Each entry is a
+group: `primary` is the feature drawn on its own as `<NAME>_CTR`, and
+`envelope` lists features merged *with* it into `<NAME>_ENV`. The envelope is
+often empty, because not every field has a CTA of its own — Heathrow's zone is
+`LONDON CTR` sitting directly under the TMA, so it is a primary with nothing
+grouped to it.
 
-The London TMA is deliberately absent: at 50nm it is more outline than
-everything else combined, and unlike a CTR it encloses nothing you can
-see, so it reads as an arbitrary line across the panel.
+Multi-volume features are merged, and genuinely disjoint ones (the two
+Stansted TMZ lobes) are emitted separately rather than unioned into airspace
+that doesn't exist. Self-intersecting or degenerate rings are reported as
+problems and abort the build.
+
+Use `geo list` and `geo suggest` (see Relocating, below) to find what is near
+you rather than looking feature names up by hand. `suggest` will not offer the
+London TMA: it is the wrong kind *and*, at 151nm across, far wider than the
+109nm the overview panel covers — an outline larger than the panel cannot read
+as an enclosure, it reads as an arbitrary line across the display. Six enroute
+CTAs (Daventry, Clacton, Cotswold, Portsmouth, Worthing, North Sea) are
+excluded on width alone, and Daventry is wider than the TMA.
 
 ### Regenerating the coastline
 
@@ -296,13 +307,29 @@ Five files carry location data. Nothing else needs touching.
 |---|---|---|
 | `include/config.h` | `HOME_LAT`/`HOME_LON`, `METAR_STATION`, receiver URL, timezone | **no** — gitignored |
 | `include/location.h` | airfields, runway thresholds, fixes, towns | yes |
-| `tools/build_airspace.py` | `CURATED_AIRPORTS` — which volumes | yes |
+| `tools/boxradar-site/boxradar_site/geo/selection.example.json` | which airspace to draw — copy and edit, or start from `geo suggest` | yes |
 | `tools/build_coastline.py` | re-run it; reads `HOME_*` from `config.h` | yes |
 | `/etc/boxradar-site/config.json` (on the Pi) | `runways` — stations and runway **true** headings | no — lives on the receiver |
 
 Home coordinates stay in the gitignored `config.h` on purpose: airfield data
 is published AIP material, but your own position is not, and this repo may be
 mirrored somewhere public.
+
+You no longer need to know your local airspace by its YAIXM name. From
+`tools/boxradar-site/`:
+
+```bash
+SEL=boxradar_site/geo/selection.example.json
+python3 -m boxradar_site.geo list    --selection $SEL   # everything in reach
+python3 -m boxradar_site.geo suggest --selection $SEL   # a sane starting set
+python3 -m boxradar_site.geo build   --selection $SEL --out ../../src/ui/airspace_data.h
+```
+
+`list` prints every feature within reach with its on-screen size at the
+overview scale, distance and vertex count. `suggest` ticks what the four
+default rules would pick and explains what it rejected and why — "DAVENTRY
+CTA: 151nm wide, over the 50nm limit". Those rules only ever *suggest*; the
+selection file is what gets drawn.
 
 ### Worked example: Southend-on-Sea
 
@@ -329,9 +356,11 @@ static constexpr RunwayAxis RUNWAYS[] = {
 {"runways": {"EGMC": [["05", 54], ["23", 234]]}}
 ```
 
-Then re-run both generators. `CURATED_AIRPORTS` needs feature names exactly
-as they appear in the source YAML; the generator fails loudly on a name it
-can't find, so a wrong guess is obvious rather than silent.
+Then re-run both generators. For the airspace selection, start from
+`geo suggest` rather than typing feature names — they have to match the source
+YAML exactly, and the list is where you find out what they are. A selected
+name that no longer exists in the dataset is reported as a warning rather than
+silently dropped, so an AIRAC cycle that renames something is visible.
 
 ### Where the coordinates come from
 

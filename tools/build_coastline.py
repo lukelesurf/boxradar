@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate src/ui/coastline_data.h from OpenStreetMap coastline data.
 
-Offline codegen, same shape as build_airspace.py: fetch once, cache, emit a
+Offline codegen, same shape as boxradar_site.geo: fetch once, cache, emit a
 committed header. Run it when relocating; never at build time.
 
 Why filtering matters more than simplification here: the raw data for the
