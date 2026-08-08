@@ -1,0 +1,20 @@
+{
+  "home_lat": 51.8850,
+  "home_lon": 0.2350,
+  "reach_nm": 65,
+  "airspace": [
+    {"name": "STANSTED", "primary": "LONDON STANSTED CTR",
+     "envelope": ["LONDON STANSTED CTA"]},
+    {"name": "LUTON", "primary": "LONDON LUTON CTR",
+     "envelope": ["LONDON LUTON CTA"]},
+    {"name": "CITY", "primary": "LONDON CITY CTR",
+     "envelope": ["LONDON CITY CTA"]},
+    {"name": "GATWICK", "primary": "LONDON GATWICK CTR",
+     "envelope": ["LONDON GATWICK CTA"]},
+    {"name": "SOUTHEND", "primary": "SOUTHEND CTR",
+     "envelope": ["SOUTHEND CTA"]},
+    {"name": "HEATHROW", "primary": "LONDON CTR", "envelope": []},
+    {"name": "STANSTED_TMZ", "primary": "LONDON STANSTED TMZ",
+     "envelope": []}
+  ]
+}
