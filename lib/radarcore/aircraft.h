@@ -43,6 +43,10 @@ struct Aircraft {
 struct AircraftStore {
   Aircraft list[MAX_AIRCRAFT];
   int count = 0;
+  // Contacts the receiver had before the cap, so the display can say "32/58".
+  // Can exceed count; equals it whenever the cap is not binding. The README
+  // documents the cap as a silent cliff — this is what makes it visible.
+  uint16_t feedTotal = 0;
   uint32_t lastFetchMs = 0; // millis() of last successful poll
   bool fetchOk = false;
   void clear();

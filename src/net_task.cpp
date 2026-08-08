@@ -6,8 +6,8 @@
 #include <WiFi.h>
 #include <string.h>
 #include "config.h"
+#include "contact_feed.h"
 #include "geo_store.h"
-#include "parse.h"
 #include "metar.h"
 #include "shared_state.h"
 #include "status_led.h"
@@ -78,56 +78,92 @@ static void printTable(const AircraftStore &s) {
 #endif
 }
 
+// The whole traffic payload, in .bss. Fixed size and never reallocated: the
+// point of moving filtering to the Pi was that this allocation stops being a
+// function of how many aircraft are airborne, and a heap buffer here would
+// hand that property straight back.
+static uint8_t s_payload[radar::CONTACT_MAX_PAYLOAD];
+
+// A failed poll leaves the previous store on screen but marks it not-ok, so
+// the status strip ages it rather than the scope silently freezing.
+static void pollFailed(const char *what, int detail) {
+  Serial.printf("contacts: %s (%d)\n", what, detail);
+  s_prev.fetchOk = false;
+  publishStore(s_prev);
+}
+
 static void poll() {
+  // Home goes on the request rather than into the Pi's config: NVS is the
+  // single authority for where "here" is, so the service holds no site
+  // position and cannot silently disagree with the board about it.
+  char url[radar::CFG_URL_LEN + 48];
+  snprintf(url, sizeof(url), "%s?lat=%.6f&lon=%.6f&n=%d", RECEIVER_URL,
+           (double)HOME_LAT, (double)HOME_LON, (int)radar::MAX_AIRCRAFT);
+
   HTTPClient http;
   http.setConnectTimeout(1500);
   http.setTimeout(3000);
-  // HTTP/1.0 disables chunked transfer so ArduinoJson can stream-parse
+  // HTTP/1.0 disables chunked transfer, so Content-Length is always present
+  // and the body can be read in one go against a known size.
   http.useHTTP10(true);
-  http.begin(RECEIVER_URL);
+  http.begin(url);
   int code = http.GET();
-  if (code == HTTP_CODE_OK) {
-    JsonDocument filter;
-    radar::buildAircraftFilter(filter);
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(
-        doc, http.getStream(), DeserializationOption::Filter(filter));
-    if (!err) {
-      int n = radar::loadStore(doc, s_staging, s_prev, HOME_LAT, HOME_LON,
-                               g_trailSpacingNm);
-#ifdef BOXRADAR_FAKE_ALERT
-      // Test hook. Real 7700s are a handful a year, so the banner, the
-      // flashing blip and the tier-0 datablock placement would otherwise be
-      // unverifiable — and an alert path nobody has ever seen work is an
-      // alert path you cannot trust. Stamps the nearest aircraft:
-      //   PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FAKE_ALERT pio run -e ota -t upload
-      // Re-flash without the flag to restore normal behaviour.
-      if (s_staging.count > 0)
-        strncpy(s_staging.list[0].squawk, "7700",
-                sizeof(s_staging.list[0].squawk));
-#endif
-      s_staging.lastFetchMs = millis();
-      s_staging.fetchOk = true;
-      s_prev = s_staging;
-      publishStore(s_staging);
-      printTable(s_staging);
-      // Heap-margin instrumentation: feed size vs kept (post range-cap) vs
-      // free/minimum-ever-free heap, so a slow leak or transient OOM under
-      // load shows up in a 45s serial capture without needing the full table.
-      Serial.printf("feed=%d kept=%d heap=%u minheap=%u\n",
-                    (int)doc["aircraft"].size(), n, esp_get_free_heap_size(),
-                    esp_get_minimum_free_heap_size());
-    } else {
-      Serial.printf("parse error: %s\n", err.c_str());
-      s_prev.fetchOk = false;
-      publishStore(s_prev);
-    }
-  } else {
-    Serial.printf("http error: %d\n", code);
+  if (code != HTTP_CODE_OK) {
+    pollFailed("http error", code);
+    http.end();
+    return;
+  }
+
+  int size = http.getSize();
+  if (size < 0 || size > (int)sizeof(s_payload)) {
+    // Refused rather than truncated. An oversized body means the service is
+    // sending more than this build's MAX_AIRCRAFT, which is a version
+    // mismatch to be reported, not a payload to salvage.
+    pollFailed("bad content length", size);
+    http.end();
+    return;
+  }
+
+  size_t got = http.getStreamPtr()->readBytes(s_payload, (size_t)size);
+  http.end();
+  if (got != (size_t)size) {
+    pollFailed("short read", (int)got);
+    return;
+  }
+
+  radar::ContactStatus status =
+      radar::loadContacts(s_payload, got, s_staging, s_prev, HOME_LAT,
+                          HOME_LON, g_trailSpacingNm);
+  if (status != radar::CONTACT_OK) {
+    Serial.printf("contacts: %s\n", radar::contactStatusName(status));
     s_prev.fetchOk = false;
     publishStore(s_prev);
+    return;
   }
-  http.end();
+
+#ifdef BOXRADAR_FAKE_ALERT
+  // Test hook. Real 7700s are a handful a year, so the banner, the
+  // flashing blip and the tier-0 datablock placement would otherwise be
+  // unverifiable — and an alert path nobody has ever seen work is an
+  // alert path you cannot trust. Stamps the nearest aircraft:
+  //   PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FAKE_ALERT pio run -e ota -t upload
+  // Re-flash without the flag to restore normal behaviour.
+  if (s_staging.count > 0)
+    strncpy(s_staging.list[0].squawk, "7700",
+            sizeof(s_staging.list[0].squawk));
+#endif
+  s_staging.lastFetchMs = millis();
+  s_staging.fetchOk = true;
+  s_prev = s_staging;
+  publishStore(s_staging);
+  printTable(s_staging);
+  // Heap-margin instrumentation. `feed` is now what the receiver had before
+  // the Pi's cap, so feed>kept is the cap binding — the thing the README
+  // called a silent cliff. `bytes` is the whole traffic allocation, which
+  // should no longer move with traffic at all.
+  Serial.printf("feed=%u kept=%d bytes=%d heap=%u minheap=%u\n",
+                s_staging.feedTotal, s_staging.count, size,
+                esp_get_free_heap_size(), esp_get_minimum_free_heap_size());
 }
 
 #ifdef METAR_ENABLED

@@ -82,6 +82,20 @@ void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
     else
       snprintf(buf, sizeof(buf), "AC %d", onScreen);
     seg(spr, x, buf, s.fetchOk ? TFT_WHITE : TFT_ORANGE);
+
+    // How many contacts the receiver had that the cap dropped. Shown only
+    // when it is actually dropping some, so the strip stays quiet in the
+    // normal case. The README describes the cap as a silent cliff; this is
+    // the whole reason the feed carries a pre-cap total.
+    //
+    // Deliberately not folded into the AC count: that one is what is ON
+    // SCREEN after the viewport cull, and the dropped ones are the farthest,
+    // most of which were never drawable anyway. Two different denominators,
+    // so two different numbers.
+    if (s.feedTotal > (uint16_t)s.count) {
+      snprintf(buf, sizeof(buf), " +%d", (int)(s.feedTotal - s.count));
+      seg(spr, x, buf, BLOCK_TEXT_DIM);
+    }
   }
 
   sep(spr, x);

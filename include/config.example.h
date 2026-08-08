@@ -4,8 +4,12 @@
 #define DEFAULT_WIFI_SSID "your-ssid"
 #define DEFAULT_WIFI_PASS "your-password"
 
-// readsb/tar1090 receiver. Fallback: "http://<host>:8080/data/aircraft.json"
-#define DEFAULT_RECEIVER_URL "http://receiver.lan/tar1090/data/aircraft.json"
+// The boxradar-site contact feed, NOT tar1090 directly. The board appends
+// "?lat=&lon=&n=" and gets back fixed-size binary records the Pi has already
+// filtered, range-sorted and capped — see
+// docs/superpowers/specs/2026-08-08-contact-feed.md. Pointing this at
+// aircraft.json will not work: the board no longer parses JSON traffic.
+#define DEFAULT_RECEIVER_URL "http://receiver.lan:8081/contacts"
 
 // Scope centre
 #define DEFAULT_HOME_LAT 51.5000

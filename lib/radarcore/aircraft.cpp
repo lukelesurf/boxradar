@@ -6,6 +6,7 @@ namespace radar {
 
 void AircraftStore::clear() {
   count = 0;
+  feedTotal = 0;
 }
 
 void AircraftStore::insertByRange(const Aircraft &a) {
