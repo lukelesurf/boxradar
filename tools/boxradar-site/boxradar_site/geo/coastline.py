@@ -1,8 +1,10 @@
-#!/usr/bin/env python3
-"""Generate src/ui/coastline_data.h from OpenStreetMap coastline data.
+"""Coastline selection: fetch from Overpass, filter, clip, simplify.
 
-Offline codegen, same shape as boxradar_site.geo: fetch once, cache, emit a
-committed header. Run it when relocating; never at build time.
+Moved from tools/build_coastline.py. There was no curation to remove — this
+already selected purely by bounding box — so the changes are structural:
+fetch() takes an explicit cache directory so tests never touch the real cache,
+and home comes from arguments rather than being read out of config.h, which is
+what lets the Pi generate for any site.
 
 Why filtering matters more than simplification here: the raw data for the
 Essex coast is ~360k nodes, and simplifying alone barely helps because the
@@ -11,45 +13,25 @@ closed way that a two-point simplify cannot reduce. Dropping features below
 MIN_FEATURE_KM is what takes 143KB down to ~20KB, and it drops exactly the
 detail that is sub-pixel at every range the scope offers.
 
-The emitted header holds absolute lat/lon, NOT home-relative offsets. Storing
-NM offsets would remove ~2600 projections per frame, but it would bake the
-scope's centre into a committed file — and HOME_LAT/HOME_LON live in the
-gitignored config.h precisely so they are never published. Runtime projection
-is four float operations per point; the real per-frame cost is drawLine, which
-scope.cpp trivially rejects off-screen instead.
+Absolute lat/lon, NOT home-relative offsets. Storing NM offsets would remove
+~2600 projections per frame, but it would bake the scope's centre into a
+committed file — and HOME_LAT/HOME_LON live in the gitignored config.h
+precisely so they are never published. Runtime projection is four float
+operations per point; the real per-frame cost is drawLine, which scope.cpp
+trivially rejects off-screen instead.
 """
 
 import json
 import math
-import os
-import re
 import sys
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 from shapely.affinity import scale
-from shapely.geometry import LineString, Point, box
+from shapely.geometry import LineString, Point
 from shapely.ops import linemerge, unary_union
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent
-CONFIG_PATH = REPO_ROOT / "include" / "config.h"
-OUTPUT_PATH = REPO_ROOT / "src" / "ui" / "coastline_data.h"
-
-CACHE_DIR = Path(os.path.expanduser("~/.cache/boxradar-coastline"))
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-
-
-def cache_path(bbox) -> Path:
-    """Cache file named for the query box.
-
-    Keying on the bbox matters: a single fixed filename would happily serve
-    the previous location's coastline after a move, and the failure is silent
-    — you get a plausible coast that is simply somewhere else.
-    """
-    s, w, n, e = bbox
-    return CACHE_DIR / f"coastline_{s:g}_{w:g}_{n:g}_{e:g}.json"
 
 # Must cover the largest entry in RANGES_NM, plus slack for traffic drawn in
 # the wide left/right margins beyond the outer ring.
@@ -67,7 +49,7 @@ MIN_FEATURE_KM = 2.0
 
 # Simplification tolerance. 500m is ~5.9px at the closest 5nm range and well
 # under a pixel at 50nm. Judged on hardware: the coast reads fine coarse, and
-# every metre of tolerance buys back flash on a board at ~83% capacity.
+# every metre of tolerance buys back flash.
 SIMPLIFY_M = 500.0
 
 # The query box is rounded outward to this many degrees. Clipping tightly
@@ -78,21 +60,8 @@ BOX_ROUND_DEG = 0.5
 M_PER_DEG = 111320.0
 
 
-def read_home() -> tuple[float, float]:
-    """HOME_LAT/HOME_LON out of the gitignored config.h."""
-    if not CONFIG_PATH.exists():
-        raise SystemExit(f"{CONFIG_PATH} not found — copy config.example.h first")
-    text = CONFIG_PATH.read_text()
-    out = {}
-    for key in ("HOME_LAT", "HOME_LON"):
-        m = re.search(rf"^#define\s+{key}\s+(-?[0-9.]+)", text, re.M)
-        if not m:
-            raise SystemExit(f"{key} not found in {CONFIG_PATH}")
-        out[key] = float(m.group(1))
-    return out["HOME_LAT"], out["HOME_LON"]
-
-
-def query_box(lat: float, lon: float) -> tuple[float, float, float, float]:
+def query_box(lat, lon):
+    """(south, west, north, east) — Overpass order, rounded outward."""
     reach = MAX_RANGE_NM + MARGIN_NM
     dlat = reach / 60.0
     dlon = reach / (60.0 * math.cos(math.radians(lat)))
@@ -107,8 +76,19 @@ def query_box(lat: float, lon: float) -> tuple[float, float, float, float]:
     return down(lat - dlat), down(lon - dlon), up(lat + dlat), up(lon + dlon)
 
 
-def fetch(bbox) -> dict:
-    cache = cache_path(bbox)
+def cache_path(bbox, cache_dir):
+    """Cache file named for the query box.
+
+    Keying on the bbox matters: a single fixed filename would happily serve
+    the previous location's coastline after a move, and the failure is silent
+    — you get a plausible coast that is simply somewhere else.
+    """
+    s, w, n, e = bbox
+    return cache_dir / f"coastline_{s:g}_{w:g}_{n:g}_{e:g}.json"
+
+
+def fetch(bbox, cache_dir):
+    cache = cache_path(bbox, cache_dir)
     if cache.exists():
         print(f"using cached {cache}", file=sys.stderr)
         return json.loads(cache.read_text())
@@ -129,14 +109,16 @@ def fetch(bbox) -> dict:
             raw = r.read()
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise SystemExit(f"overpass fetch failed: {exc}")
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     cache.write_bytes(raw)
     print(f"cached {len(raw)} bytes -> {cache}", file=sys.stderr)
     return json.loads(raw)
 
 
-def build_segments(data: dict, lat: float, lon: float):
-    nodes = {e["id"]: (e["lon"], e["lat"]) for e in data["elements"] if e["type"] == "node"}
+def segments(data, home_lat, home_lon):
+    """Filtered, clipped, simplified coastline as [(lat, lon), ...] lists."""
+    nodes = {e["id"]: (e["lon"], e["lat"])
+             for e in data["elements"] if e["type"] == "node"}
     lines = [
         LineString([nodes[n] for n in w["nodes"]])
         for w in data["elements"]
@@ -145,8 +127,10 @@ def build_segments(data: dict, lat: float, lon: float):
     if not lines:
         raise SystemExit("no coastline ways in response")
     merged = linemerge(unary_union(lines))
-    parts = list(merged.geoms) if merged.geom_type == "MultiLineString" else [merged]
-    print(f"{len(lines)} ways -> {len(parts)} continuous features", file=sys.stderr)
+    parts = list(merged.geoms) if merged.geom_type == "MultiLineString" \
+        else [merged]
+    print(f"{len(lines)} ways -> {len(parts)} continuous features",
+          file=sys.stderr)
 
     min_deg = MIN_FEATURE_KM * 1000.0 / M_PER_DEG
     parts = [p for p in parts if p.length >= min_deg]
@@ -157,10 +141,10 @@ def build_segments(data: dict, lat: float, lon: float):
     # scope can never show.
     reach = MAX_RANGE_NM + MARGIN_NM
     circle = scale(
-        Point(lon, lat).buffer(1.0),
-        xfact=reach / (60.0 * math.cos(math.radians(lat))),
+        Point(home_lon, home_lat).buffer(1.0),
+        xfact=reach / (60.0 * math.cos(math.radians(home_lat))),
         yfact=reach / 60.0,
-        origin=Point(lon, lat),
+        origin=Point(home_lon, home_lat),
     )
     tol = SIMPLIFY_M / M_PER_DEG
     out = []
@@ -168,7 +152,8 @@ def build_segments(data: dict, lat: float, lon: float):
         clipped = p.intersection(circle)
         if clipped.is_empty:
             continue
-        geoms = list(clipped.geoms) if clipped.geom_type == "MultiLineString" else [clipped]
+        geoms = list(clipped.geoms) \
+            if clipped.geom_type == "MultiLineString" else [clipped]
         for g in geoms:
             if g.geom_type != "LineString" or len(g.coords) < 2:
                 continue
@@ -179,12 +164,25 @@ def build_segments(data: dict, lat: float, lon: float):
     return out
 
 
-def emit(segments, path: Path) -> None:
-    total = sum(len(s) for s in segments)
+def bbox_of(segment):
+    """(minLat, maxLat, minLon, maxLon) for one segment.
+
+    Computed rather than stored in the blob: a bbox that disagreed with its own
+    points would make the renderer reject segments and the coast would silently
+    vanish. The C header carries them only because the current firmware expects
+    them there.
+    """
+    lats = [p[0] for p in segment]
+    lons = [p[1] for p in segment]
+    return min(lats), max(lats), min(lons), max(lons)
+
+
+def render_header(segs):
+    total = sum(len(s) for s in segs)
     lines = [
-        "// GENERATED by tools/build_coastline.py — do not edit by hand.",
+        "// GENERATED by boxradar_site.geo — do not edit by hand.",
         "// Source: OpenStreetMap via Overpass (natural=coastline), ODbL.",
-        f"// {len(segments)} segments, {total} points, "
+        f"// {len(segs)} segments, {total} points, "
         f"features >= {MIN_FEATURE_KM}km, simplified to {SIMPLIFY_M:.0f}m.",
         "#pragma once",
         "#include <stdint.h>",
@@ -204,7 +202,7 @@ def emit(segments, path: Path) -> None:
         "};",
         "",
     ]
-    for i, seg in enumerate(segments):
+    for i, seg in enumerate(segs):
         lines.append(f"static const Vertex SEG_{i}_PTS[] = {{")
         row = "    "
         for la, lo in seg:
@@ -217,37 +215,14 @@ def emit(segments, path: Path) -> None:
         lines.append("};")
     lines.append("")
     lines.append("static const Outline SEGMENTS[] = {")
-    for i, seg in enumerate(segments):
-        lats = [p[0] for p in seg]
-        lons = [p[1] for p in seg]
+    for i, seg in enumerate(segs):
+        min_lat, max_lat, min_lon, max_lon = bbox_of(seg)
         lines.append(
             f"    {{SEG_{i}_PTS, {len(seg)}, "
-            f"{min(lats)}f, {max(lats)}f, {min(lons)}f, {max(lons)}f}},"
+            f"{min_lat}f, {max_lat}f, {min_lon}f, {max_lon}f}},"
         )
     lines.append("};")
     lines.append("")
     lines.append("} // namespace coastline")
     lines.append("")
-    path.write_text("\n".join(lines))
-
-
-def main() -> int:
-    lat, lon = read_home()
-    bbox = query_box(lat, lon)
-    data = fetch(bbox)
-    segments = build_segments(data, lat, lon)
-    if not segments:
-        raise SystemExit("nothing survived filtering — is the area landlocked?")
-    total = sum(len(s) for s in segments)
-    print(
-        f"emitting {len(segments)} segments, {total} points "
-        f"(~{total * 8 / 1024:.1f}KB of flash)",
-        file=sys.stderr,
-    )
-    emit(segments, OUTPUT_PATH)
-    print(f"wrote {OUTPUT_PATH}", file=sys.stderr)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    return "\n".join(lines)
