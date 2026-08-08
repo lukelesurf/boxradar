@@ -97,9 +97,15 @@ static void test_cloud_formatting() {
   memset(&m, 0, sizeof(m));
   char buf[16];
 
+  // NCD is the feed's stand-in for "no cloud layers reported", which covers
+  // NCD/NSC/SKC/CAVOK indistinguishably upstream. Displayed as CLEAR.
   strcpy(m.cover, "NCD"); m.ceilFt = 0;
   formatCloud(buf, sizeof(buf), m);
-  TEST_ASSERT_EQUAL_STRING("NCD", buf);
+  TEST_ASSERT_EQUAL_STRING("CLEAR", buf);
+
+  m.cover[0] = '\0'; m.ceilFt = 0; // absent cover behaves the same
+  formatCloud(buf, sizeof(buf), m);
+  TEST_ASSERT_EQUAL_STRING("CLEAR", buf);
 
   strcpy(m.cover, "BKN"); m.ceilFt = 1200;
   formatCloud(buf, sizeof(buf), m);

@@ -1,5 +1,6 @@
 #include "format.h"
 #include <stdio.h>
+#include <string.h>
 
 namespace radar {
 
@@ -39,6 +40,11 @@ void formatWind(char *out, size_t cap, const Metar &m) {
 
 void formatCloud(char *out, size_t cap, const Metar &m) {
   const char *cover = m.cover[0] ? m.cover : "NCD";
+  // "NCD" is the feed's stand-in for an empty cloud list, which upstream
+  // reports identically for NCD, NSC, SKC and CAVOK — there is no way to
+  // tell them apart from the parsed fields. "CLEAR" is the honest umbrella
+  // term and reads without a glossary.
+  if (strcmp(cover, "NCD") == 0) cover = "CLEAR";
   if (m.ceilFt == 0) {
     snprintf(out, cap, "%s", cover);
     return;
