@@ -6,6 +6,8 @@
 
 > Task 3 is done: Luke compared the rendered panel against the compiled build and confirmed it. MAP_FROM_BLOB is now the default in config.h. The generated headers stay in the repo as regenerable output and remain one build flag away, so task 4's deletion buys little and costs the fallback.
 
+> **Portal form verified end-to-end 2026-08-08**, after this plan was written: compiled SSID pointed at a nonexistent network, real trigger fired, form submitted from a phone, `portal: saved 8 setting(s)`, and the board rejoined the LAN reporting `cfg: NVS overlay` rather than compiled defaults.
+
 **Goal:** The board draws its map from a blob fetched over HTTP and cached to LittleFS, instead of from tables compiled into flash.
 
 **Architecture:** Three layers, deliberately separated so only the last one can break the display. `radarcore/geomap` is a portable facade over `GeoBlob` that adds the coastline bounding boxes the blob does not store — pure, natively tested. `src/geo_store` owns the device side: LittleFS cache, HTTP fetch with `If-None-Match`, and one heap buffer the `GeoBlob` points into. Only then does `scope.cpp` switch its six loops over, behind a build flag so the compiled tables remain a fallback until the blob path is proven on hardware.
