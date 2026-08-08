@@ -98,9 +98,22 @@ Budget check: the current geography set is ~22KB (coastline ~18KB, airspace
 headroom. Flash is at 55.5% (1,090,357 of 1,966,080 bytes), leaving ~855KB for
 the config, portal and HTTP client code.
 
-## Airspace: automatic selection
+## Airspace: searchable, selected, with suggested defaults
 
-This replaces `CURATED_AIRPORTS` — the hardest manual step — with rules.
+This replaces `CURATED_AIRPORTS` — the hardest manual step — with a picker.
+
+The step is hard because of **discovery**, not judgement: you cannot name the
+controlled airspace near you, and you certainly cannot spell it as the YAIXM
+source does. Listing what intersects the box solves that outright. What remains
+after discovery is taste, and the measurements below are the argument against
+automating taste — a rule set needed a size ceiling *and* a distance ceiling
+*and* a preview to tune them, all site-dependent. Four calibrated thresholds
+that must be eyeballed anyway are more machinery than one checkbox list
+eyeballed once.
+
+So the rules are kept, demoted from pipeline to **defaults**: they set the
+list's initial filter, provide its sortable columns, and sit behind a "Suggest
+selection" button that ticks a sane starting set the user then adjusts.
 
 ### Measured, at home 51.8850, 0.2350, 65nm reach
 
@@ -137,53 +150,65 @@ Largest by on-screen extent at the 50nm overview: `DAVENTRY CTA` 334px,
 3. **ATZs are visual noise by construction** — 47 features, 37 vertices each
    because they are circles, all 13–16px on the overview panel.
 
-### The rules
+### The picker
 
-Applied in order, on the Pi, at config save:
+**Scope.** The candidate list is every feature whose bbox intersects home ±
+65nm — the overview range plus margin (`MAX_RANGE_NM` 50 + `MARGIN_NM` 15, the
+same reach `tools/build_coastline.py` already uses; both become config keys).
+This retires `BOUNDS_LAT`/`BOUNDS_LON`, whose only stated purpose was guarding
+against a mistyped feature name: names are now chosen from a list, not typed.
 
-1. **Bounding box** — feature bbox intersects home ± 65nm, being the overview
-   range plus margin (`MAX_RANGE_NM` 50 + `MARGIN_NM` 15, the same reach
-   `tools/build_coastline.py` already uses; both become config keys).
-   Replaces `BOUNDS_LAT`/`BOUNDS_LON`, whose only stated purpose was guarding
-   against a mistyped feature name. There are no names to mistype now, and the
-   box *is* the selection criterion.
-2. **Kind allowlist** on `(type, localtype, rules)`. Default `CTR`, `CTA`, and
-   `TMZ` — reproducing today's editorial choice as a rule.
-3. **Size ceiling** on the outline's diagonal extent. Default ~50nm (about
-   110px, half the 109nm overview panel). This is the TMA exclusion promoted
-   from a hardcoded omission to a measurable criterion: an outline larger than
-   the panel cannot read as an enclosure, which was the original argument.
-4. **Centroid distance ceiling** from home. Default 50nm. Needed because size
-   alone does not catch far-but-small: `BOURNEMOUTH CTR` is 43px and ~110nm
-   away, and clips the box.
+**Columns**, because these are what the decision is actually made on:
 
-All four are config, because the right thresholds are site-dependent — a
-ceiling tuned against the London TMA would discard exactly the sparse
-large-area airspace that *is* the picture somewhere rural.
+| column | source | why it is there |
+|---|---|---|
+| name | YAIXM `name` | the identity that goes in the config |
+| kind | `(type, localtype, rules)` | `OTHER`/`TMZ` and `OTHER`/`MATZ` are worlds apart |
+| on-screen size | bbox diagonal x px/nm at overview | the TMA argument, made visible |
+| distance | centroid to home | catches far-but-small |
+| vertices | point count | the only thing with a device cost |
 
-### Open decision: CTR/CTA envelope pairing
+**Defaults.** The list opens filtered to `CTR`, `CTA` and `TMZ`, sorted by
+distance. Everything else is one click away — the 47 ATZs and 107 `OTHER`
+features are hidden, not absent.
 
-Today each CTR is unioned with its *named* CTA into one envelope. Without
-names, pairing needs a geometric rule (a CTA that contains or abuts a CTR
-belongs to it), and `build_airspace.py` already documents the case that breaks
-any name-prefix heuristic: Heathrow has no `HEATHROW` feature — its zone is
-`LONDON CTR` and its CTA *is* the TMA.
+**Suggest selection** ticks the set that survives all four measured rules:
+kind in `(CTR, CTA, TMZ)`, on-screen size under ~50nm of diagonal (about 110px,
+half the 109nm overview panel), and centroid within 50nm of home. On this site
+that should reproduce today's thirteen outlines, which is the phase 2 gate.
 
-Two candidates, to be decided by rendering both:
+**Envelope grouping is explicit.** Ticked features can be grouped into a single
+merged outline — a CTR with its CTA shelves — mirroring today's
+`(prefix, CTR, CTA)` tuples. Doing this by hand rather than by inference is
+what makes the dataset's awkward case ordinary: Heathrow has no `HEATHROW`
+feature, because its zone is `LONDON CTR` and its CTA *is* the TMA, so it is
+simply a CTR ticked with no CTA grouped to it — exactly what
+`CURATED_AIRPORTS` already encodes as `("HEATHROW", "LONDON CTR", None)`.
+`merge_rings()` carries over unchanged, including its handling of genuinely
+disjoint volumes (the two Stansted TMZ lobes, which must not merge).
 
-- **Geometric pairing with graceful degradation** — union where a containment
-  or abutment test succeeds, emit the CTR alone where it does not.
-- **Drop the union** — emit every volume outline separately and accept
-  near-concentric lines where a CTR nests inside its CTA.
+### Selections are names, so they can rot
 
-Not resolved here. `merge_rings()` already handles the genuinely-disjoint case
-(the two Stansted TMZ lobes) and must keep doing so under either choice.
+A selection keyed on a feature name breaks if the YAIXM dataset renames or
+removes it — and silently, which is the bad kind. `find_feature()` already has
+the right behaviour, failing loudly "on a name it can't find, so a wrong guess
+is obvious rather than silent." That must survive into the new generator as a
+**visible warning in the UI** — "2 selected features no longer exist in the
+dataset" — rather than a `SystemExit` in a script nobody runs interactively.
 
-## Point references: curated, not filtered
+Resolved geometry is deliberately *not* cached for airspace, unlike point
+references: outlines are large, and regenerating from source is the point.
+The name is the key; loud failure is the safety net.
 
-Airspace and coastline are bulk background wash — nobody picks a coastline
-segment. Airfields, runway centrelines, navigation fixes and towns are
-different in kind, and `include/location.h` already says why:
+## Point references: curated, like airspace
+
+**Coastline is the only fully automatic layer** — bbox intersection and nothing
+else, because nobody picks a coastline segment. Everything else is a picker
+over a dataset, sharing one bbox scope, one selection model and one preview.
+
+Airfields, runway centrelines, navigation fixes and towns need curating for a
+reason `include/location.h` already states, and it is a different reason from
+airspace's:
 
 > Markers and centrelines are deliberately separate lists: a marker is cheap
 > orientation, whereas an extended centreline is a strong visual claim about
@@ -348,13 +373,18 @@ exactly what this changes.
 - `lib/radarcore` stays portable and natively tested. Blob parsing belongs
   there — it is pure byte-wrangling and the most valuable thing to test off
   device. Fixtures: a good blob, a truncated one, a bad CRC, a home mismatch.
-- **Pi-side generator regression:** generate a blob for the current site and
-  assert its geometry matches today's `airspace_data.h` and
-  `coastline_data.h`. This is the single most valuable test in the project —
-  it proves the rules reproduce the hand-curated output before anything
-  relies on them.
-- Airspace rule tests against the real YAIXM: the seven oversize CTAs are
-  rejected, the Stansted TMZ (an `OTHER`/`TMZ`) is kept, ATZs are excluded.
+- **Pi-side generator regression:** transcribe today's `CURATED_AIRPORTS` and
+  `location.h` into a selection config, generate a blob, and assert its
+  geometry matches today's `airspace_data.h` and `coastline_data.h`. With
+  selection now transcribed rather than inferred, this tests that the
+  **pipeline is lossless** — parse, group, simplify, serialise — which is
+  where the bugs will be. It is the gate on phase 2.
+- **Suggest-defaults test**, separately: on this site's box, the four rules
+  tick approximately today's thirteen outlines. Asserts the seven oversize
+  CTAs are rejected, the Stansted TMZ (an `OTHER`/`TMZ`) is kept, and ATZs are
+  excluded. A weaker claim than the regression above — the button only has to
+  be a good starting point, not correct — so it should assert the set, not
+  the geometry.
 - Note that `test_viewport` passing at `-std=gnu++17` while the device builds
   at `gnu++11` has already produced one break that native tests could not
   catch. Anything shared must compile under both.
@@ -366,9 +396,16 @@ phase 2 must produce a blob before phase 3b can fetch one.
 
 1. **METAR proxy.** Self-contained, no board risk beyond a URL. Kills the
    `STATIONS` dict.
-2. **Site app skeleton + geography generator.** Dataset ingest, the four
-   airspace rules, the blob writer. Gated on the regression test above:
-   byte-for-byte equivalent geometry to today's headers for this site.
+2. **Site app skeleton + geography generator.** Dataset ingest, the
+   candidate-list query with its metadata columns, the four rules as suggested
+   defaults, explicit envelope grouping, and the blob writer. Gated on the
+   regression test above: equivalent geometry to today's headers for this
+   site, from a selection config transcribed out of `CURATED_AIRPORTS` and
+   `location.h`.
+
+   The candidate-list query subsumes the throwaway probe that produced the
+   measurements in this document — "what is in my box, how big is it, how far
+   away" stops being a diagnostic script and becomes the primary UI view.
 3. **Board runtime config.**
    - 3a. `#define` to a `Config` struct, NVS persistence, first-run portal.
      Side benefit: deletes the footgun the README warns about, where "a missing
