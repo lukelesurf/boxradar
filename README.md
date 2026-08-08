@@ -2,10 +2,10 @@
 
 A desk-toy ADS-B radar scope on a £15 ESP32 touchscreen. Pulls decoded
 aircraft from a readsb/tar1090 receiver on the LAN and renders a north-up
-radar display in the style of an ATC scope: range rings, altitude-coloured
-blips with heading vectors, two-line datablocks, fading trails, local
-controlled airspace and extended runway centrelines. Successor to the
-ESP8266/Nokia 5110 original.
+display in the style of an ATC scope: altitude-coloured blips with two-line
+datablocks over a map of coastline, controlled airspace, runway centrelines,
+airfields, navigation fixes and towns. Successor to the ESP8266/Nokia 5110
+original.
 
 ![BOXRADAR at 10nm: traffic inside the Stansted CTA, airspace outlines,
 runway centrelines and airfield markers, with two-line datablocks on the
@@ -38,11 +38,12 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
 
 ## Features
 
-- Full-screen radar scope with rings at 5/10/25/50nm (tap background to
-  cycle), speed-scaled heading vectors and fading position trails
+### Traffic
+
 - **Datablocks** in ATC style: callsign on line 1, then level in hundreds
   of feet, a climb/descent arrow and the ICAO type on line 2. Two lines at
-  5/10nm, callsign only at 25/50nm
+  5/10nm, callsign only at 25/50nm. Placed against an occupancy grid with
+  per-aircraft memory so labels don't hop about
 - **Blip colour encodes altitude** — red below 2000ft through orange,
   yellow, green and cyan to violet above FL300; grey on the ground
 - **Rare airframes stand out**: the type field turns amber for anything
@@ -54,19 +55,44 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
   less certain than ADS-B; and in saturated airspace an aircraft not
   sending ADS-B at all is unusual in its own right
 - **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
-- OSM coastline drawn as the bottom layer (optional — `DRAW_COASTLINE`),
-  generated offline and filtered to features ≥2km
-- Stansted/Luton CTR outlines and CTA envelopes drawn under the traffic,
-  plus airfield markers and extended runway centrelines — airspace is
-  generated offline from the
-  [ahsparrow/airspace](https://github.com/ahsparrow/airspace) UK dataset
+- **Trails** are distance-gated, so the dots are evenly spaced whether
+  the aircraft is a 90kt Cessna or a 450kt jet, at every range
+- **Next-overhead readout** (experimental, `OVERHEAD_PREDICTION`): the
+  aircraft predicted to pass closest to overhead soonest, amber when it's
+  an MLAT target or a rare type. Manoeuvring aircraft are excluded rather
+  than guessed at — see below
 - Tap a blip for a detail panel: callsign, hex, type, alt, GS, track,
-  vertical rate, range/bearing, RSSI, squawk
-- Full-width status strip: WiFi tick/cross, aircraft **on screen** with
-  the MLAT subset in brackets, range, and — with the optional METAR feed
-  below — active runway, wind, cloud and restricted visibility. A stale
-  feed replaces the count with a warning rather than adding a line
+  vertical rate, range/bearing, RSSI, squawk, MLAT
 - Aircraft dim after 30s without a message and drop at 60s
+
+### Map
+
+Three marker shapes, so categories are tellable apart at 5px without
+reading the label: **solid square** = airfield, **hollow square** = town,
+**triangle** = navigation fix. All drawn under the traffic — a datablock
+always wins where they collide.
+
+- **OSM coastline** as the bottom layer (optional, `DRAW_COASTLINE`),
+  generated offline and filtered to features ≥2km
+- **Controlled airspace** — CTR outlines and CTR+CTA envelopes for
+  Stansted, Luton, City, Gatwick and Southend, the Heathrow zone, and both
+  Stansted TMZ lobes. Generated offline from the
+  [ahsparrow/airspace](https://github.com/ahsparrow/airspace) UK dataset
+- **Extended runway centrelines**, dashed, 6.5nm beyond each threshold —
+  deliberately only for the fields whose approaches matter locally
+- **Airfields, fixes and towns** from `include/location.h`
+
+### Chrome and behaviour
+
+- **Full-width status strip**: WiFi tick/cross, aircraft **on screen** with
+  the MLAT subset in brackets, range, and — with the optional METAR feed —
+  active runway, wind, cloud and restricted visibility. A stale feed
+  replaces the count with a warning rather than adding a line
+- **Night mode**: between `NIGHT_START_HOUR` and `NIGHT_END_HOUR` the panel
+  fades to a dim red 7-segment clock (or to black, without `NIGHT_CLOCK`).
+  A tap wakes the radar for 30s and then returns. Time comes from NTP —
+  there is no RTC — and shows `--:--` rather than guessing before the first
+  sync. DST is handled by a POSIX TZ rule, not a fixed offset
 - LDR-driven backlight dimming, RGB LED status (red no-WiFi / amber
   no-data), OTA updates with on-screen progress
 
@@ -78,7 +104,7 @@ renders the scope into a single 320×240 8-bit sprite and handles touch.
 The two share a mutex-guarded double buffer — no JSON ever touches live
 render state. Positions project through a home-centred equirectangular
 approximation; `lib/radarcore` holds the portable parse/projection/
-format/classification logic and is unit-tested natively.
+format/classification/prediction logic and is unit-tested natively.
 
 Rendering runs in two passes with deliberately opposite orderings. Blips
 draw far→near so close traffic wins overlapping pixels; datablocks place
@@ -88,6 +114,19 @@ between frames — without that memory, one blip crossing a cell boundary
 cascades into every other block moving. Placement priority is: selected,
 then alert squawks, then rare airframes and MLAT targets, then nearest
 first.
+
+The coastline is an order of magnitude more geometry than everything else
+on the map, so it carries per-segment bounding boxes and the panel is
+converted to a lat/lon window once per frame. At 10nm inland that rejects
+all of it without projecting a single point. `project()` also has a
+hoisted form — the naive one recomputes `cos(homeLat)` per call, which was
+costing ~19k `cosf` a second across every map layer.
+
+Predicting an overhead pass is easy; knowing when *not* to answer is the
+hard part. Straight-line extrapolation is good for arrivals on a stable
+leg and worthless for departures turning onto a SID, so steadiness is
+measured as **curvature** — degrees of track change per nautical mile —
+which needs no timestamps and holds at any speed.
 
 MLAT requires the receiver to be feeding a network that returns results —
 here an `mlat-client` feeding ADSBExchange with
@@ -100,7 +139,11 @@ in the dump1090 schema.
 The sprite is 8-bit, so TFT_eSPI quantizes colours to RGB332 — 3 bits
 red, 3 green, 2 blue. `src/ui/palette.h` builds its constants from those
 surviving components rather than from 565 literals, which makes two
-colours distinct on-screen if and only if their arguments differ.
+colours distinct on-screen if and only if their arguments differ. The
+entire dark-grey range is three rungs, and the map layers use all of them.
+
+Design notes for work not yet done live in [docs/](docs/) —
+see [viewport-design.md](docs/viewport-design.md) for the tap-to-zoom model.
 
 ## Building
 
@@ -114,8 +157,28 @@ pio run -e ota -t upload                       # thereafter; needs BOXRADAR_OTA_
 pio test -e native                             # unit tests, no hardware needed
 ```
 
+Partitions are `min_spiffs.csv`: both OTA slots kept, 1.875 MiB each,
+with the extra space taken from a SPIFFS partition this project never
+uses. Changing the partition scheme **cannot be done over OTA** — see
+SPEC.md.
+
 If the display shows wrong/inverted colours, it's the CYD panel-batch
 lottery — see Known Quirks in SPEC.md.
+
+### Debug build flags
+
+Compile out entirely unless requested:
+
+```bash
+PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FRAME_TIME pio run -e ota -t upload
+```
+
+- `BOXRADAR_FRAME_TIME` — frame cost in the top-right: `R` is building the
+  sprite, `P` is the SPI push. Splits the two halves that get conflated
+  when guessing about performance
+- `BOXRADAR_FAKE_ALERT` — stamps 7700 on the nearest aircraft, so the
+  emergency path can be exercised without waiting years for a real one
+- `BOXRADAR_SERIAL_TABLES` — per-poll aircraft table over serial
 
 ### Aircraft type
 
@@ -137,13 +200,17 @@ volumes are drawn or pick up a new AIRAC cycle:
 python3 tools/build_airspace.py   # inside the devShell
 ```
 
-Edit `CURATED_AIRPORTS` in the script to change the selection. The
-generator refuses to emit self-intersecting or out-of-bounds rings.
+Edit `CURATED_AIRPORTS` — entries are `(prefix, CTR name, CTA name or
+None)`. The CTA is optional because not every field has one; Heathrow's
+zone is `LONDON CTR` sitting directly under the TMA. Multi-volume
+features are merged, and genuinely disjoint ones (the two Stansted TMZ
+lobes) are emitted separately rather than unioned into airspace that
+doesn't exist. The generator refuses self-intersecting or out-of-bounds
+rings, and `BOUNDS_LAT`/`BOUNDS_LON` are themselves location-specific.
 
-Runway centrelines are separate: a short hardcoded table of threshold
-coordinates near the top of `src/ui/scope.cpp`. The axis is derived from
-the two thresholds rather than a published runway heading, so the drawn
-line is guaranteed to pass through both runway ends.
+The London TMA is deliberately absent: at 50nm it is more outline than
+everything else combined, and unlike a CTR it encloses nothing you can
+see, so it reads as an arbitrary line across the panel.
 
 ### Regenerating the coastline
 
@@ -157,8 +224,8 @@ python3 tools/build_coastline.py   # inside the devShell
 ```
 
 It reads `HOME_LAT`/`HOME_LON` from your `config.h`, queries OpenStreetMap
-via Overpass once, and caches the response — so **re-run it after moving**,
-or the scope will keep drawing the previous area's coast.
+via Overpass once, and caches the response per bounding box — so **re-run
+it after moving**, or the scope keeps drawing the previous area's coast.
 
 Size is controlled by `MIN_FEATURE_KM`, not by `SIMPLIFY_M`. Simplification
 cannot reduce a two-point line, and estuaries contain thousands of tiny
@@ -182,7 +249,7 @@ sudo ./install.sh          # edit STATIONS in metar_feed.py first
 Keeping it on the receiver means the whole system stays two devices —
 receiver for data, ESP32 for display — which is what makes it portable to
 another location. It also avoids TLS on the ESP32: a handshake wants
-~40KB of heap against a board whose floor is ~43KB with the render sprite
+~40KB of heap against a board whose floor is ~46KB with the render sprite
 live.
 
 The Pi normalises the upstream API's loose types (`visib` can be the
@@ -191,21 +258,24 @@ always-present integers, and derives the likely active runway from the
 wind. `conf` is 0 below `CALM_KT` (7) — at that point wind isn't choosing
 the runway and the value is a guess, which the display marks with a `?`.
 
+Cloud shows as `CLEAR` when no layers are reported: upstream reports NCD,
+NSC, SKC and CAVOK identically, so the broader word is the honest one.
+
 Set `METAR_URL` and `METAR_STATION` in `config.h` to consume it. Both are
 optional: comment out `METAR_URL` and the whole feature compiles out, and
 the status strip simply omits the weather segments.
 
 ## Relocating
 
-Four files carry location data. Nothing else needs touching.
+Five files carry location data. Nothing else needs touching.
 
 | file | what | in git? |
 |---|---|---|
 | `include/config.h` | `HOME_LAT`/`HOME_LON`, `METAR_STATION`, receiver URL, timezone | **no** — gitignored |
-| `include/location.h` | airfield markers and runway thresholds to draw | yes |
-| `tools/build_airspace.py` | `CURATED_AIRPORTS` — which CTR/CTA volumes | yes |
+| `include/location.h` | airfields, runway thresholds, fixes, towns | yes |
+| `tools/build_airspace.py` | `CURATED_AIRPORTS` — which volumes | yes |
 | `tools/build_coastline.py` | re-run it; reads `HOME_*` from `config.h` | yes |
-| `tools/metar-feed/metar_feed.py` | `STATIONS` — METAR stations and runway **true** headings | yes |
+| `tools/metar-feed/metar_feed.py` | `STATIONS` — stations and runway **true** headings | yes |
 
 Home coordinates stay in the gitignored `config.h` on purpose: airfield data
 is published AIP material, but your own position is not, and this repo may be
@@ -222,8 +292,8 @@ mirrored somewhere public.
 
 // include/location.h
 static constexpr AirfieldRef AIRFIELDS[] = {
-    {51.57140f, 0.69560f},   // EGMC Southend
-    {52.12750f, 0.96110f},   // EGUW Wattisham
+    {51.57056f, 0.69363f, "EGMC"},   // Southend
+    {52.12745f, 0.95619f, "EGUW"},   // Wattisham
 };
 static constexpr RunwayAxis RUNWAYS[] = {
     {51.567200f, 0.686268f, 51.575600f, 0.704996f}, // EGMC 05/23
@@ -236,15 +306,29 @@ static constexpr RunwayAxis RUNWAYS[] = {
 STATIONS = {"EGMC": [("05", 54), ("23", 234)]}
 ```
 
-`CURATED_AIRPORTS` in `build_airspace.py` needs the CTR/CTA feature names
-exactly as they appear in the source YAML; the generator fails loudly on a
-name it can't find, so a wrong guess is obvious rather than silent.
+Then re-run both generators. `CURATED_AIRPORTS` needs feature names exactly
+as they appear in the source YAML; the generator fails loudly on a name it
+can't find, so a wrong guess is obvious rather than silent.
+
+### Where the coordinates come from
+
+Three different datasets, and the gaps between them are the trap:
+
+- **Airfield ARPs and runway thresholds** —
+  [OurAirports](https://davidmegginson.github.io/ourairports-data/)
+  `airports.csv` and `runways.csv`. The latter gives both threshold
+  coordinates per runway, which is what the centrelines want
+- **3-letter VOR/NDB idents** — OurAirports `navaids.csv`
+- **5-letter enroute fixes** (ABBOT, LOREL) — *not in OurAirports at all.*
+  They come from the NATS eAIP ENR 4.4 significant points table, published
+  as `DDMMSS.ssN/DDDMMSS.ssE` and needing conversion
+- **Towns** — OSM Nominatim. Take the `town` result, not the first hit:
+  querying "Bedford" returns the county centroid, 4nm from the town
 
 ### Gotchas
 
 - **Runway headings are TRUE, designators are MAGNETIC.** Don't derive `05`
-  into `50`. Pull both thresholds and the true heading from
-  [OurAirports `runways.csv`](https://davidmegginson.github.io/ourairports-data/runways.csv).
+  into `50`.
 - **`MAX_AIRCRAFT` is 32** (`lib/radarcore/aircraft.h`) and the store silently
   drops the farthest beyond that. Fine for a quiet area; under a busy TMA the
   count pins at 32 and distant contacts vanish with no other indication.
@@ -255,21 +339,27 @@ name it can't find, so a wrong guess is obvious rather than silent.
   want a different "ordinary" list, or the amber highlight loses meaning.
 - **The airspace dataset is UK-only.** `ahsparrow/airspace` covers Britain;
   the generator will not work abroad.
-- **Per-unit, not per-location:** `LDR_DARK` in `src/ui_task.cpp` is
-  calibrated to one board's light sensor and will differ on another — and
-  again once it's behind a case bezel. Panel driver flags in
-  `platformio.ini` are a batch lottery; see Known Quirks in SPEC.md.
+- **Feature guards need `config.h` in scope.** A missing include makes an
+  `#ifdef` compile to nothing — the build succeeds and the feature silently
+  doesn't exist, which is worse than a link error.
+- **Per-unit, not per-location:** `LDR_DARK` and `NIGHT_CLOCK_DUTY` are
+  calibrated to one board and will differ on another — and again once it's
+  behind a case bezel. Panel driver flags in `platformio.ini` are a batch
+  lottery; see Known Quirks in SPEC.md.
 
 ## Layout
 
 ```
-include/        config.h (gitignored), location.h (airfields + runways)
-src/            net task (core 0), UI task (core 1), shared store, status LED
-src/ui/         scope, datablocks, palette, status, touch, layout,
-                generated airspace data
+include/        config.h (gitignored), location.h (airfields, runways,
+                fixes, towns)
+src/            net task (core 0), UI task (core 1), shared store,
+                night mode, status LED
+src/ui/         scope, datablocks, palette, status strip, overhead
+                readout, touch, layout, generated airspace + coastline
 lib/radarcore/  portable domain logic: parse, projection, formatting,
-                type/squawk classification
+                classification, METAR, overhead prediction
 test/           native Unity tests for radarcore
-tools/          airspace codegen (YAIXM → C header)
+tools/          airspace and coastline codegen, receiver-side METAR feed
+docs/           design notes for work not yet done
 case.scad       parametric OpenSCAD enclosure (see Case, above)
 ```
