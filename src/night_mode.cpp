@@ -58,11 +58,20 @@ float nightModeUpdate(uint32_t frameMs) {
 
 bool nightModeDark() { return s_level <= 0.001f; }
 
+int nightModeIdleDuty() {
+#ifdef NIGHT_CLOCK
+  return NIGHT_CLOCK_DUTY;
+#else
+  return 0;
+#endif
+}
+
 #else // NIGHT_BLANKING disabled
 
 void nightModeInit() {}
 float nightModeUpdate(uint32_t) { return 1.0f; }
 void nightModeWake() {}
 bool nightModeDark() { return false; }
+int nightModeIdleDuty() { return 0; }
 
 #endif

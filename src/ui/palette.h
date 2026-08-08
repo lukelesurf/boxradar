@@ -56,6 +56,11 @@ constexpr uint16_t AIRFIELD_MARK = rgb332(3, 3, 1);
 // background.
 constexpr uint16_t COAST_LINE = rgb332(1, 1, 0);
 
+// Night clock. Red preserves dark adaptation, and the digits are drawn
+// BRIGHT on purpose — dimming happens at the backlight, not in the colour.
+// Dark grey text would give poor contrast while still lighting the panel.
+constexpr uint16_t NIGHT_CLOCK_COLOUR = rgb332(6, 0, 0);
+
 constexpr uint16_t SELECT_RING = rgb332(7, 7, 3); // white
 constexpr uint16_t ALERT_RED   = rgb332(7, 0, 0);
 constexpr uint16_t ALERT_TEXT  = rgb332(7, 7, 3);

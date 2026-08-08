@@ -1,7 +1,13 @@
 #include "ui_task.h"
 #include <Arduino.h>
 #include <string.h>
+#include <time.h>
+// Required for the NIGHT_CLOCK / BOXRADAR_* feature guards below. Without it
+// those #ifdefs silently compile to nothing — the build succeeds and the
+// feature just never runs, which is a far worse failure than a link error.
+#include "config.h"
 #include "night_mode.h"
+#include "ui/palette.h"
 #include "shared_state.h"
 #include "ui/layout.h"
 #include "ui/scope.h"
@@ -12,6 +18,9 @@ static TFT_eSprite s_scope(&tft);
 static radar::AircraftStore s_snap;
 static radar::Metar s_metar;
 static UiState s_ui;
+#ifdef NIGHT_CLOCK
+static int s_lastClockMin = -1;
+#endif
 
 static constexpr int LDR_PIN = 34;
 static constexpr int BL_PIN = 21;
@@ -69,11 +78,35 @@ static void backlightUpdate(float nightScale) {
   // trailing constrain() is redundant and dropped.
   int duty = map(constrain((int)smoothed, 0, LDR_DARK), 0, LDR_DARK, 255,
                  BL_MIN_DUTY);
-  // Night mode scales on top of the LDR result and deliberately bypasses
-  // BL_MIN_DUTY — that floor exists so the display is never unreadably dim
-  // in a dark room, which is the opposite of what is wanted at 3am.
-  ledcWrite(BL_CHANNEL, (int)(duty * nightScale));
+  // Interpolate toward the night duty rather than scaling the LDR result.
+  // The idle target is absolute and deliberately below BL_MIN_DUTY — that
+  // floor exists so the display is never unreadably dim in a dark room,
+  // which is the opposite of what is wanted at 3am.
+  int idle = nightModeIdleDuty();
+  ledcWrite(BL_CHANNEL, idle + (int)((duty - idle) * nightScale));
 }
+
+#ifdef NIGHT_CLOCK
+// Font 7 is the 7-segment face, already compiled in via LOAD_FONT7. At
+// textSize 2 it is 96px tall — about 40% of the panel — and "00:00" comes
+// to roughly 288px wide, which fits 320 with a little margin.
+static void drawNightClock(TFT_eSprite &spr, const struct tm *lt) {
+  spr.fillSprite(TFT_BLACK);
+  char buf[8];
+  if (lt)
+    snprintf(buf, sizeof(buf), "%02d:%02d", lt->tm_hour, lt->tm_min);
+  else
+    snprintf(buf, sizeof(buf), "--:--"); // no NTP yet: say so, don't guess
+  spr.setTextColor(NIGHT_CLOCK_COLOUR, TFT_BLACK);
+  spr.setTextSize(2);
+  spr.setTextDatum(MC_DATUM);
+  spr.drawString(buf, SCOPE_W / 2, SCOPE_H / 2, 7);
+  // Restore: every other drawString in the codebase assumes top-left datum
+  // and size 1, and these persist on the sprite across frames.
+  spr.setTextDatum(TL_DATUM);
+  spr.setTextSize(1);
+}
+#endif
 
 // Non-destructive probe for the planned full-screen (320x240) layout: the
 // two current sprites total 76.8KB but in two chunks, and full-screen needs
@@ -128,15 +161,31 @@ static void uiTaskLoop(void *) {
     }
     float nightScale = nightModeUpdate(UI_FRAME_MS);
     if (nightModeDark()) {
-      // Fully dark: skip the sprite build and the 153KB SPI push entirely,
-      // but keep polling touch so a tap can still wake it. The tap is
+      // Night: keep polling touch so a tap can still wake it. The tap is
       // consumed here rather than passed to touchInputPoll, so waking the
       // display never also opens a detail panel for whatever was underneath.
       if (touchInputTapped()) nightModeWake();
+#ifdef NIGHT_CLOCK
+      // Redraw only when the minute actually changes, so the saving from
+      // skipping the radar render survives almost intact — one 38ms push a
+      // minute instead of ten a second.
+      time_t now = time(nullptr);
+      struct tm lt;
+      bool haveTime = now > 1700000000 && localtime_r(&now, &lt) != nullptr;
+      int minuteNow = haveTime ? lt.tm_hour * 60 + lt.tm_min : -1;
+      if (minuteNow != s_lastClockMin) {
+        s_lastClockMin = minuteNow;
+        drawNightClock(s_scope, haveTime ? &lt : nullptr);
+        s_scope.pushSprite(0, 0);
+      }
+#endif
       backlightUpdate(nightScale);
       vTaskDelay(pdMS_TO_TICKS(UI_FRAME_MS));
       continue;
     }
+#ifdef NIGHT_CLOCK
+    s_lastClockMin = -1; // awake: force a redraw when night resumes
+#endif
     // Published before rendering so a range change reaches the net task by
     // the next poll; existing points keep their old spacing until the ring
     // refills, which self-corrects within a few polls.

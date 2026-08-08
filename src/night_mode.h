@@ -14,9 +14,20 @@
 
 void nightModeInit();
 
-// Advances the fade and returns a 0.0-1.0 backlight multiplier applied on
-// top of the LDR's own dimming. Call once per UI frame with the frame period.
+// Advances the fade and returns 1.0 = fully awake, 0.0 = fully night.
+// Call once per UI frame with the frame period.
+//
+// This is an interpolation weight, NOT a multiplier. The backlight is
+// lerped between nightModeIdleDuty() and the LDR's own duty, because with
+// a clock the night target is a specific low brightness rather than zero,
+// and scaling the LDR reading would let night brightness drift with
+// ambient light — in a dark room the LDR sits near its own floor of 40,
+// which leaves almost no usable range below it.
 float nightModeUpdate(uint32_t frameMs);
+
+// Absolute backlight duty (0-255) when fully night: 0 when blanking, or
+// NIGHT_CLOCK_DUTY when showing the clock.
+int nightModeIdleDuty();
 
 // A tap during night hours: hold the display up for NIGHT_WAKE_S. Safe to
 // call at any hour — outside the night window it does nothing.

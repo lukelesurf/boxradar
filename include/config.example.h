@@ -44,6 +44,11 @@
 #define NIGHT_END_HOUR 7        // set equal to START to disable the window
 #define NIGHT_WAKE_S 30         // how long a tap holds the display up
 #define NIGHT_FADE_MS 600       // 0 snaps instead of fading
+// Show a dim clock overnight instead of a black screen. Comment out for
+// full blanking. The duty is ABSOLUTE (0-255) and bypasses the LDR: at
+// these levels the LDR's own floor (BL_MIN_DUTY, 40) is far too bright.
+#define NIGHT_CLOCK
+#define NIGHT_CLOCK_DUTY 7
 #define NTP_SERVER "pool.ntp.org"   // or your router / LAN time server
 // POSIX TZ rule, not an offset, so DST transitions are handled for good.
 // UK: "GMT0BST,M3.5.0/1,M10.5.0". US Eastern: "EST5EDT,M3.2.0,M11.1.0".
