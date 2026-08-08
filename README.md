@@ -62,8 +62,15 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
   aircraft predicted to pass closest to overhead soonest, amber when it's
   an MLAT target or a rare type. Manoeuvring aircraft are excluded rather
   than guessed at — see below
-- Tap a blip for a detail panel: callsign, hex, type, alt, GS, track,
-  vertical rate, range/bearing, RSSI, squawk, MLAT
+- **Tap to zoom.** Two view states rather than a cycle of ranges: a 50nm
+  overview you choose from, and a 10nm (or 5nm) detail view centred on
+  wherever you tapped. One gesture per state — the overview only
+  navigates, the detail view only inspects — so nothing is ambiguous on a
+  resistive panel. Tapping the home cross in the overview snaps back to a
+  true home-centred view. See [viewport-design.md](docs/viewport-design.md)
+- Tap a blip in the detail view for a panel: callsign, hex, type, alt, GS,
+  track, vertical rate, range/bearing, RSSI, squawk, MLAT. Tapping the
+  range readout in the status strip toggles 10nm/5nm
 - Aircraft dim after 30s without a message and drop at 60s
 
 ### Map
@@ -143,8 +150,9 @@ surviving components rather than from 565 literals, which makes two
 colours distinct on-screen if and only if their arguments differ. The
 entire dark-grey range is three rungs, and the map layers use all of them.
 
-Design notes for work not yet done live in [docs/](docs/) —
-see [viewport-design.md](docs/viewport-design.md) for the tap-to-zoom model.
+Design notes live in [docs/](docs/) — see
+[viewport-design.md](docs/viewport-design.md) for the reasoning behind the
+tap-to-zoom model and the objections it sidesteps.
 
 ## Building
 
@@ -333,8 +341,10 @@ Three different datasets, and the gaps between them are the trap:
 - **`MAX_AIRCRAFT` is 32** (`lib/radarcore/aircraft.h`) and the store silently
   drops the farthest beyond that. Fine for a quiet area; under a busy TMA the
   count pins at 32 and distant contacts vanish with no other indication.
-- **`RANGES_NM`** (`src/ui/layout.h`) is `{5,10,25,50}`, which suits a busy
-  TMA. Somewhere rural may want to start higher.
+- **`OVERVIEW_NM` / `DETAIL_RANGES_NM`** (`src/ui/layout.h`) are `50` and
+  `{10,5}`, which suits a busy TMA. Somewhere rural may want both higher.
+  The overview must stay above `TWO_LINE_MAX_NM` and every detail range at or
+  below it, or the datablock degradation stops matching the two states.
 - **`isCommonType()`** (`lib/radarcore/classify.cpp`) is tuned to a London
   short-haul mix. Somewhere with heavy GA or offshore helicopter traffic will
   want a different "ordinary" list, or the amber highlight loses meaning.

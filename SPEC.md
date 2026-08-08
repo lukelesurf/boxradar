@@ -60,9 +60,13 @@ ADS-B radar display on a Cheap Yellow Display. Successor to the ESP8266/Nokia 51
 - Render via TFT_eSPI sprites for flicker-free updates. **RAM budget:** full-screen 16-bit sprite = 150KB — do NOT do this alongside JSON parsing headroom. Render the scope as a single 240x240 sprite (115KB) OR in horizontal bands if memory gets tight; measure `esp_get_free_heap_size()` and decide.
 - Rotating sweep line is a stretch goal, not MVP — it forces full-scope redraws every frame
 
-**Touch:**
-- Tap blip or list row → select aircraft
-- Tap scope background → cycle range
+**Touch:** *(superseded 2026-08-08 by two view states — see
+[docs/viewport-design.md](docs/viewport-design.md). Originally: tap blip or
+list row to select, tap background to cycle range.)*
+- Overview (50nm): tap anywhere → zoom to detail centred there. Blips are
+  not hit-tested at all, so "select or zoom?" is never ambiguous
+- Detail (10/5nm): tap blip → select; tap background → back to overview
+- Tap the range readout in the status strip → toggle 10nm/5nm
 - Tap detail panel → dismiss
 
 ## OTA updates

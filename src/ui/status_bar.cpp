@@ -20,6 +20,13 @@ static constexpr uint16_t LOW_CEILING_FT = 1500;
 static constexpr int CH_W = 6;
 static constexpr int TEXT_Y = STATUS_Y + 1;
 
+// Zoom hit zone: the drawn range readout, grown to something a finger can
+// actually hit. Starts empty so no tap can land on it before the first frame.
+static constexpr int ZOOM_ZONE_H = 24, ZOOM_ZONE_PAD = 8;
+static HitRect s_rangeHit = {0, 0, 0, 0};
+
+HitRect statusRangeHitZone() { return s_rangeHit; }
+
 // Drawn, not typed: font 1's tick/cross glyphs are codepage-dependent and a
 // wrong one reads as corruption. Two lines each, and unambiguous at 7px.
 static void drawTick(TFT_eSprite &spr, int x, uint16_t col) {
@@ -46,7 +53,7 @@ static void sep(TFT_eSprite &spr, int &x) {
 
 void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
                       const radar::Metar &metar, int onScreen,
-                      int mlatOnScreen, int rangeIdx) {
+                      int mlatOnScreen, float rangeNm) {
   spr.fillRect(0, STATUS_Y, SCOPE_W, STATUS_H, TFT_BLACK);
   char buf[24];
   int x = STATUS_X;
@@ -78,8 +85,11 @@ void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
   }
 
   sep(spr, x);
-  snprintf(buf, sizeof(buf), "%.0fnm", RANGES_NM[rangeIdx]);
+  int rangeX = x;
+  snprintf(buf, sizeof(buf), "%.0fnm", (double)rangeNm);
   seg(spr, x, buf, TFT_GREEN);
+  s_rangeHit = {rangeX - ZOOM_ZONE_PAD, SCOPE_H - ZOOM_ZONE_H,
+                (x - rangeX) + 2 * ZOOM_ZONE_PAD, ZOOM_ZONE_H};
 
   // Weather is optional and never allowed to break the rest of the line.
   if (!metar.valid) return;

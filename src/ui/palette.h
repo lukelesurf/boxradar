@@ -33,6 +33,13 @@ constexpr uint16_t ALT_BAND_TOP = rgb332(3, 2, 3); // violet  >=30000ft
 constexpr uint16_t BLOCK_TEXT      = rgb332(7, 7, 3);
 constexpr uint16_t BLOCK_TEXT_DIM  = rgb332(2, 2, 1);
 constexpr uint16_t TYPE_INTERESTING = rgb332(7, 5, 0);
+// Rare airframe on a STALE block. Brightness already means "how old is this
+// position", so it cannot also mean "unusual airframe" — the two collided,
+// and the rare marker used to be drawn brighter on a dim block, which on a
+// single-line block (the whole overview) left nothing to contrast against
+// and read as live data. Hue was the free channel: same amber, dimmed to
+// match BLOCK_TEXT_DIM's rung, so staleness and rarity stay independent.
+constexpr uint16_t TYPE_INTERESTING_DIM = rgb332(3, 2, 0);
 constexpr uint16_t LEADER_LINE     = rgb332(2, 2, 1);
 
 // Background map: airspace outlines and extended runway centrelines share a
@@ -64,6 +71,13 @@ constexpr uint16_t COAST_LINE = rgb332(1, 1, 0);
 // BRIGHT on purpose — dimming happens at the backlight, not in the colour.
 // Dark grey text would give poor contrast while still lighting the panel.
 constexpr uint16_t NIGHT_CLOCK_COLOUR = rgb332(6, 0, 0);
+
+// Home marker. Identical to TFT_GREEN once quantized, and deliberately named
+// so the collision below is on the record: this is one rung from ALT_BAND_200
+// (1,7,1) and the two are indistinguishable on an 8-bit sprite. Home is
+// therefore separated from traffic by SHAPE, not colour — it is the only
+// cross on the scope. Do not give it a circular form.
+constexpr uint16_t HOME_MARK = rgb332(0, 7, 0);
 
 constexpr uint16_t SELECT_RING = rgb332(7, 7, 3); // white
 constexpr uint16_t ALERT_RED   = rgb332(7, 0, 0);

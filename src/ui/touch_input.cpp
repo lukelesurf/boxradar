@@ -1,4 +1,5 @@
 #include "touch_input.h"
+#include "status_bar.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include <XPT2046_Touchscreen.h>
@@ -48,7 +49,8 @@ static bool pressEdge() {
 
 bool touchInputTapped() { return pressEdge(); }
 
-bool touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
+bool touchInputPoll(UiState &ui, const radar::AircraftStore &s,
+                    const Viewport &vp) {
   if (!pressEdge()) return false;
 
   TS_Point p = s_touch.getPoint();
@@ -63,14 +65,35 @@ bool touchInputPoll(UiState &ui, const radar::AircraftStore &s) {
     ui.selectedHex = 0;
     return true;
   }
-  // Whole panel is scope now — the traffic list that used to own x >= 240 is
-  // gone, so every tap is either a blip hit or a background range cycle.
+
+  if (ui.view == ViewState::OVERVIEW) {
+    // Every tap zooms; blips are not hit-tested at all. The centre comes from
+    // inverting the tap through the overview transform, which is also why it
+    // can never land outside the generated map — the interaction bounds
+    // itself geometrically and no clamping is needed.
+    //
+    // Except on the home marker, which snaps: that is how you get back to a
+    // true home-centred view, and the cross drawn at the centre is its own
+    // affordance. See detailCentreForTap().
+    ui.detailCentre = detailCentreForTap(vp, x, y);
+    ui.detailRangeIdx = 0; // always arrive at the wider detail scale
+    ui.view = ViewState::DETAIL;
+    return true;
+  }
+
+  // Detail. The zoom toggle is checked first so it stays a single tap even
+  // when a blip happens to be sitting over the status strip.
+  if (statusRangeHitZone().contains(x, y)) {
+    ui.detailRangeIdx = (ui.detailRangeIdx + 1) % N_DETAIL_RANGES;
+    return true;
+  }
   const radar::Aircraft *hit = nearestBlip(s, x, y);
   if (hit) {
     ui.selectedHex = hit->hex;
     ui.detailOpen = true;
   } else {
-    ui.rangeIdx = (ui.rangeIdx + 1) % N_RANGES; // background tap: cycle range
+    ui.view = ViewState::OVERVIEW;
+    ui.selectedHex = 0; // no selection survives into overview
   }
   return true;
 }

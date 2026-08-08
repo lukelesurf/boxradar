@@ -5,6 +5,7 @@
 #include "format.h"
 #include "classify.h"
 #include "projection.h"
+#include "viewport.h"
 #include "config.h"
 #include "location.h"
 #include <Arduino.h>
@@ -45,7 +46,8 @@ static void drawDashedLine(TFT_eSprite &spr, float x0, float y0, float x1,
   }
 }
 
-static void drawCentrelines(TFT_eSprite &spr, float pxPerNm, float lonScale) {
+static void drawCentrelines(TFT_eSprite &spr, const Viewport &vp,
+                            float lonScale) {
   for (const auto &r : RUNWAYS) {
     radar::Vec2 a = radar::projectWith(lonScale, HOME_LAT, HOME_LON, r.lat0, r.lon0);
     radar::Vec2 b = radar::projectWith(lonScale, HOME_LAT, HOME_LON, r.lat1, r.lon1);
@@ -58,8 +60,7 @@ static void drawCentrelines(TFT_eSprite &spr, float pxPerNm, float lonScale) {
     // paths either side are what make the arrival stream legible.
     float ax = a.x - ux * CENTRELINE_NM, ay = a.y - uy * CENTRELINE_NM;
     float bx = b.x + ux * CENTRELINE_NM, by = b.y + uy * CENTRELINE_NM;
-    drawDashedLine(spr, SCOPE_CX + ax * pxPerNm, SCOPE_CY - ay * pxPerNm,
-                   SCOPE_CX + bx * pxPerNm, SCOPE_CY - by * pxPerNm,
+    drawDashedLine(spr, vp.fx(ax), vp.fy(ay), vp.fx(bx), vp.fy(by),
                    CENTRELINE);
   }
 }
@@ -73,13 +74,21 @@ static void drawCentrelines(TFT_eSprite &spr, float pxPerNm, float lonScale) {
 // without projecting any of its points — at 10nm inland that discards the
 // lot. Survivors then project with a hoisted longitude scale rather than
 // recomputing cosf per point.
-static void drawCoastline(TFT_eSprite &spr, float pxPerNm, float lonScale) {
-  const float invP = 1.0f / pxPerNm;
-  const float minLat = HOME_LAT + ((float)(SCOPE_CY - STATUS_Y) * invP) / 60.0f;
-  const float maxLat = HOME_LAT + ((float)SCOPE_CY * invP) / 60.0f;
-  const float minLon = HOME_LON - ((float)SCOPE_CX * invP) / lonScale;
+//
+// The window is the inverse of the viewport transform, so it has to move with
+// the centre — an off-centre view against a home-centred window would reject
+// exactly the segments now on screen and the coast would vanish.
+static void drawCoastline(TFT_eSprite &spr, const Viewport &vp,
+                          float lonScale) {
+  const float invP = 1.0f / vp.pxPerNm;
+  const float minLat =
+      HOME_LAT + (vp.centre.y + (float)(SCOPE_CY - STATUS_Y) * invP) / 60.0f;
+  const float maxLat =
+      HOME_LAT + (vp.centre.y + (float)SCOPE_CY * invP) / 60.0f;
+  const float minLon =
+      HOME_LON + (vp.centre.x - (float)SCOPE_CX * invP) / lonScale;
   const float maxLon =
-      HOME_LON + ((float)(SCOPE_W - SCOPE_CX) * invP) / lonScale;
+      HOME_LON + (vp.centre.x + (float)(SCOPE_W - SCOPE_CX) * invP) / lonScale;
 
   for (const coastline::Outline &o : coastline::SEGMENTS) {
     if (o.maxLat < minLat || o.minLat > maxLat || o.maxLon < minLon ||
@@ -89,8 +98,8 @@ static void drawCoastline(TFT_eSprite &spr, float pxPerNm, float lonScale) {
     for (uint16_t i = 0; i < o.count; i++) {
       radar::Vec2 p = radar::projectWith(lonScale, HOME_LAT, HOME_LON,
                                          o.pts[i].lat, o.pts[i].lon);
-      int x = SCOPE_CX + (int)(p.x * pxPerNm);
-      int y = SCOPE_CY - (int)(p.y * pxPerNm);
+      int x = vp.sx(p.x);
+      int y = vp.sy(p.y);
       if (i > 0) {
         // Per-line trivial reject for the surviving segments: a segment can
         // straddle the window while most of its individual spans do not.
@@ -109,14 +118,15 @@ static void drawCoastline(TFT_eSprite &spr, float pxPerNm, float lonScale) {
 
 // Outlines are closed rings (last vertex repeats the first), reprojected
 // every frame — ~200 projections, cheaper than caching per range change.
-static void drawAirspace(TFT_eSprite &spr, float pxPerNm, float lonScale) {
+static void drawAirspace(TFT_eSprite &spr, const Viewport &vp,
+                         float lonScale) {
   for (const airspace::Outline &o : airspace::OUTLINES) {
     int prevX = 0, prevY = 0;
     for (uint16_t i = 0; i < o.count; i++) {
       radar::Vec2 p =
           radar::projectWith(lonScale, HOME_LAT, HOME_LON, o.pts[i].lat, o.pts[i].lon);
-      int x = SCOPE_CX + (int)(p.x * pxPerNm);
-      int y = SCOPE_CY - (int)(p.y * pxPerNm);
+      int x = vp.sx(p.x);
+      int y = vp.sy(p.y);
       if (i > 0) spr.drawLine(prevX, prevY, x, y, AIRSPACE_LINE);
       prevX = x;
       prevY = y;
@@ -133,7 +143,8 @@ static void drawAirspace(TFT_eSprite &spr, float pxPerNm, float lonScale) {
 // point would push live traffic around to protect static furniture.
 // Shape carries the category so the two are tellable apart at 5px without
 // reading the label: triangle for a navigation fix, square for a town.
-static void drawFixedRefs(TFT_eSprite &spr, float pxPerNm, float lonScale) {
+static void drawFixedRefs(TFT_eSprite &spr, const Viewport &vp,
+                          float lonScale) {
   // Airfields first and a shade brighter than the rest: they are the anchors
   // you orient from, and a hollow marker sitting on its own centreline was
   // all but invisible.
@@ -141,8 +152,8 @@ static void drawFixedRefs(TFT_eSprite &spr, float pxPerNm, float lonScale) {
   for (const auto &f : AIRFIELDS) {
     radar::Vec2 p =
         radar::projectWith(lonScale, HOME_LAT, HOME_LON, f.lat, f.lon);
-    int x = SCOPE_CX + (int)(p.x * pxPerNm);
-    int y = SCOPE_CY - (int)(p.y * pxPerNm);
+    int x = vp.sx(p.x);
+    int y = vp.sy(p.y);
     if (x < -4 || x >= SCOPE_W || y < 4 || y >= STATUS_Y - 4) continue;
     spr.fillRect(x - 2, y - 2, 5, 5, AIRFIELD_MARK); // solid: towns are hollow
     spr.drawString(f.name, x + 5, y - 3, 1);
@@ -152,8 +163,8 @@ static void drawFixedRefs(TFT_eSprite &spr, float pxPerNm, float lonScale) {
   for (const auto &w : WAYPOINTS) {
     radar::Vec2 p =
         radar::projectWith(lonScale, HOME_LAT, HOME_LON, w.lat, w.lon);
-    int x = SCOPE_CX + (int)(p.x * pxPerNm);
-    int y = SCOPE_CY - (int)(p.y * pxPerNm);
+    int x = vp.sx(p.x);
+    int y = vp.sy(p.y);
     if (x < -4 || x >= SCOPE_W || y < 4 || y >= STATUS_Y - 4) continue;
     spr.drawTriangle(x, y - 3, x - 3, y + 2, x + 3, y + 2, AIRSPACE_LINE);
     spr.drawString(w.name, x + 5, y - 3, 1);
@@ -161,23 +172,56 @@ static void drawFixedRefs(TFT_eSprite &spr, float pxPerNm, float lonScale) {
   for (const auto &t : TOWNS) {
     radar::Vec2 p =
         radar::projectWith(lonScale, HOME_LAT, HOME_LON, t.lat, t.lon);
-    int x = SCOPE_CX + (int)(p.x * pxPerNm);
-    int y = SCOPE_CY - (int)(p.y * pxPerNm);
+    int x = vp.sx(p.x);
+    int y = vp.sy(p.y);
     if (x < -4 || x >= SCOPE_W || y < 4 || y >= STATUS_Y - 4) continue;
     spr.drawRect(x - 2, y - 2, 5, 5, AIRSPACE_LINE); // hollow: airfields are solid
     spr.drawString(t.name, x + 5, y - 3, 1);
   }
 }
 
-static void drawRings(TFT_eSprite &spr, float rangeNmOuter, float pxPerNm) {
+// Only drawn on a home-centred view — see Viewport::homeCentred(). Range is
+// reported by the status strip, not labelled on the scope.
+static void drawRings(TFT_eSprite &spr, const Viewport &vp) {
   for (int i = 1; i <= 2; i++) { // rings at 1/2 and full range
-    int r = (int)(pxPerNm * rangeNmOuter * i / 2.0f);
-    spr.drawCircle(SCOPE_CX, SCOPE_CY, r, TFT_DARKGREEN);
+    int r = (int)(vp.pxPerNm * vp.rangeNm * i / 2.0f);
+    spr.drawCircle(vp.sx(0.0f), vp.sy(0.0f), r, TFT_DARKGREEN);
   }
-  // Range is reported by the status strip, not labelled on the scope.
-  // Home marker
-  spr.drawLine(SCOPE_CX - 4, SCOPE_CY, SCOPE_CX + 4, SCOPE_CY, TFT_GREEN);
-  spr.drawLine(SCOPE_CX, SCOPE_CY - 4, SCOPE_CX, SCOPE_CY + 4, TFT_GREEN);
+}
+
+// Unlike the rings, this is drawn wherever the view is looking — it is just a
+// marker at a position, and off-centre it is the one thing on screen that
+// says which way you are. It may fall off the panel entirely; the sprite
+// clips, and the guard only keeps it from painting over the status strip.
+//
+// In the overview it is also the tap target that snaps back to a home-centred
+// view, and there a 9px cross was not findable: home sits in the busiest part
+// of a 50nm picture, among the airfield squares, town labels and blips
+// clustered around it. So when it is a target it is drawn as a reticle whose
+// arms reach exactly HOME_SNAP_PX — what you see is the tolerance you get.
+//
+// Arms with a gap, never a ring: HOME_MARK is indistinguishable from
+// ALT_BAND_200 on an 8-bit sprite, so a circular form here would read as an
+// MLAT contact at FL150. The cross is what makes it unambiguous.
+static void drawHomeMarker(TFT_eSprite &spr, const Viewport &vp,
+                           bool asTarget) {
+  int x = vp.sx(0.0f), y = vp.sy(0.0f);
+  if (y < -HOME_SNAP_PX || y >= STATUS_Y + HOME_SNAP_PX) return;
+  if (!asTarget) {
+    spr.drawLine(x - 4, y, x + 4, y, HOME_MARK);
+    spr.drawLine(x, y - 4, x, y + 4, HOME_MARK);
+    return;
+  }
+  constexpr int GAP = 3;
+  for (int s = -1; s <= 1; s += 2) {
+    spr.drawLine(x + s * GAP, y, x + s * HOME_SNAP_PX, y, HOME_MARK);
+    spr.drawLine(x, y + s * GAP, x, y + s * HOME_SNAP_PX, HOME_MARK);
+  }
+  // Keep datablocks off it. Waypoints deliberately don't reserve cells —
+  // static furniture shouldn't push live traffic around — but this is not
+  // furniture in the overview, it is the control you have to hit.
+  datablockReserve(x - HOME_SNAP_PX, y - HOME_SNAP_PX, 2 * HOME_SNAP_PX + 1,
+                   2 * HOME_SNAP_PX + 1);
 }
 
 // Warm low, cool high. Bands are in hundreds of feet to match the datablock
@@ -262,26 +306,26 @@ static int placementTier(const radar::Aircraft &a) {
 static constexpr int N_TIERS = 3;
 
 void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
-               const radar::Metar &metar, const UiState &ui) {
+               const radar::Metar &metar, const UiState &ui,
+               const Viewport &vp) {
   spr.fillSprite(TFT_BLACK);
-  float rangeOuter = RANGES_NM[ui.rangeIdx];
-  // Height-bound, not width-bound: the panel is 320 wide but only 240 tall,
-  // so the ring is sized off SCOPE_CY. Traffic in the left/right margins is
-  // beyond the nominal range and still drawn — that extra E/W coverage is
-  // the point of going full-screen.
-  float pxPerNm = scopePxPerNm(ui.rangeIdx);
+  // Scale is height-bound, not width-bound: the panel is 320 wide but only
+  // 240 tall, so the ring is sized off SCOPE_CY. Traffic in the left/right
+  // margins is beyond the nominal range and still drawn — that extra E/W
+  // coverage is the point of going full-screen. See scopePxPerNm().
+  //
   // One cosf per frame instead of one per projected point.
   float lonScale = radar::lonScaleNm(HOME_LAT);
   bool flashOn = (millis() / ALERT_FLASH_MS) % 2 == 0;
 
   datablocksBegin();
 #ifdef DRAW_COASTLINE
-  drawCoastline(spr, pxPerNm, lonScale); // bottom layer
+  drawCoastline(spr, vp, lonScale); // bottom layer
 #endif
-  drawAirspace(spr, pxPerNm, lonScale);
-  drawCentrelines(spr, pxPerNm, lonScale);
-  drawRings(spr, rangeOuter, pxPerNm);
-  drawFixedRefs(spr, pxPerNm, lonScale);
+  drawAirspace(spr, vp, lonScale);
+  drawCentrelines(spr, vp, lonScale);
+  if (vp.homeCentred()) drawRings(spr, vp);
+  drawFixedRefs(spr, vp, lonScale);
   // The status strip is off-limits to datablocks.
   datablockReserve(0, STATUS_Y, SCOPE_W, STATUS_H);
 #ifdef OVERHEAD_PREDICTION
@@ -304,8 +348,8 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
       a.sx = a.sy = -1000; // stale: not drawn, not tappable
       continue;
     }
-    int sx = SCOPE_CX + (int)(a.pos.x * pxPerNm);
-    int sy = SCOPE_CY - (int)(a.pos.y * pxPerNm);
+    int sx = vp.sx(a.pos.x);
+    int sy = vp.sy(a.pos.y);
     // Culled at the strip, not the panel edge: the strip is drawn last, so a
     // blip below it would be invisible yet still tappable.
     if (sx < 0 || sx >= SCOPE_W || sy < 0 || sy >= STATUS_Y) {
@@ -323,8 +367,8 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
       int idx = (a.trailHead - a.trailLen + t + 2 * radar::TRAIL_LEN) %
                 radar::TRAIL_LEN;
       const radar::Vec2 &tp = a.trail[idx];
-      int tx = SCOPE_CX + (int)(tp.x * pxPerNm);
-      int ty = SCOPE_CY - (int)(tp.y * pxPerNm);
+      int tx = vp.sx(tp.x);
+      int ty = vp.sy(tp.y);
       if (tx < 0 || tx >= SCOPE_W || ty < 0 || ty >= SCOPE_H) continue;
       // 3 brightness steps oldest->newest
       uint16_t col = t < a.trailLen / 3       ? 0x4208   // very dark grey (0x18E3 quantized to black on 8-bit RGB332)
@@ -339,12 +383,20 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
     datablockReserve(a.sx - 3, a.sy - 3, 7, 7); // blocks never cover a blip
   }
 
+  // After the blips, before the blocks. Home is scenery in detail but a
+  // control in the overview, and at 50nm it sits under the thickest traffic
+  // on the scope — drawn with the other map furniture it was painted over by
+  // everything that followed. Nothing outranks a control you have to hit;
+  // in the overview blips are not tappable anyway, so covering one costs
+  // nothing. Reserving happens here too, in time for pass 2.
+  drawHomeMarker(spr, vp, ui.view == ViewState::OVERVIEW);
+
   // Pass 2 places blocks; whoever goes first claims the cells, so this order
   // IS the priority. Selected, then alert squawks, then rare airframes, then
   // nearest-first. Range order carries through inside each tier for free —
   // s.list is already sorted ascending, so a forward sweep is nearest-first.
   // Runs separately from pass 1 because that one has to go far -> near.
-  bool twoLine = rangeOuter <= TWO_LINE_MAX_NM;
+  bool twoLine = vp.rangeNm <= TWO_LINE_MAX_NM;
   const radar::Aircraft *sel =
       ui.selectedHex ? s.findByHex(ui.selectedHex) : nullptr;
   if (sel && sel->sx > -1000) // an explicit tap outranks every heuristic
@@ -366,7 +418,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
       spr, s, s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
 #endif
   drawSquawkBanner(spr, s);
-  drawStatusCorner(spr, s, metar, onScreen, mlatOnScreen, ui.rangeIdx);
+  drawStatusCorner(spr, s, metar, onScreen, mlatOnScreen, vp.rangeNm);
 }
 
 void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,

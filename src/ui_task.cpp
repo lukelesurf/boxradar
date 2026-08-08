@@ -12,6 +12,7 @@
 #include "ui/layout.h"
 #include "ui/scope.h"
 #include "ui/touch_input.h"
+#include "ui/viewport.h"
 
 TFT_eSPI tft;
 static TFT_eSprite s_scope(&tft);
@@ -186,19 +187,27 @@ static void uiTaskLoop(void *) {
 #ifdef NIGHT_CLOCK
     s_lastClockMin = -1; // awake: force a redraw when night resumes
 #endif
+    snapshotStore(s_snap);
+    snapshotMetar(s_metar);
+    // Built once per frame into a local and passed to everything that needs
+    // it, rather than stored on UiState. That is deliberate: a follow-a-
+    // selected-aircraft state would make the centre a function of the current
+    // store, and this is the shape that admits it without touching a single
+    // draw site. See docs/viewport-design.md.
+    Viewport vp = viewportFor(s_ui, s_snap);
     // Published before rendering so a range change reaches the net task by
     // the next poll; existing points keep their old spacing until the ring
     // refills, which self-corrects within a few polls.
-    g_trailSpacingNm = trailSpacingNm(s_ui.rangeIdx);
-    snapshotStore(s_snap);
-    snapshotMetar(s_metar);
+    g_trailSpacingNm = trailSpacingNm(vp.rangeNm);
 #ifdef BOXRADAR_FRAME_TIME
     uint32_t t0 = micros();
 #endif
-    drawScope(s_scope, s_snap, s_metar, s_ui); // fills sx/sy for this frame
+    drawScope(s_scope, s_snap, s_metar, s_ui, vp); // fills sx/sy for this frame
     // Any interaction during night hours extends the wake window, so poking
-    // around at 3am doesn't have the screen die under your finger.
-    if (touchInputPoll(s_ui, s_snap)) nightModeWake();
+    // around at 3am doesn't have the screen die under your finger. Hit-tested
+    // against the viewport the frame above was drawn with, which is the one
+    // the finger was actually aiming at.
+    if (touchInputPoll(s_ui, s_snap, vp)) nightModeWake();
     if (s_ui.selectedHex && !s_snap.findByHex(s_ui.selectedHex)) {
       // selected aircraft aged out of the snapshot: clear stale selection
       s_ui.selectedHex = 0;

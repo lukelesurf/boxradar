@@ -183,10 +183,22 @@ bool drawDatablock(TFT_eSprite &spr, const radar::Aircraft &a, bool dim,
     spr.drawLine(a.sx, a.sy, lx, ly, dim ? BLOCK_TEXT_DIM : LEADER_LINE);
 
     uint16_t textCol = dim ? BLOCK_TEXT_DIM : BLOCK_TEXT;
-    spr.setTextColor(textCol, TFT_BLACK);
+    // The rare-airframe marker normally lives on the type field, which only
+    // exists on line 2. Whenever line 2 is gone — the overview's callsign-only
+    // form, or a block that lost the space to its neighbours — it moves onto
+    // the callsign. Same glyphs, same ink, and the signal survives in exactly
+    // the view that exists to choose what is worth a closer look.
+    // Dim amber rather than bright white when stale: see TYPE_INTERESTING_DIM.
+    // Brightness is the staleness channel and hue is the rarity channel, so a
+    // block can say both at once — which the old "brighter when rare" form
+    // could not do on a single-line block.
+    uint16_t rareCol = dim ? TYPE_INTERESTING_DIM : TYPE_INTERESTING;
+    bool rare = !radar::isCommonType(a.type);
+    spr.setTextColor(!two && rare ? rareCol : textCol, TFT_BLACK);
     spr.drawString(cs, bx, by, 1);
     if (two) {
       int x = bx, y = by + CH_H + LINE_GAP;
+      spr.setTextColor(textCol, TFT_BLACK);
       spr.drawString(alt, x, y, 1);
       x += textW(alt);
       if (hasArrow) {
@@ -195,11 +207,8 @@ bool drawDatablock(TFT_eSprite &spr, const radar::Aircraft &a, bool dim,
       }
       if (type[0]) {
         x += CH_W / 2;
-        // The one place colour means "rare airframe" rather than altitude.
-        uint16_t tc = radar::isCommonType(a.type)
-                          ? textCol
-                          : (dim ? BLOCK_TEXT : TYPE_INTERESTING);
-        spr.setTextColor(tc, TFT_BLACK);
+        // Colour here means "rare airframe" rather than altitude.
+        spr.setTextColor(rare ? rareCol : textCol, TFT_BLACK);
         spr.drawString(type, x, y, 1);
       }
     }
