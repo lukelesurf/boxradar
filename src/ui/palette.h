@@ -24,9 +24,13 @@ constexpr uint16_t ALT_BAND_200 = rgb332(1, 7, 1); // green   < 20000ft
 constexpr uint16_t ALT_BAND_300 = rgb332(0, 6, 3); // cyan    < 30000ft
 constexpr uint16_t ALT_BAND_TOP = rgb332(3, 2, 3); // violet  >=30000ft
 
-// Datablock text. The type field goes amber when the airframe isn't one of
-// the everyday short-haul types — see radar::isCommonType.
-constexpr uint16_t BLOCK_TEXT      = rgb332(5, 5, 2);
+// Datablock text. Full white — at 20+ contacts the labels are the thing you
+// read and everything else is background, so they take the top of the range
+// and the map layers stay where they are. The type field goes amber when the
+// airframe isn't one of the everyday short-haul types — see
+// radar::isCommonType; amber against white still reads as a flag, which is
+// why the type colour didn't move with it.
+constexpr uint16_t BLOCK_TEXT      = rgb332(7, 7, 3);
 constexpr uint16_t BLOCK_TEXT_DIM  = rgb332(2, 2, 1);
 constexpr uint16_t TYPE_INTERESTING = rgb332(7, 5, 0);
 constexpr uint16_t LEADER_LINE     = rgb332(2, 2, 1);
