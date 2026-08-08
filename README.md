@@ -242,18 +242,24 @@ saltmarsh rings, so tightening the tolerance alone barely helps: filtering
 to features ≥2km is what takes 143KB down to 12KB, and it discards exactly
 the detail that is sub-pixel at every range.
 
-### METAR feed (optional, receiver-side)
+### METAR proxy (optional, receiver-side)
 
-`tools/metar-feed/` installs on the **receiver Pi**, not the display and
-not a separate server. It polls aviationweather.gov every 5 minutes and
-publishes a ~300 byte `metar.json` into the lighttpd document root, so
-the display can fetch `http://<receiver>/metar.json` over plain HTTP
-alongside the `aircraft.json` it already polls.
+`tools/boxradar-site/` installs on the **receiver Pi**, not the display and
+not a separate server. It answers `GET /metar/<ICAO>` on port 8081, fetching
+from aviationweather.gov on demand and caching each station for 5 minutes,
+so the display polls `http://<receiver>:8081/metar/EGSS` over plain HTTP
+alongside the `aircraft.json` it already gets from the same box.
 
 ```bash
 # on the receiver Pi
-sudo ./install.sh          # edit STATIONS in metar_feed.py first
+sudo ./install.sh
 ```
+
+Any ICAO can be asked for — there is no station list to configure. The one
+thing the Pi still needs per airfield is runway **true** headings, in
+`/etc/boxradar-site/config.json`, because that is published data the request
+cannot carry. A station with no entry there still returns wind, cloud and
+visibility; it just reports no active runway.
 
 Keeping it on the receiver means the whole system stays two devices —
 receiver for data, ESP32 for display — which is what makes it portable to
@@ -264,15 +270,23 @@ live.
 The Pi normalises the upstream API's loose types (`visib` can be the
 string `"6+"`, `wdir` can be `"VRB"`, `wgst` can be null) into fixed
 always-present integers, and derives the likely active runway from the
-wind. `conf` is 0 below `CALM_KT` (7) — at that point wind isn't choosing
+wind. `conf` is 0 below `calm_kt` (7) — at that point wind isn't choosing
 the runway and the value is a guess, which the display marks with a `?`.
 
 Cloud shows as `CLEAR` when no layers are reported: upstream reports NCD,
 NSC, SKC and CAVOK identically, so the broader word is the honest one.
 
-Set `METAR_URL` and `METAR_STATION` in `config.h` to consume it. Both are
-optional: comment out `METAR_URL` and the whole feature compiles out, and
-the status strip simply omits the weather segments.
+The cache is what makes an on-demand endpoint safe. The timer this replaced
+guaranteed at most one upstream call every 5 minutes; a 300s per-station TTL
+reproduces that bound, so the board's 60s poll produces 12 upstream calls an
+hour rather than 60. After an upstream failure the proxy backs off for 60s and
+serves the last good observation flagged `"stale":1`, because a stale METAR is
+far better than none.
+
+Set `METAR_URL` and `METAR_STATION` in `config.h` to consume it. They must
+agree — the URL's last path segment names the station the firmware then picks
+out of the response. Both are optional: comment out `METAR_URL` and the whole
+feature compiles out, and the status strip simply omits the weather segments.
 
 ## Relocating
 
@@ -284,7 +298,7 @@ Five files carry location data. Nothing else needs touching.
 | `include/location.h` | airfields, runway thresholds, fixes, towns | yes |
 | `tools/build_airspace.py` | `CURATED_AIRPORTS` — which volumes | yes |
 | `tools/build_coastline.py` | re-run it; reads `HOME_*` from `config.h` | yes |
-| `tools/metar-feed/metar_feed.py` | `STATIONS` — stations and runway **true** headings | yes |
+| `/etc/boxradar-site/config.json` (on the Pi) | `runways` — stations and runway **true** headings | no — lives on the receiver |
 
 Home coordinates stay in the gitignored `config.h` on purpose: airfield data
 is published AIP material, but your own position is not, and this repo may be
@@ -310,9 +324,9 @@ static constexpr RunwayAxis RUNWAYS[] = {
 };
 ```
 
-```python
-# tools/metar-feed/metar_feed.py   (headings are TRUE)
-STATIONS = {"EGMC": [("05", 54), ("23", 234)]}
+```json
+// /etc/boxradar-site/config.json on the receiver Pi (headings are TRUE)
+{"runways": {"EGMC": [["05", 54], ["23", 234]]}}
 ```
 
 Then re-run both generators. `CURATED_AIRPORTS` needs feature names exactly
@@ -370,7 +384,8 @@ src/ui/         scope, datablocks, palette, status strip, overhead
 lib/radarcore/  portable domain logic: parse, projection, formatting,
                 classification, METAR, overhead prediction
 test/           native Unity tests for radarcore
-tools/          airspace and coastline codegen, receiver-side METAR feed
+tools/          airspace and coastline codegen, boxradar-site (receiver-side
+                METAR proxy; grows into the site config app)
 docs/           design notes for work not yet done
 case.scad       parametric OpenSCAD enclosure (see Case, above)
 ```

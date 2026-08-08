@@ -16,13 +16,15 @@
 
 #define POLL_INTERVAL_MS 2000
 
-// Optional weather, published by tools/metar-feed on the receiver Pi.
-// Comment out METAR_URL to disable — the status line simply omits the
-// weather segments and everything else carries on.
-#define METAR_URL "http://receiver.lan/metar.json"
+// Optional weather, proxied by tools/boxradar-site on the receiver Pi. The
+// URL's last path segment names the station, and METAR_STATION must match it —
+// the firmware picks that id out of the response's "stations" array. Comment
+// out METAR_URL to disable; the status line simply omits the weather segments
+// and everything else carries on.
+#define METAR_URL "http://receiver.lan:8081/metar/EGSS"
 #define METAR_STATION "EGSS"
-// METARs are issued half-hourly and the Pi refreshes every 5 minutes, so
-// there is nothing to gain from polling this hard.
+// METARs are issued half-hourly and the proxy caches each station for 5
+// minutes, so there is nothing to gain from polling this hard.
 #define METAR_POLL_INTERVAL_MS 60000
 
 // Draw the OSM coastline under everything else. Comment out to disable and

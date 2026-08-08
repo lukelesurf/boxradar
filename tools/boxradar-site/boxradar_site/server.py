@@ -47,8 +47,11 @@ def parse_ids(segment):
 
 def _make_handler(cache, cfg):
     class Handler(BaseHTTPRequestHandler):
-        # Keep-alive matters: the board polls one URL every 60s over the LAN,
-        # and HTTP/1.0 would make every poll a fresh connection.
+        # HTTP/1.1 for the sake of curl and the future web UI. The firmware is
+        # NOT a beneficiary: net_task.cpp calls http.useHTTP10(true), so the
+        # board sends 1.0 and gets a connection close per poll. That is
+        # deliberate on its side — a 1.0 response has no chunked encoding, so
+        # ArduinoJson can stream it straight off the socket.
         protocol_version = "HTTP/1.1"
         server_version = f"boxradar-site/{VERSION}"
 
