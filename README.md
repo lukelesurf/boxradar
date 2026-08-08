@@ -106,13 +106,18 @@ always wins where they collide.
 
 ## Architecture
 
-Core 0 polls `aircraft.json` every 2s and parses it through an
-ArduinoJson filter into a fixed 32-slot store (nearest-first). Core 1
-renders the scope into a single 320×240 8-bit sprite and handles touch.
-The two share a mutex-guarded double buffer — no JSON ever touches live
-render state. Positions project through a home-centred equirectangular
-approximation; `lib/radarcore` holds the portable parse/projection/
-format/classification/prediction logic and is unit-tested natively.
+Core 0 polls the receiver's `/contacts` endpoint every 2s and decodes
+fixed-size binary records into a 32-slot store (nearest-first). The Pi has
+already filtered, range-sorted and capped, so the board's traffic allocation
+is a constant rather than a function of how busy the sky is — the JSON
+document it used to build was the largest thing on the heap and grew with
+traffic. Core 1 renders the scope into a single 320×240 8-bit sprite and
+handles touch. The two share a mutex-guarded double buffer. Positions arrive
+as raw lat/lon and project on the board through a home-centred
+equirectangular approximation, deliberately: the board's own home is the only
+thing that decides where traffic is drawn. `lib/radarcore` holds the portable
+decode/projection/format/classification/prediction logic and is unit-tested
+natively.
 
 Rendering runs in two passes with deliberately opposite orderings. Blips
 draw far→near so close traffic wins overlapping pixels; datablocks place
@@ -253,13 +258,19 @@ saltmarsh rings, so tightening the tolerance alone barely helps: filtering
 to features ≥2km is what takes 143KB down to 12KB, and it discards exactly
 the detail that is sub-pixel at every range.
 
-### METAR proxy (optional, receiver-side)
+### Site application (receiver-side, required)
 
 `tools/boxradar-site/` installs on the **receiver Pi**, not the display and
-not a separate server. It answers `GET /metar/<ICAO>` on port 8081, fetching
-from aviationweather.gov on demand and caching each station for 5 minutes,
-so the display polls `http://<receiver>:8081/metar/EGSS` over plain HTTP
-alongside the `aircraft.json` it already gets from the same box.
+not a separate server. It serves two things on port 8081:
+
+- `GET /contacts?lat=&lon=&n=` — the traffic feed, as fixed-size binary
+  records already filtered, range-sorted and capped. **Required**: the display
+  has no JSON fallback, by design. It reads `aircraft.json` over the loopback,
+  so readsb and tar1090 are untouched.
+- `GET /metar/<ICAO>` — weather, fetched from aviationweather.gov on demand
+  and cached per station for 5 minutes. Optional; the strip simply omits it.
+
+Stdlib-only, so it needs no venv and no pip on a Debian Pi.
 
 ```bash
 # on the receiver Pi
@@ -381,9 +392,12 @@ Three different datasets, and the gaps between them are the trap:
 
 - **Runway headings are TRUE, designators are MAGNETIC.** Don't derive `05`
   into `50`.
-- **`MAX_AIRCRAFT` is 32** (`lib/radarcore/aircraft.h`) and the store silently
-  drops the farthest beyond that. Fine for a quiet area; under a busy TMA the
-  count pins at 32 and distant contacts vanish with no other indication.
+- **`MAX_AIRCRAFT` is 32** (`lib/radarcore/aircraft.h`) and the farthest
+  contacts beyond that are dropped — by the Pi now, not the board. No longer
+  silent: the feed carries the pre-cap total, so the status strip shows a dim
+  `+N` whenever the cap is binding, and `feed=` vs `kept=` on the serial log
+  says the same thing. Raising it costs 624 bytes of DRAM a slot across four
+  stores, so check `minheap=` before you do.
 - **`OVERVIEW_NM` / `DETAIL_RANGES_NM`** (`src/ui/layout.h`) are `50` and
   `{10,5}`, which suits a busy TMA. Somewhere rural may want both higher.
   The overview must stay above `TWO_LINE_MAX_NM` and every detail range at or
