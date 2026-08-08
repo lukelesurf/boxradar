@@ -7,9 +7,10 @@ datablocks over a map of coastline, controlled airspace, runway centrelines,
 airfields, navigation fixes and towns. Successor to the ESP8266/Nokia 5110
 original.
 
-![BOXRADAR at 10nm: traffic inside the Stansted CTA, airspace outlines,
-runway centrelines and airfield markers, with two-line datablocks on the
-scope](docs/scope-10nm.png)
+![BOXRADAR in its printed wedge case, showing the 10nm range: traffic
+inside the Stansted CTA, airspace outlines, runway centrelines and
+airfield markers, with two-line datablocks on the
+scope](docs/boxradar-case.jpg)
 
 ## Hardware
 
