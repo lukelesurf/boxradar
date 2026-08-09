@@ -174,11 +174,11 @@ so you never need to know your local CTRs by their YAIXM names. `suggest` ticks
 what the four measured rules would pick and says why it rejected the rest.
 Those rules only ever suggest; `$SEL` is what gets drawn.
 
-Airspace is selected by rule-assisted picking. **Point references are not** —
-airfields, runway centrelines, fixes and towns are curated by hand in the
-selection file, because a marker is cheap orientation while a centreline is a
-strong claim about where traffic goes. The bounding box is a search scope, not
-a selection. Pickers over OurAirports and GeoNames are a later phase.
+Airspace is selected by rule-assisted picking, and **point references are
+still picked rather than filtered** — the configuration UI offers what is in
+the box and you choose, because a marker is cheap orientation while a
+centreline is a strong claim about where traffic goes. The bounding box is a
+search scope, not a selection.
 
 Adding `--fetch` pulls the latest YAIXM release first. A selected feature name
 that no longer exists in the dataset is reported as a warning rather than
@@ -203,7 +203,38 @@ python3 -m boxradar_config --host 127.0.0.1 --port 8099
 |---|---|
 | `/site` | home latitude/longitude and the search reach |
 | `/airspace` | the catalog as a table, tick to select, Suggest, Publish |
-| `/healthz` | whether the selection, source and blob exist |
+| `/airfields` | search by ICAO, name or town; centrelines per runway |
+| `/fixes` | navaids and enroute fixes in one list, plus eAIP import |
+| `/towns` | a map to click, ranked by population, with editable labels |
+| `/datasets` | what is downloaded and how old it is |
+| `/healthz` | selection, source, blob and dataset ages |
+
+### Where the point references come from
+
+| picker | source | note |
+|---|---|---|
+| airfields | OurAirports `airports.csv` | large and medium by default; small on request. A field with no ICAO cannot be drawn, since the label *is* the ICAO |
+| centrelines | OurAirports `runways.csv` | both thresholds or nothing — the axis is the two points, never a published heading, which is magnetic and rounded to ten degrees |
+| fixes | OurAirports `navaids.csv` + eAIP ENR 4.4 | 3-letter navaids download; the ~1000 5-letter RNAV points ship, extracted by `tools_import_eaip_fixes.py` |
+| towns | GeoNames `GB.txt` | population ranks and never gates; the label is yours to choose |
+
+Everything is scoped to the search box before it is offered, which is a
+correctness requirement rather than a convenience: OurAirports idents are not
+globally unique. `BKY` is Barkway in Hertfordshire **and** Bouaké in Côte
+d'Ivoire, so an unscoped search by ident can put a West African VOR on an
+Essex map.
+
+Regenerating the enroute fix table:
+
+```bash
+python3 tools_import_eaip_fixes.py            # current AIRAC cycle
+python3 tools_import_eaip_fixes.py --check    # verify, write nothing
+```
+
+It refuses to write unless LOREL and ABBOT come out matching the values
+curated by hand in `include/location.h`, and refuses on a suspiciously short
+table. A layout change on the published page should fail loudly, not quietly
+produce a shorter map.
 
 Four paths, all overridable by environment variable so the systemd unit is the
 one place they are stated:
