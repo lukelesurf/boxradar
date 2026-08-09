@@ -23,6 +23,45 @@ class TestShippedTable(unittest.TestCase):
         loaded = fixes.load()
         self.assertTrue(loaded)
 
+    def test_the_whole_published_table_is_shipped(self):
+        # ENR 4.4 carries a bit over a thousand UK significant points. A
+        # sharply smaller number means the extraction silently half-worked,
+        # which is the failure mode tools_import_eaip_fixes.py guards against
+        # at write time and this guards against after the fact.
+        self.assertGreater(len(fixes.load()), 900)
+
+    def test_every_ident_fits_the_blob(self):
+        # A label longer than the fixed-width name field cannot be stored, and
+        # discovering that at publish time would abort a build already
+        # committed to.
+        for fix in fixes.load():
+            self.assertLessEqual(len(fix.ident), fixes.MAX_IDENT, fix.ident)
+
+    def test_every_row_has_plausible_coordinates(self):
+        """Bounds the published table, not "the UK".
+
+        The extremes are 45.0N, 61.0N and 15.0W exactly, which look like bad
+        data until you notice they are round numbers: they are the Shanwick
+        oceanic boundary, and the points sitting on it are real. A tighter
+        rectangle drawn around the British Isles rejects legitimate rows.
+        """
+        for fix in fixes.load():
+            self.assertTrue(44.0 <= fix.lat <= 62.0,
+                            f"{fix.ident} lat {fix.lat}")
+            self.assertTrue(-16.0 <= fix.lon <= 6.0,
+                            f"{fix.ident} lon {fix.lon}")
+
+    def test_notes_survive_the_annotation_column(self):
+        by_ident = {f.ident: f for f in fixes.load()}
+        self.assertIn("STAR", by_ident["ABBOT"].note.upper())
+
+    def test_a_note_containing_a_comma_is_not_split(self):
+        # csv quoting, not naive splitting: "FRA (A): EGJJ, EGJB" is one field.
+        commas = [f for f in fixes.load() if "," in f.note]
+        self.assertTrue(commas, "expected at least one note with a comma")
+        for fix in commas:
+            self.assertTrue(-35 < fix.lon < 15, f"{fix.ident} lon drifted")
+
     def test_it_carries_the_two_curated_holds(self):
         by_ident = {f.ident: f for f in fixes.load()}
         self.assertIn("LOREL", by_ident)

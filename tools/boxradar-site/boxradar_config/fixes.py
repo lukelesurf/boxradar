@@ -3,15 +3,23 @@
 Every other reference the pickers offer comes from a downloadable dataset.
 5-letter RNAV fixes do not — they are published only in the NATS eAIP ENR 4.4
 "significant points" table, as a web page of DDMMSS.ssN/DDDMMSS.ssE rows. So
-this is the one table that ships with the application and is extended by hand.
+this is the one table that ships with the application.
 
-The import path is cheap because the eAIP's coordinate format is the same one
-the YAIXM airspace source uses, and yaixm.parse_latlon already reads it. Paste
-rows in, get fixes out; nothing here re-implements DMS parsing.
+It ships **complete**: all ~1000 UK significant points, extracted from that
+page by tools_import_eaip_fixes.py and committed. The parser lives in that
+developer tool rather than here, which is why this package needs no HTML
+parser and no second network source at runtime — and why a new site works
+without importing anything.
+
+The paste importer below is what remains for the gaps: a point the extraction
+missed, a correction between AIRAC cycles, or a fix outside the UK AIP
+entirely. It is cheap because the eAIP's coordinate format is the same one the
+YAIXM airspace source uses and yaixm.parse_latlon already reads it; nothing
+here re-implements DMS parsing.
 
 Two tiers, merged at read time:
 
-  data/enroute_fixes.csv   ships with the application, seeded from location.h
+  data/enroute_fixes.csv   the full published table, shipped
   <state>/fixes.csv        whatever this site imported, written by the UI
 
 A user row wins over a shipped row with the same ident, so a stale shipped
