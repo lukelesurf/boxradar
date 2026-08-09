@@ -77,12 +77,16 @@ def load_features(cache_dir=None, fetch=False):
 
 
 def load_coastline(sel, cache_dir=None):
-    """Coastline segments around home. Hits Overpass unless already cached."""
+    """Coastline segments around home.
+
+    Hits Overpass only if neither the reduced segments nor the raw extract are
+    cached. The reduction is the expensive half — about 29 seconds on a Pi —
+    so it is cached in its own right rather than recomputed from the extract.
+    """
     from . import coastline
     cache = _cache_root(cache_dir, DEFAULT_COASTLINE_CACHE)
     box = coastline.query_box(sel.home_lat, sel.home_lon)
-    return coastline.segments(coastline.fetch(box, cache),
-                              sel.home_lat, sel.home_lon)
+    return coastline.segments_cached(box, cache, sel.home_lat, sel.home_lon)
 
 
 class Build:

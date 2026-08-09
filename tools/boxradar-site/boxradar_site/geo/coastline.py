@@ -164,6 +164,89 @@ def segments(data, home_lat, home_lon):
     return out
 
 
+# The reduced form is cached too, not just the Overpass response. Reading the
+# raw extract and reducing it is ~29 seconds on a Pi against ~0.1 for building
+# the airspace, and it is pure: the same extract, home and parameters always
+# give the same segments. See segments_cached().
+REDUCED_VERSION = 1
+
+
+def reduced_cache_path(bbox, cache_dir):
+    """Cache file for the REDUCED segments.
+
+    Named for the same coarse query box as the raw extract, deliberately.
+    segments() clips to a circle on exact home, so the result does encode the
+    scope centre — but that is already true of the published blob, whereas a
+    filename carrying home would be new. Home is stored inside the file and
+    checked on read instead.
+    """
+    s, w, n, e = bbox
+    return cache_dir / f"coastline_reduced_{s:g}_{w:g}_{n:g}_{e:g}.json"
+
+
+def _reduction_params():
+    """Everything besides the extract and home that changes the output.
+
+    Stored with the cache and compared on read, so tightening SIMPLIFY_M or
+    MIN_FEATURE_KM invalidates it. A cache that silently outlived the
+    constants that produced it is the same class of bug as a stored bbox that
+    disagrees with its own points.
+    """
+    return {"version": REDUCED_VERSION, "min_feature_km": MIN_FEATURE_KM,
+            "simplify_m": SIMPLIFY_M, "max_range_nm": MAX_RANGE_NM,
+            "margin_nm": MARGIN_NM}
+
+
+def _reduced_is_current(payload, home_lat, home_lon):
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("params") != _reduction_params():
+        return False
+    home = payload.get("home")
+    if not (isinstance(home, list) and len(home) == 2):
+        return False
+    # Home moving moves the clip circle, so the segments are simply wrong for
+    # the new position rather than merely stale.
+    return (round(home[0], 6) == round(home_lat, 6)
+            and round(home[1], 6) == round(home_lon, 6))
+
+
+def segments_cached(bbox, cache_dir, home_lat, home_lon):
+    """segments(), reading and writing a cache of the reduced result.
+
+    fetch() already caches the Overpass response, which saves the network but
+    not the reduction — and the reduction is the expensive half. This makes a
+    restart cheap instead of costing half a minute on the first page that
+    wants a coastline.
+    """
+    path = reduced_cache_path(bbox, cache_dir)
+    if path.exists():
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, ValueError):
+            payload = None  # unreadable cache is a slow path, never an error
+        if payload is not None and _reduced_is_current(payload, home_lat,
+                                                       home_lon):
+            out = [[tuple(point) for point in seg]
+                   for seg in payload.get("segments", [])]
+            print(f"using cached reduction {path} ({len(out)} segments)",
+                  file=sys.stderr)
+            return out
+
+    out = segments(fetch(bbox, cache_dir), home_lat, home_lon)
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.part")
+        tmp.write_text(json.dumps({"params": _reduction_params(),
+                                   "home": [home_lat, home_lon],
+                                   "segments": out}))
+        tmp.replace(path)
+    except OSError as exc:
+        # Not fatal: the caller has its answer, this only costs the next call.
+        print(f"could not cache the reduction: {exc}", file=sys.stderr)
+    return out
+
+
 def bbox_of(segment):
     """(minLat, maxLat, minLon, maxLon) for one segment.
 
