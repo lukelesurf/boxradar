@@ -57,22 +57,28 @@ String formPage() {
                "button{margin-top:1.2rem;padding:.7rem 1.2rem;font-size:1rem}"
                "p{color:#555;font-size:.85rem}</style>"
                "<h1>BOXRADAR setup</h1>"
-               "<p>Saved settings override the values compiled into the "
-               "firmware. Leave a field blank to keep the compiled default.</p>"
+               "<p>Each box shows the value currently in force. Fill in only "
+               "the ones you want to change — a box left empty is not written "
+               "at all, so anything you do not touch keeps working as it "
+               "does now.</p>"
                "<form method=POST action=/save>");
   for (size_t i = 0; i < FIELD_COUNT; i++) {
     const Field &f = FIELDS[i];
     h += "<label for=" + String(f.key) + ">" + f.label + "</label>";
     h += "<input id=" + String(f.key) + " name=" + String(f.key);
-    // Show what is in force, so the form documents the current state rather
-    // than presenting empty boxes. The password is deliberately not echoed.
-    if (strcmp(f.key, "ssid") == 0) h += " value='" + String(c.wifiSsid) + "'";
-    else if (strcmp(f.key, "recv") == 0) h += " value='" + String(c.receiverUrl) + "'";
-    else if (strcmp(f.key, "lat") == 0) h += " value='" + String(c.homeLat, 6) + "'";
-    else if (strcmp(f.key, "lon") == 0) h += " value='" + String(c.homeLon, 6) + "'";
-    else if (strcmp(f.key, "metar") == 0) h += " value='" + String(c.metarUrl) + "'";
-    else if (strcmp(f.key, "station") == 0) h += " value='" + String(c.metarStation) + "'";
-    else if (strcmp(f.key, "geo") == 0) h += " value='" + String(c.geoUrl) + "'";
+    // Show what is in force as a PLACEHOLDER, never a value. A prefilled
+    // `value` is submitted whether or not it was edited, so one save would
+    // write all eight keys to NVS and every compiled default would be shadowed
+    // forever — silently, since NVS wins and says nothing. That is exactly the
+    // trap that cost a debugging cycle on 2026-08-09. The password is
+    // deliberately not echoed at all.
+    if (strcmp(f.key, "ssid") == 0) h += " placeholder='" + String(c.wifiSsid) + "'";
+    else if (strcmp(f.key, "recv") == 0) h += " placeholder='" + String(c.receiverUrl) + "'";
+    else if (strcmp(f.key, "lat") == 0) h += " placeholder='" + String(c.homeLat, 6) + "'";
+    else if (strcmp(f.key, "lon") == 0) h += " placeholder='" + String(c.homeLon, 6) + "'";
+    else if (strcmp(f.key, "metar") == 0) h += " placeholder='" + String(c.metarUrl) + "'";
+    else if (strcmp(f.key, "station") == 0) h += " placeholder='" + String(c.metarStation) + "'";
+    else if (strcmp(f.key, "geo") == 0) h += " placeholder='" + String(c.geoUrl) + "'";
     h += ">";
   }
   h += F("<button type=submit>Save and restart</button></form>");
