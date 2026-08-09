@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% set page = 'preview' %}
+{% block title %}Preview — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Preview</h1>
+
+<p class="note">
+  The selection drawn at the panel's real geometry — 320&times;240, the same
+  projection, the same marker shapes, the same colours after 8-bit
+  quantisation. Shown at each range the scope offers, because crowding is a
+  property of the <em>scale</em> rather than of the selection: a set of labels
+  that is unreadable at 50nm can be perfectly clear at 10.
+</p>
+
+<p class="note">
+  <b>Traffic is not drawn</b>, and that is the one place this is not faithful.
+  Aircraft datablocks are placed by an occupancy grid in the firmware and a
+  second copy of it here would drift. Fixed references have no such
+  mechanism — the firmware puts every label at a flat five pixels right and
+  three up, and moves nothing out of the way — so an overlap below is an
+  overlap on the shelf.
+  {% if not has_coast %}
+    The coastline is not drawn: it has not been fetched for this home yet, and
+    the preview never goes to the network. Publishing will fetch it.
+  {% endif %}
+</p>
+
+<p class="note">
+  Drawing {{ counts.airspace }} airspace outline(s), {{ counts.airfields }}
+  airfield(s), {{ counts.runways }} centreline(s), {{ counts.fixes }} fix(es),
+  {{ counts.towns }} town(s){% if has_coast %},
+  {{ counts.coastline }} coastline segment(s){% endif %}.
+</p>
+
+{% for v in views %}
+  <h2>{{ '%g'|format(v.range_nm) }}nm
+    <span class="why">
+      {{ '%.1f'|format(v.px_per_nm) }} px/nm ·
+      {{ v.labels }} label(s) on screen ·
+      {% if v.collisions %}
+        <b>{{ v.collisions|length }} overlapping pair(s)</b>
+      {% else %}
+        no overlaps
+      {% endif %}
+    </span>
+  </h2>
+
+  {{ v.svg|safe }}
+
+  {% if v.collisions %}
+    <p class="note">
+      Overlapping here:
+      {% for a, b in v.collisions %}
+        <code>{{ a }}/{{ b }}</code>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+      — shorten a label, or drop one of the pair.
+    </p>
+  {% endif %}
+{% endfor %}
+
+<p class="note">
+  Nothing on this page changes anything. When it looks right, publish from
+  <a href="{{ url_for('airspace') }}">Airspace</a>.
+</p>
+{% endblock %}

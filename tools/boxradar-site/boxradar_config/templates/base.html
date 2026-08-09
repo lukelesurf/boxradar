@@ -29,6 +29,9 @@
                      box-sizing: border-box; }
   button { padding: .45rem .9rem; font-size: .95rem; }
   p.note { color: #8889; font-size: .85rem; max-width: 42rem; }
+  svg.scope { display: block; margin: .4rem 0 1rem;
+              image-rendering: pixelated; max-width: 100%;
+              height: auto; border: 1px solid #8884; }
   svg.map { max-width: 100%; height: auto; border: 1px solid #8884;
              border-radius: 4px; background: #8881; }
   svg.map a text { fill: currentColor; font-size: 9px; }
@@ -55,6 +58,8 @@
      class="{{ 'on' if page == 'fixes' }}">Fixes</a>
   <a href="{{ url_for('towns') }}"
      class="{{ 'on' if page == 'towns' }}">Towns</a>
+  <a href="{{ url_for('preview_page') }}"
+     class="{{ 'on' if page == 'preview' }}">Preview</a>
   <a href="{{ url_for('dataset_status') }}"
      class="{{ 'on' if page == 'datasets' }}">Data</a>
 </header>

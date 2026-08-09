@@ -280,3 +280,74 @@ class TestTowns(PickerCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPreview(PickerCase):
+    """The preview page, which draws whatever would be published."""
+
+    def setUp(self):
+        super().setUp()
+        import yaml
+        from tests.test_config_app import FEATURES
+        path = self.cache / "airspace" / "airspace.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump({"airspace": FEATURES}))
+
+    def test_it_renders_every_range_the_scope_offers(self):
+        from boxradar_config import preview
+        r = self.client.get("/preview")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.data.count(b'<svg class="scope"'),
+                         1 + len(preview.DETAIL_RANGES_NM))
+
+    def test_the_panel_geometry_reaches_the_page(self):
+        self.assertIn(b'viewBox="0 0 320 240"', self.client.get("/preview").data)
+
+    def test_markers_are_drawn_for_the_selection(self):
+        from boxradar_config import store
+        from boxradar_site.geo import selection
+        store.save(self.selection_path, selection.Selection(
+            HOME_LAT, HOME_LON, 65.0, [],
+            airfields=[("EGSS", 51.885, 0.235)],
+            towns=[("STVG", 51.90167, -0.20272)]))
+        data = self.client.get("/preview").data
+        self.assertIn(b">EGSS<", data)
+        self.assertIn(b">STVG<", data)
+
+    def test_crowding_is_reported(self):
+        from boxradar_config import store
+        from boxradar_site.geo import selection
+        store.save(self.selection_path, selection.Selection(
+            HOME_LAT, HOME_LON, 65.0, [],
+            towns=[("AAAA", HOME_LAT, HOME_LON),
+                   ("BBBB", HOME_LAT + 0.0005, HOME_LON)]))
+        data = self.client.get("/preview").data
+        self.assertIn(b"overlapping pair", data)
+        self.assertIn(b"<code>AAAA/BBBB</code>", data)
+
+    def test_a_clean_selection_says_so(self):
+        from boxradar_config import store
+        from boxradar_site.geo import selection
+        store.save(self.selection_path, selection.Selection(
+            HOME_LAT, HOME_LON, 65.0, [],
+            towns=[("AAAA", HOME_LAT, HOME_LON)]))
+        self.assertIn(b"no overlaps", self.client.get("/preview").data)
+
+    def test_a_broken_selection_does_not_render(self):
+        from boxradar_config import store
+        from boxradar_site.geo import selection
+        store.save(self.selection_path, selection.Selection(
+            HOME_LAT, HOME_LON, 65.0,
+            [selection.Group("GONE", "MOVED CTR")]))
+        r = self.client.get("/preview")
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("/airspace", r.headers["Location"])
+
+    def test_the_preview_never_touches_the_published_blob(self):
+        self.client.get("/preview")
+        self.assertFalse(self.settings.blob_path.exists())
+
+    def test_no_selection_goes_to_the_site_page(self):
+        self.selection_path.unlink()
+        r = self.client.get("/preview")
+        self.assertIn("/site", r.headers["Location"])

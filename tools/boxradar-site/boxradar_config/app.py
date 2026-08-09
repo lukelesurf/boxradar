@@ -17,7 +17,7 @@ from flask import (Flask, flash, redirect, render_template, request,
 
 from boxradar_site.geo import catalog, generate, rules, selection
 
-from . import VERSION, datasets, fixes as fixesmod, picks, store
+from . import VERSION, datasets, fixes as fixesmod, picks, preview, store
 from .settings import Settings
 
 # The town map, in CSS pixels. Not the panel's 240x320 — this is a picker, and
@@ -475,6 +475,67 @@ def create_app(settings=None):
         store.save(settings.selection_path, store.with_points(sel, towns=rows))
         flash(f"Saved {len(rows)} town(s). Publish to rebuild the map.", "ok")
         return redirect(url_for("towns"))
+
+    # -------------------------------------------------------------- preview
+
+    def cached_coast_loader(sel):
+        """A coastline loader, but only if the answer is already on disk.
+
+        The preview must not reach Overpass. It is the page you flick back to
+        after every tick, and a slow rate-limited network call behind that is
+        the difference between a tool you use and one you avoid. Publishing
+        still fetches; this just draws without the coast until it has.
+        """
+        from boxradar_site.geo import coastline
+        box = coastline.query_box(sel.home_lat, sel.home_lon)
+        if not coastline.cache_path(box, settings.coastline_cache).exists():
+            return None
+        return lambda: generate.load_coastline(
+            sel, cache_dir=settings.coastline_cache)
+
+    preview_memo = {}
+
+    def preview_build(sel, features):
+        """The build the preview draws, memoised on what would change it."""
+        path = settings.selection_path
+        key = (path.stat().st_mtime if path.exists() else None,
+               generate.yaml_path(settings.source_cache).stat().st_mtime)
+        if key not in preview_memo:
+            preview_memo.clear()
+            preview_memo[key] = generate.build(
+                sel, features, coast_loader=cached_coast_loader(sel))
+        return preview_memo[key]
+
+    @app.route("/preview")
+    def preview_page():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        features = load_features()
+        if features is None:
+            return render_template("source.html", cache=settings.source_cache)
+
+        result = preview_build(sel, features)
+        if not result.ok:
+            for problem in result.problems:
+                flash(problem, "error")
+            flash("Cannot draw a preview of a selection that will not build.",
+                  "error")
+            return redirect(url_for("airspace"))
+
+        views = []
+        for range_nm in (preview.OVERVIEW_NM,) + preview.DETAIL_RANGES_NM:
+            shapes = preview.scene(result, sel, range_nm)
+            views.append({
+                "range_nm": range_nm,
+                "px_per_nm": preview.px_per_nm(range_nm),
+                "svg": preview.to_svg(shapes),
+                "labels": len(preview.label_boxes(shapes)),
+                "collisions": preview.collisions(shapes),
+            })
+        return render_template("preview.html", sel=sel, views=views,
+                               counts=result.counts,
+                               has_coast=bool(result.coast))
 
     @app.route("/healthz")
     def healthz():
