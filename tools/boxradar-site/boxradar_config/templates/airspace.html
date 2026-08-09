@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% set page = 'airspace' %}
+{% block title %}Airspace — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Airspace</h1>
+
+<p class="note">
+  Every feature whose geometry falls inside the search box, nearest first.
+  <b>px</b> is how wide it would be on the 240px panel at the 50nm overview —
+  an outline larger than the panel cannot read as an enclosure. <b>verts</b> is
+  the only column with a cost on the device. Suggest ticks what the four
+  measured rules would pick and says why it rejected the rest; it never saves.
+</p>
+
+<div class="bar">
+  <form method="get">
+    <select name="kind">
+      <option value="">every kind ({{ total }})</option>
+      {% for k in kinds %}
+        <option value="{{ k }}" {{ 'selected' if k in show }}>{{ k }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+  {# A GET form, not a button in an anchor: nesting interactive elements is
+     invalid and browsers disagree about what it does. #}
+  <form method="get">
+    <input type="hidden" name="suggest" value="1">
+    <button type="submit">Suggest</button>
+  </form>
+  <form method="post" action="{{ url_for('fetch_source') }}">
+    <button type="submit">Update source</button>
+  </form>
+  <form method="post" action="{{ url_for('publish') }}">
+    <label><input type="checkbox" name="coastline" checked> coastline</label>
+    <button type="submit" {{ 'disabled' if missing }}>Publish map</button>
+  </form>
+</div>
+
+<form method="post" action="{{ url_for('save_airspace') }}">
+  <p><button type="submit">Save selection</button>
+     <span class="why">{{ selected|length }} ticked</span></p>
+
+  <table>
+    <tr>
+      <th></th><th class="n">dist</th><th class="n">size</th>
+      <th class="n">px</th><th class="n">verts</th>
+      <th>kind</th><th>name</th>
+    </tr>
+    {% for c in candidates %}
+      <tr class="{{ 'picked' if c.name in selected }}">
+        <td><input type="checkbox" name="feature" value="{{ c.name }}"
+                   {{ 'checked' if c.name in selected }}></td>
+        <td class="n">{{ '%.0f'|format(c.distance_nm) }}</td>
+        <td class="n">{{ '%.0f'|format(c.diag_nm) }}</td>
+        <td class="n">{{ '%.0f'|format(c.diag_px(px_per_nm)) }}</td>
+        <td class="n">{{ c.vertices }}</td>
+        <td>{{ c.kind }}</td>
+        <td>{{ c.name }}
+          {% if reasons.get(c.name) %}
+            <span class="why">— {{ reasons[c.name] }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+
+  {% if not candidates %}
+    <p class="note">Nothing in reach. Widen the reach on the Site page.</p>
+  {% endif %}
+</form>
+
+{% if sel.groups %}
+  <h2>Groups</h2>
+  <p class="note">
+    A group is one outline. <b>primary</b> is drawn on its own; anything in
+    <b>envelope</b> is merged with it into a second, larger outline — a CTR
+    plus its CTA. Ticking a feature that is not already in a group makes it a
+    group of its own; envelope grouping is still edited in the file.
+  </p>
+  <table>
+    <tr><th>group</th><th>primary</th><th>envelope</th></tr>
+    {% for g in sel.groups %}
+      <tr>
+        <td>{{ g.name }}</td>
+        <td>{{ g.primary }}</td>
+        <td>{{ g.envelope|join(', ') or '—' }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+{% endif %}
+{% endblock %}

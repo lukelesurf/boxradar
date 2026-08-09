@@ -21,8 +21,13 @@
             platformio
             # airspace codegen (boxradar_site.geo) — note the Pi runs
             # shapely 1.8 from apt while this is 2.x, so geometry tests
-            # compare with tolerance rather than equality
-            (python3.withPackages (ps: [ ps.pyyaml ps.shapely ]))
+            # compare with tolerance rather than equality.
+            #
+            # flask is for boxradar_config, the site configuration UI. The
+            # rule it has to satisfy is "installable from apt on a Debian
+            # Pi", not "installable at all" — python3-flask is in bookworm,
+            # which is why it is allowed where pip is not.
+            (python3.withPackages (ps: [ ps.pyyaml ps.shapely ps.flask ]))
           ];
         };
       });

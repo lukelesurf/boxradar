@@ -23,6 +23,12 @@ from .yaixm import feature_kind, feature_rings
 
 NM_PER_DEG_LAT = 60.0
 
+# The scale diag_px() is normally asked about: the 50nm overview, per
+# docs/viewport-design.md. Lives here rather than in a caller because both the
+# CLI listing and the configuration UI's picker have to quote the same number
+# for "how big would this be on the panel".
+PX_PER_NM_OVERVIEW = 2.2
+
 
 class Candidate:
     def __init__(self, name, kind, rings, home_lat, home_lon):

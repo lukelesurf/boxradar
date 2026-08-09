@@ -13,7 +13,7 @@ import argparse
 import pathlib
 import sys
 
-PX_PER_NM_OVERVIEW = 2.2  # 50nm overview, per docs/viewport-design.md
+from .catalog import PX_PER_NM_OVERVIEW
 
 
 def main(argv=None):

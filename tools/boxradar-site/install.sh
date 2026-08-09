@@ -13,6 +13,7 @@ LIB_DIR=/usr/local/lib/boxradar-site
 CONF_DIR=/etc/boxradar-site
 UNIT_DIR=/etc/systemd/system
 PORT=8081
+CONFIG_PORT=8082
 
 if [[ $EUID -ne 0 ]]; then
   echo "error: run as root (sudo ./install.sh)" >&2
@@ -30,37 +31,68 @@ if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,7) else 1)'; t
 fi
 
 # The METAR service is stdlib-only on purpose, so it is installed and started
-# regardless. The geography generator additionally needs shapely and yaml;
-# report rather than fail, so a receiver that only wants weather still works.
+# regardless. The geography generator additionally needs shapely and yaml, and
+# the configuration UI needs Flask on top of those; report rather than fail, so
+# a receiver that only wants weather still works.
+#
+# All three come from apt. Debian's Python is externally managed under PEP 668
+# so pip is not an option, but apt is outside PEP 668's scope — which is the
+# whole reason these are acceptable dependencies at all.
+WANT_CONFIG_UI=0
 if python3 -c 'import shapely, yaml' 2>/dev/null; then
   echo "geography generator dependencies present"
+  if python3 -c 'import flask' 2>/dev/null; then
+    echo "configuration UI dependencies present"
+    WANT_CONFIG_UI=1
+  else
+    echo "note: configuration UI unavailable"
+    echo "      to enable: sudo apt install python3-flask"
+  fi
 else
   echo "note: geography generation unavailable (that is fine for METAR only)"
   echo "      to enable: sudo apt install python3-shapely python3-yaml"
+  echo "      the configuration UI additionally needs python3-flask"
 fi
 
 # Fail early rather than leaving a unit in a restart loop against whatever
 # already owns the port. Skipped when our own service is what holds it, which
 # is the normal case when re-running this to upgrade.
-if ss -ltn "sport = :$PORT" | grep -q LISTEN; then
-  if systemctl is-active --quiet boxradar-site.service; then
-    echo "note: boxradar-site already running on $PORT, will restart it"
-  else
-    echo "error: something else is already listening on port $PORT:" >&2
-    ss -ltnp "sport = :$PORT" >&2
+check_port() {
+  local port=$1 unit=$2
+  ss -ltn "sport = :$port" | grep -q LISTEN || return 0
+  if systemctl is-active --quiet "$unit"; then
+    echo "note: $unit already running on $port, will restart it"
+    return 0
+  fi
+  echo "error: something else is already listening on port $port:" >&2
+  ss -ltnp "sport = :$port" >&2
+  exit 1
+}
+
+check_port "$PORT" boxradar-site.service
+if [[ $WANT_CONFIG_UI -eq 1 ]]; then
+  check_port "$CONFIG_PORT" boxradar-config.service
+  # The UI publishes site.bin into lighttpd's document root. Without it the
+  # service starts and then fails only at the moment someone presses Publish,
+  # which is the worst time to find out.
+  if [[ ! -d /var/www/html ]]; then
+    echo "error: /var/www/html does not exist — the configuration UI" >&2
+    echo "       publishes site.bin there for lighttpd to serve" >&2
     exit 1
   fi
 fi
 
-echo "installing package to $LIB_DIR"
+echo "installing packages to $LIB_DIR"
 install -d -m 0755 "$LIB_DIR"
-rm -rf "$LIB_DIR/boxradar_site"
-cp -r "$SRC_DIR/boxradar_site" "$LIB_DIR/boxradar_site"
-# Drop any __pycache__ carried over from a dev machine: it may hold bytecode
-# for a different Python than the Pi's.
-find "$LIB_DIR/boxradar_site" -name __pycache__ -type d -prune -exec rm -rf {} +
-find "$LIB_DIR/boxradar_site" -type f -exec chmod 0644 {} +
-find "$LIB_DIR/boxradar_site" -type d -exec chmod 0755 {} +
+for pkg in boxradar_site boxradar_config; do
+  rm -rf "${LIB_DIR:?}/$pkg"
+  cp -r "$SRC_DIR/$pkg" "$LIB_DIR/$pkg"
+  # Drop any __pycache__ carried over from a dev machine: it may hold bytecode
+  # for a different Python than the Pi's.
+  find "$LIB_DIR/$pkg" -name __pycache__ -type d -prune -exec rm -rf {} +
+  find "$LIB_DIR/$pkg" -type f -exec chmod 0644 {} +
+  find "$LIB_DIR/$pkg" -type d -exec chmod 0755 {} +
+done
 
 install -d -m 0755 "$CONF_DIR"
 if [[ -f $CONF_DIR/config.json ]]; then
@@ -83,12 +115,20 @@ JSON
   chmod 0644 "$CONF_DIR/config.json"
 fi
 
-echo "installing systemd unit"
+echo "installing systemd units"
 install -m 0644 "$SRC_DIR/boxradar-site.service" \
                 "$UNIT_DIR/boxradar-site.service"
+if [[ $WANT_CONFIG_UI -eq 1 ]]; then
+  install -m 0644 "$SRC_DIR/boxradar-config.service" \
+                  "$UNIT_DIR/boxradar-config.service"
+fi
 systemctl daemon-reload
 systemctl enable boxradar-site.service
 systemctl restart boxradar-site.service
+if [[ $WANT_CONFIG_UI -eq 1 ]]; then
+  systemctl enable boxradar-config.service
+  systemctl restart boxradar-config.service
+fi
 
 sleep 2
 if ! curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
@@ -96,9 +136,20 @@ if ! curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
   echo "check: journalctl -u boxradar-site.service -n 30 --no-pager" >&2
   exit 1
 fi
+if [[ $WANT_CONFIG_UI -eq 1 ]]; then
+  if ! curl -fsS "http://127.0.0.1:$CONFIG_PORT/healthz" >/dev/null; then
+    echo "error: configuration UI is not answering on $CONFIG_PORT" >&2
+    echo "check: journalctl -u boxradar-config.service -n 30 --no-pager" >&2
+    exit 1
+  fi
+fi
 
+HOST_IP=$(hostname -I | awk '{print $1}')
 echo
 echo "OK. verify from another machine:"
-echo "  curl http://\$(hostname -I | awk '{print \$1}'):$PORT/metar/EGSS"
+echo "  curl http://$HOST_IP:$PORT/metar/EGSS"
+if [[ $WANT_CONFIG_UI -eq 1 ]]; then
+  echo "  open http://$HOST_IP:$CONFIG_PORT/"
+fi
 echo
 systemctl --no-pager status boxradar-site.service | head -n 12

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% set page = 'site' %}
+{% block title %}Site — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Site</h1>
+
+<p class="note">
+  Home is where the display thinks it is. It is stamped into the map and sent
+  to the receiver with every contact request, so the board rejects a map built
+  for a different home rather than drawing traffic in the wrong place. Changing
+  it means publishing again.
+</p>
+
+{# `value` and not `placeholder` here, unlike the board's first-run portal. The
+   portal layers NVS over compiled defaults, so a prefilled box that always
+   submits makes NVS authoritative for fields nobody edited. This form has no
+   layer underneath it — selection.json is the only source of truth, and all
+   three fields are written together every time — so prefilling is correct. #}
+<form method="post">
+  <label class="f" for="home_lat">Home latitude</label>
+  <input type="text" id="home_lat" name="home_lat" inputmode="decimal"
+         value="{{ '%.6f'|format(sel.home_lat) if sel else '' }}" required>
+
+  <label class="f" for="home_lon">Home longitude</label>
+  <input type="text" id="home_lon" name="home_lon" inputmode="decimal"
+         value="{{ '%.6f'|format(sel.home_lon) if sel else '' }}" required>
+
+  <label class="f" for="reach_nm">Search reach (nm)</label>
+  <input type="text" id="reach_nm" name="reach_nm" inputmode="decimal"
+         value="{{ '%g'|format(sel.reach_nm) if sel else '65' }}">
+
+  <p class="note">
+    Reach is the box the airspace picker searches, not what gets drawn — it
+    only decides which features you are offered. The drawable area is about
+    85nm across.
+  </p>
+
+  <p><button type="submit">Save site</button></p>
+</form>
+{% endblock %}

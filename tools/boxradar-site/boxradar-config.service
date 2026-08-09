@@ -1,0 +1,42 @@
+[Unit]
+Description=BOXRADAR site configuration UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Unlike boxradar-site, this one writes: the selection it owns, a git checkout
+# of the airspace source, and the blob lighttpd serves. StateDirectory and
+# CacheDirectory give a DynamicUser service writable directories of its own,
+# so the installer needs no chown and nothing is left behind if it is removed.
+DynamicUser=yes
+StateDirectory=boxradar-config
+CacheDirectory=boxradar-config
+Environment=PYTHONPATH=/usr/local/lib/boxradar-site
+Environment=PYTHONUNBUFFERED=1
+Environment=BOXRADAR_CONFIG_SELECTION=/var/lib/boxradar-config/selection.json
+Environment=BOXRADAR_CONFIG_CACHE=/var/cache/boxradar-config
+Environment=BOXRADAR_CONFIG_BLOB=/var/www/html/site.bin
+ExecStart=/usr/bin/python3 -m boxradar_config --port 8082
+Restart=always
+RestartSec=5
+# Below the display's feed. A shapely union while a board is polling should
+# lose, and this service being slow costs nobody anything.
+Nice=15
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+# The blob is published into lighttpd's document root, which is the one path
+# outside this service's own directories that it may write.
+ReadWritePaths=/var/www/html
+RestrictAddressFamilies=AF_INET AF_INET6
+# shapely unions over the whole UK dataset are the peak here, well above
+# anything the METAR proxy does.
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
