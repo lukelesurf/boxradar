@@ -197,11 +197,7 @@ def create_app(settings=None):
             return render_template("source.html", cache=settings.source_cache)
 
         want_coast = bool(request.form.get("coastline"))
-        loader = None
-        if want_coast:
-            def loader():
-                return generate.load_coastline(
-                    sel, cache_dir=settings.coastline_cache)
+        loader = publish_coast_loader(sel) if want_coast else None
 
         try:
             result = generate.build(sel, features, coast_loader=loader)
@@ -478,18 +474,41 @@ def create_app(settings=None):
 
     # -------------------------------------------------------------- preview
 
-    def cached_coast_loader(sel):
-        """A coastline loader, but only if the answer is already on disk.
+    coast_memo = {}
 
-        The preview must not reach Overpass. It is the page you flick back to
-        after every tick, and a slow rate-limited network call behind that is
-        the difference between a tool you use and one you avoid. Publishing
-        still fetches; this just draws without the coast until it has.
+    def cached_coast(sel):
+        """Coastline segments for this home, or None if not fetched yet.
+
+        Memoised on **home**, not on the selection, and that distinction is
+        most of this page's speed. Reducing the cached OSM extract to segments
+        is 29 of the 40 seconds a cold preview used to take on a Pi (9s to
+        read and parse the JSON, 20s to reduce 4,697 ways to 124 segments) —
+        while building the airspace itself is 0.08s. The coast does not move
+        when you tick an airfield, so keying this on the selection file meant
+        paying all 29 seconds again for every edit.
+
+        Returns None rather than fetching: the preview must never reach
+        Overpass. It is the page you flick back to after every tick, and a
+        slow rate-limited call behind that is the difference between a tool
+        you use and one you avoid. Publishing is what fetches.
         """
         from boxradar_site.geo import coastline
         box = coastline.query_box(sel.home_lat, sel.home_lon)
-        if not coastline.cache_path(box, settings.coastline_cache).exists():
+        path = coastline.cache_path(box, settings.coastline_cache)
+        if not path.exists():
             return None
+        key = (box, path.stat().st_mtime)
+        if key not in coast_memo:
+            coast_memo.clear()  # one home at a time
+            coast_memo[key] = generate.load_coastline(
+                sel, cache_dir=settings.coastline_cache)
+        return coast_memo[key]
+
+    def publish_coast_loader(sel):
+        """Like cached_coast, but allowed to go and get it."""
+        ready = cached_coast(sel)
+        if ready is not None:
+            return lambda: ready
         return lambda: generate.load_coastline(
             sel, cache_dir=settings.coastline_cache)
 
@@ -502,8 +521,8 @@ def create_app(settings=None):
                generate.yaml_path(settings.source_cache).stat().st_mtime)
         if key not in preview_memo:
             preview_memo.clear()
-            preview_memo[key] = generate.build(
-                sel, features, coast_loader=cached_coast_loader(sel))
+            preview_memo[key] = generate.build(sel, features,
+                                               coast=cached_coast(sel))
         return preview_memo[key]
 
     @app.route("/preview")
