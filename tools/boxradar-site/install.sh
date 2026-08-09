@@ -14,6 +14,12 @@ CONF_DIR=/etc/boxradar-site
 UNIT_DIR=/etc/systemd/system
 PORT=8081
 CONFIG_PORT=8082
+DOCROOT=/var/www/html
+# The configuration UI runs as a DynamicUser, which has no stable identity to
+# chown anything to. A named group it joins via SupplementaryGroups= is the
+# way to let it publish into lighttpd's document root without loosening that
+# directory for everyone or giving the service a real account.
+PUB_GROUP=boxradar-pub
 
 if [[ $EUID -ne 0 ]]; then
   echo "error: run as root (sudo ./install.sh)" >&2
@@ -75,8 +81,8 @@ if [[ $WANT_CONFIG_UI -eq 1 ]]; then
   # The UI publishes site.bin into lighttpd's document root. Without it the
   # service starts and then fails only at the moment someone presses Publish,
   # which is the worst time to find out.
-  if [[ ! -d /var/www/html ]]; then
-    echo "error: /var/www/html does not exist — the configuration UI" >&2
+  if [[ ! -d $DOCROOT ]]; then
+    echo "error: $DOCROOT does not exist — the configuration UI" >&2
     echo "       publishes site.bin there for lighttpd to serve" >&2
     exit 1
   fi
@@ -115,6 +121,18 @@ JSON
   chmod 0644 "$CONF_DIR/config.json"
 fi
 
+if [[ $WANT_CONFIG_UI -eq 1 ]]; then
+  if ! getent group "$PUB_GROUP" >/dev/null; then
+    echo "creating group $PUB_GROUP"
+    groupadd --system "$PUB_GROUP"
+  fi
+  # setgid, so anything published inherits the group rather than depending on
+  # whichever dynamic user happened to write it.
+  chgrp "$PUB_GROUP" "$DOCROOT"
+  chmod 2775 "$DOCROOT"
+  echo "$DOCROOT is writable by $PUB_GROUP"
+fi
+
 echo "installing systemd units"
 install -m 0644 "$SRC_DIR/boxradar-site.service" \
                 "$UNIT_DIR/boxradar-site.service"
@@ -130,18 +148,28 @@ if [[ $WANT_CONFIG_UI -eq 1 ]]; then
   systemctl restart boxradar-config.service
 fi
 
-sleep 2
-if ! curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null; then
-  echo "error: service is not answering on port $PORT" >&2
-  echo "check: journalctl -u boxradar-site.service -n 30 --no-pager" >&2
+# Poll rather than sleep-once. The configuration UI imports Flask and shapely
+# before it binds, which takes about four seconds on a Pi — a flat `sleep 2`
+# reported a failure for a service that was starting perfectly well.
+wait_for_health() {
+  local port=$1 unit=$2 i
+  for i in $(seq 1 30); do
+    if curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null 2>&1; then
+      return 0
+    fi
+    if ! systemctl is-active --quiet "$unit"; then
+      break  # died rather than still starting; no point waiting out the loop
+    fi
+    sleep 1
+  done
+  echo "error: $unit is not answering on port $port" >&2
+  echo "check: journalctl -u $unit -n 30 --no-pager" >&2
   exit 1
-fi
+}
+
+wait_for_health "$PORT" boxradar-site.service
 if [[ $WANT_CONFIG_UI -eq 1 ]]; then
-  if ! curl -fsS "http://127.0.0.1:$CONFIG_PORT/healthz" >/dev/null; then
-    echo "error: configuration UI is not answering on $CONFIG_PORT" >&2
-    echo "check: journalctl -u boxradar-config.service -n 30 --no-pager" >&2
-    exit 1
-  fi
+  wait_for_health "$CONFIG_PORT" boxradar-config.service
 fi
 
 HOST_IP=$(hostname -I | awk '{print $1}')

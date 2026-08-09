@@ -16,9 +16,9 @@ display service is stdlib-only so it can run on a Debian Pi with no venv; the
 generator needs shapely, and the UI needs Flask on top of that.
 
 **Two systemd units, not one.** The display service is what the board polls
-every 60 seconds, and it should not gain shapely, Flask, or a reason to restart
-when the configuration UI is touched. The split costs one extra unit file and
-buys a feed that config-UI work cannot break.
+about every two seconds, and it should not gain shapely, Flask, or a reason to
+restart when the configuration UI is touched. The split costs one extra unit
+file and buys a feed that config-UI work cannot break.
 
 ## Why a proxy
 
@@ -242,3 +242,37 @@ alone would be security theatre. Revisit if the Pi ever faces the internet.
 Flask's own development server is what runs it. This is a single-user tool on
 a LAN, touched when a site is set up and otherwise idle; gunicorn would be a
 second dependency and a second thing to configure for no benefit.
+
+### Publishing permissions
+
+The service runs as a `DynamicUser`, which has no stable identity to chown
+anything to, and it has to write `site.bin` into a document root owned by
+root and read by lighttpd as `www-data`. Three separate things have to line
+up, and each one fails differently:
+
+- `ReadWritePaths=/var/www/html` in the unit lifts systemd's read-only mount.
+  It does **not** change POSIX ownership, which is a distinction easy to miss:
+  the service still gets `EACCES` without the next line.
+- `install.sh` creates a system group `boxradar-pub`, gives the document root
+  `2775` and that group, and the unit joins it with `SupplementaryGroups=`.
+  The setgid bit means published files inherit the group rather than depending
+  on whichever dynamic UID happened to write them.
+- The blob is written `0644` explicitly. `tempfile.mkstemp` creates at `0600`,
+  so an atomic write that did not chmod would publish a file lighttpd cannot
+  read — the board would get a 403 on its geography fetch and fall back to its
+  cache, with nothing in the Pi's logs to say why.
+
+### First deployment at a site that already has a map
+
+The UI starts from an empty selection. If a `site.bin` is already published,
+seed the selection that built it before touching any picker, or the first
+Publish replaces a working map with an empty one:
+
+```bash
+sudo systemctl stop boxradar-config
+sudo install -m 0644 boxradar_site/geo/selection.example.json \
+  /var/lib/private/boxradar-config/selection.json
+sudo chown -R "$(sudo stat -c %u /var/lib/private/boxradar-config)" \
+  /var/lib/private/boxradar-config
+sudo systemctl start boxradar-config
+```

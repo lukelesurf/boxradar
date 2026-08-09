@@ -37,12 +37,34 @@ def create_app(settings=None):
     def load_selection():
         return store.load(settings.selection_path)
 
+    # Parsing the 256KB airspace source and walking its ~700 features to build
+    # the catalog costs about a second on a Pi and does not change between
+    # requests. Keyed on the file's mtime so a source fetch invalidates it.
+    source_memo = {}
+
     def load_features():
         """Features, or None when the source has not been fetched yet."""
-        try:
-            return generate.load_features(cache_dir=settings.source_cache)
-        except generate.SourceMissing:
+        path = generate.yaml_path(settings.source_cache)
+        if not path.exists():
             return None
+        key = ("features", path.stat().st_mtime)
+        if key not in source_memo:
+            source_memo.clear()
+            try:
+                source_memo[key] = generate.load_features(
+                    cache_dir=settings.source_cache)
+            except generate.SourceMissing:
+                return None
+        return source_memo[key]
+
+    def load_catalog(sel, features):
+        path = generate.yaml_path(settings.source_cache)
+        key = ("catalog", path.stat().st_mtime, sel.home_lat, sel.home_lon,
+               sel.reach_nm)
+        if key not in source_memo:
+            source_memo[key] = catalog.catalog(features, sel.home_lat,
+                                               sel.home_lon, sel.reach_nm)
+        return source_memo[key]
 
     # Filtering 85,000 airports or 109,000 populated places takes a second or
     # two on a Pi, and the pickers re-read on every page load. Memoised on the
@@ -114,8 +136,7 @@ def create_app(settings=None):
         if features is None:
             return render_template("source.html", cache=settings.source_cache)
 
-        cands = catalog.catalog(features, sel.home_lat, sel.home_lon,
-                                sel.reach_nm)
+        cands = load_catalog(sel, features)
         selected = set(sel.feature_names())
         reasons = {}
         if request.args.get("suggest"):
@@ -162,6 +183,7 @@ def create_app(settings=None):
         except Exception as e:  # subprocess, network, disk — all the same here
             flash(f"Could not fetch the airspace source: {e}", "error")
             return redirect(url_for("airspace"))
+        source_memo.clear()  # mtime would catch it, but do not rely on that
         flash("Airspace source updated.", "ok")
         return redirect(url_for("airspace"))
 
@@ -194,7 +216,14 @@ def create_app(settings=None):
                   "in it.", "error")
             return redirect(url_for("airspace"))
 
-        store.write_atomic(settings.blob_path, result.blob)
+        try:
+            # 0644, not the default: lighttpd serves this as www-data.
+            store.write_atomic(settings.blob_path, result.blob,
+                               permissions=0o644)
+        except OSError as e:
+            flash(f"Could not write {settings.blob_path}: {e}. The previously "
+                  f"published map is untouched.", "error")
+            return redirect(url_for("airspace"))
         flash(f"Published {len(result.blob)} bytes to "
               f"{settings.blob_path} ({result.summary()}). The board picks "
               f"it up on its next geography poll.", "ok")

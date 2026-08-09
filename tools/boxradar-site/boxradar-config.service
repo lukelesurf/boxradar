@@ -12,6 +12,11 @@ Type=simple
 DynamicUser=yes
 StateDirectory=boxradar-config
 CacheDirectory=boxradar-config
+# ReadWritePaths below lifts systemd's read-only mount over the document root,
+# but it does not touch POSIX ownership — the directory is root-owned, so the
+# dynamic user still needs a group to write in it. install.sh creates this
+# group and gives the document root group-write.
+SupplementaryGroups=boxradar-pub
 Environment=PYTHONPATH=/usr/local/lib/boxradar-site
 Environment=PYTHONUNBUFFERED=1
 Environment=BOXRADAR_CONFIG_SELECTION=/var/lib/boxradar-config/selection.json

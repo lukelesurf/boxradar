@@ -94,6 +94,26 @@ class TestWriteAtomic(unittest.TestCase):
         store.write_atomic(path, b"x")
         self.assertTrue(path.exists())
 
+    def test_the_default_is_owner_only(self):
+        # The selection carries the site's home coordinates.
+        path = self.root / "selection.json"
+        store.write_atomic(path, "{}")
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_the_published_blob_can_be_asked_for_world_readable(self):
+        # mkstemp creates at 0600, so a blob written with the default is a 403
+        # from lighttpd — which serves it as www-data — and the board would
+        # see the geography fetch fail with no clue why.
+        path = self.root / "site.bin"
+        store.write_atomic(path, b"\x00", permissions=0o644)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+
+    def test_permissions_are_reapplied_on_every_write(self):
+        path = self.root / "site.bin"
+        store.write_atomic(path, b"\x00", permissions=0o644)
+        store.write_atomic(path, b"\x01", permissions=0o644)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+
     def test_an_existing_file_survives_a_failed_write(self):
         path = self.root / "site.bin"
         store.write_atomic(path, b"good")

@@ -10,9 +10,9 @@ must be installable as a `python3-*` package on bookworm.
 Two boundaries, then:
 
   1. The METAR proxy and contact feed stay stdlib-only. They are what the
-     display polls every 60 seconds, and they should not gain shapely, Flask,
-     or a reason to restart when the configuration UI is touched. This is the
-     stricter of the two rules and it is the one worth defending.
+     display polls every couple of seconds, and they should not gain shapely,
+     Flask, or a reason to restart when the configuration UI is touched. This
+     is the stricter of the two rules and it is the one worth defending.
 
   2. Nothing anywhere imports something that is not on the apt list.
 

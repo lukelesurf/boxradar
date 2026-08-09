@@ -5,7 +5,7 @@
 Flask's own server, not gunicorn. This is a single-user tool on a LAN that is
 touched when a site is set up and otherwise idle, so a second dependency and a
 second thing to configure would buy nothing. The service that has to stay up
-under a board polling it every 60 seconds is boxradar-site, and that one is
+under a board polling it every couple of seconds is boxradar-site, and that is
 stdlib http.server for the same reason.
 """
 

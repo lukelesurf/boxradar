@@ -33,8 +33,15 @@ CLASS_SUFFIXES = ("CTR", "CTA", "TMA", "TMZ", "ATZ", "RMZ", "FIR")
 _NOT_IDENT = re.compile(r"[^A-Z0-9]+")
 
 
-def write_atomic(path, data):
-    """Replace path's contents in one step. Accepts str or bytes."""
+def write_atomic(path, data, permissions=0o600):
+    """Replace path's contents in one step. Accepts str or bytes.
+
+    `permissions` defaults to owner-only, which is what the selection wants —
+    it carries the site's home coordinates, and this project deliberately keeps
+    those out of anywhere they need not be. The published blob has to override
+    it to 0644: lighttpd serves that file as www-data, and mkstemp creates at
+    0600, so a blob written with the default would be a 403 to the board.
+    """
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     mode = "wb" if isinstance(data, (bytes, bytearray)) else "w"
@@ -44,6 +51,7 @@ def write_atomic(path, data):
     try:
         with os.fdopen(fd, mode) as f:
             f.write(data)
+        os.chmod(tmp, permissions)
         os.replace(tmp, str(path))
     except BaseException:
         # Leaving a stray .tmp beside the real file would be mistaken for the

@@ -19,9 +19,21 @@ from . import blob as blobmod
 from . import emit
 
 REPO_URL = "https://github.com/ahsparrow/airspace"
-DEFAULT_SOURCE_CACHE = pathlib.Path("~/.cache/boxradar-airspace").expanduser()
-DEFAULT_COASTLINE_CACHE = \
-    pathlib.Path("~/.cache/boxradar-coastline").expanduser()
+
+# Left unexpanded, and expanded only when actually used. A DynamicUser systemd
+# service has no passwd entry and ProtectHome=true takes away what it would
+# have read anyway, so Path.expanduser() raises "Could not determine home
+# directory" there — at import time, which takes the whole application down
+# before main() runs. The CLI never sees it because a shell always has $HOME.
+# Callers that pass cache_dir, which is every caller inside the service, never
+# reach these at all.
+DEFAULT_SOURCE_CACHE = "~/.cache/boxradar-airspace"
+DEFAULT_COASTLINE_CACHE = "~/.cache/boxradar-coastline"
+
+
+def _cache_root(cache_dir, fallback):
+    return pathlib.Path(cache_dir) if cache_dir \
+        else pathlib.Path(fallback).expanduser()
 
 
 class SourceMissing(Exception):
@@ -29,8 +41,8 @@ class SourceMissing(Exception):
 
 
 def yaml_path(cache_dir=None):
-    root = pathlib.Path(cache_dir) if cache_dir else DEFAULT_SOURCE_CACHE
-    return root / "airspace" / "airspace.yaml"
+    return _cache_root(cache_dir, DEFAULT_SOURCE_CACHE) / "airspace" \
+        / "airspace.yaml"
 
 
 def fetch_source(cache_dir=None):
@@ -55,14 +67,19 @@ def load_features(cache_dir=None, fetch=False):
     if not path.exists():
         raise SourceMissing(f"{path} not found — fetch the source first")
     import yaml
+    # CSafeLoader where libyaml is available, which on a Pi is the difference
+    # between about 15 seconds and about one. yaml.safe_load() uses the pure
+    # Python loader regardless of whether the C extension is installed, and
+    # Debian's python3-yaml does ship it.
+    loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     with path.open() as f:
-        return yaml.safe_load(f).get("airspace", []) or []
+        return (yaml.load(f, Loader=loader) or {}).get("airspace", []) or []
 
 
 def load_coastline(sel, cache_dir=None):
     """Coastline segments around home. Hits Overpass unless already cached."""
     from . import coastline
-    cache = pathlib.Path(cache_dir) if cache_dir else DEFAULT_COASTLINE_CACHE
+    cache = _cache_root(cache_dir, DEFAULT_COASTLINE_CACHE)
     box = coastline.query_box(sel.home_lat, sel.home_lon)
     return coastline.segments(coastline.fetch(box, cache),
                               sel.home_lat, sel.home_lon)

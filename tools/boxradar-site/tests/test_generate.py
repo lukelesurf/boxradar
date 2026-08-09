@@ -6,9 +6,11 @@ coastline, then sections, then bytes" would drift from it silently — the blob
 would still parse, it would just describe a different site than the CLI does.
 """
 
+import importlib
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 from boxradar_site.geo import blob, generate, selection
 
@@ -134,6 +136,25 @@ class TestSourceLoading(unittest.TestCase):
         message = str(caught.exception)
         self.assertIn("airspace.yaml", message)
         self.assertIn("fetch", message)
+
+    def test_importing_does_not_need_a_home_directory(self):
+        """A DynamicUser service has no home, and this used to kill it.
+
+        The cache defaults were expanded at import time. Under
+        DynamicUser=yes with ProtectHome=true there is no passwd entry and no
+        $HOME, so Path.expanduser() raises and the whole application dies
+        before main() runs. Nothing caught it: a shell always has $HOME, so
+        the CLI and the whole test suite were fine.
+        """
+        boom = RuntimeError("Could not determine home directory.")
+        with mock.patch.object(pathlib.Path, "expanduser", side_effect=boom):
+            importlib.reload(generate)
+        importlib.reload(generate)  # leave the module as we found it
+
+    def test_a_supplied_cache_dir_never_expands_a_home(self):
+        boom = RuntimeError("Could not determine home directory.")
+        with mock.patch.object(pathlib.Path, "expanduser", side_effect=boom):
+            self.assertIn("somewhere", str(generate.yaml_path("/tmp/somewhere")))
 
     def test_yaml_path_is_under_the_given_cache_dir(self):
         path = generate.yaml_path("/tmp/somewhere")
