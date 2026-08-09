@@ -17,8 +17,12 @@ from flask import (Flask, flash, redirect, render_template, request,
 
 from boxradar_site.geo import catalog, generate, rules, selection
 
-from . import VERSION, store
+from . import VERSION, datasets, fixes as fixesmod, picks, store
 from .settings import Settings
+
+# The town map, in CSS pixels. Not the panel's 240x320 — this is a picker, and
+# a map you choose from wants to be bigger than the one you end up with.
+MAP_W, MAP_H = 640, 640
 
 
 def create_app(settings=None):
@@ -39,6 +43,29 @@ def create_app(settings=None):
             return generate.load_features(cache_dir=settings.source_cache)
         except generate.SourceMissing:
             return None
+
+    # Filtering 85,000 airports or 109,000 populated places takes a second or
+    # two on a Pi, and the pickers re-read on every page load. Memoised on the
+    # file's mtime so a re-download invalidates it without a restart. A plain
+    # dict is enough: single user, four datasets, one bounding box at a time.
+    dataset_memo = {}
+
+    def scoped(name, loader, *args):
+        path = datasets.path_for(name, settings.cache_dir)
+        stamp = path.stat().st_mtime if path.exists() else None
+        key = (name, stamp, args)
+        if key not in dataset_memo:
+            if len(dataset_memo) > 8:
+                dataset_memo.clear()
+            dataset_memo[key] = loader(*args)
+        return dataset_memo[key]
+
+    def box_for(sel):
+        return catalog.bbox_for(sel.home_lat, sel.home_lon, sel.reach_nm)
+
+    def missing_datasets():
+        return [name for name in datasets.SOURCES
+                if datasets.age_days(name, settings.cache_dir) is None]
 
     @app.route("/")
     def index():
@@ -173,6 +200,253 @@ def create_app(settings=None):
               f"it up on its next geography poll.", "ok")
         return redirect(url_for("airspace"))
 
+    # ------------------------------------------------------------- datasets
+
+    @app.route("/datasets", methods=["GET"])
+    def dataset_status():
+        return render_template(
+            "datasets.html",
+            rows=[(name, datasets.age_days(name, settings.cache_dir))
+                  for name in datasets.SOURCES])
+
+    @app.route("/datasets/fetch", methods=["POST"])
+    def fetch_datasets():
+        wanted = request.form.getlist("dataset") or list(datasets.SOURCES)
+        done, failed = [], []
+        for name in wanted:
+            if name not in datasets.SOURCES:
+                continue
+            try:
+                datasets.fetch(name, settings.cache_dir)
+                done.append(name)
+            except Exception as e:
+                failed.append(f"{name}: {e}")
+        dataset_memo.clear()
+        if done:
+            flash(f"Downloaded {', '.join(done)}.", "ok")
+        for problem in failed:
+            flash(f"Could not download {problem}", "error")
+        return redirect(request.form.get("next") or url_for("dataset_status"))
+
+    def need_datasets(*names):
+        """A page to render instead, when a dataset is not downloaded yet."""
+        absent = [n for n in names
+                  if datasets.age_days(n, settings.cache_dir) is None]
+        if not absent:
+            return None
+        return render_template(
+            "datasets.html", needed=absent, next_page=request.path,
+            rows=[(name, datasets.age_days(name, settings.cache_dir))
+                  for name in datasets.SOURCES])
+
+    # ------------------------------------------------------------ airfields
+
+    @app.route("/airfields")
+    def airfields():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        blocked = need_datasets("airports", "runways")
+        if blocked:
+            return blocked
+
+        box = box_for(sel)
+        small = bool(request.args.get("small"))
+        types = (datasets.AIRPORT_TYPES if small
+                 else datasets.DEFAULT_AIRPORT_TYPES)
+        records = scoped("airports", datasets.airfields, settings.cache_dir,
+                         box, types)
+
+        query = (request.args.get("q") or "").strip().upper()
+        if query:
+            records = [a for a in records
+                       if query in a.ident or query in a.name.upper()
+                       or query in a.municipality.upper()]
+
+        chosen = picks.selected_airfields(sel)
+        # Runways are only offered for airfields already ticked. Offering every
+        # runway in the box would be hundreds of rows for a list where two or
+        # three entries is the normal answer.
+        runway_records = (scoped("runways", datasets.runways,
+                                 settings.cache_dir, tuple(sorted(chosen)))
+                          if chosen else [])
+        return render_template(
+            "airfields.html", sel=sel, records=records, chosen=chosen,
+            runways=runway_records,
+            chosen_runways=picks.selected_runways(sel, runway_records),
+            query=request.args.get("q") or "", small=small, picks=picks,
+            runway_key=picks.runway_key)
+
+    @app.route("/airfields", methods=["POST"])
+    def save_airfields():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        box = box_for(sel)
+        every = scoped("airports", datasets.airfields, settings.cache_dir,
+                       box, datasets.AIRPORT_TYPES)
+        by_ident = {a.ident: a for a in every}
+
+        wanted = [i for i in request.form.getlist("airfield") if i in by_ident]
+        airfield_rows = [(by_ident[i].ident, by_ident[i].lat, by_ident[i].lon)
+                         for i in wanted]
+
+        # Runway ticks arrive only for airfields that were displayed, which are
+        # the ones that were already selected. Re-reading the previous set is
+        # what stops unticking an airfield's checkbox on this page silently
+        # orphaning its centrelines.
+        previous = picks.selected_airfields(sel)
+        runway_records = scoped("runways", datasets.runways,
+                                settings.cache_dir,
+                                tuple(sorted(previous | set(wanted))))
+        ticked = set(request.form.getlist("runway"))
+        runway_rows = [(r.lat0, r.lon0, r.lat1, r.lon1) for r in runway_records
+                       if picks.runway_key(r) in ticked
+                       and r.airport in set(wanted)]
+
+        store.save(settings.selection_path,
+                   store.with_points(sel, airfields=airfield_rows,
+                                     runways=runway_rows))
+        flash(f"Saved {len(airfield_rows)} airfield(s) and "
+              f"{len(runway_rows)} centreline(s). Publish to rebuild the map.",
+              "ok")
+        return redirect(url_for("airfields"))
+
+    # ---------------------------------------------------------------- fixes
+
+    def fix_candidates(sel):
+        """Navaids in the box, merged with the curated enroute table."""
+        box = box_for(sel)
+        south, north, west, east = box
+        out = []
+        if datasets.age_days("navaids", settings.cache_dir) is not None:
+            out.extend(
+                picks.Candidate(n.ident, n.name, n.kind, n.lat, n.lon,
+                                "navaid")
+                for n in scoped("navaids", datasets.navaids,
+                                settings.cache_dir, box))
+        for fix in fixesmod.load(settings.fixes_path):
+            if south <= fix.lat <= north and west <= fix.lon <= east:
+                out.append(picks.Candidate(fix.ident, fix.note or "enroute fix",
+                                           "FIX", fix.lat, fix.lon,
+                                           fix.source))
+        out.sort(key=lambda c: c.ident)
+        return out
+
+    @app.route("/fixes")
+    def fixes():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        records = fix_candidates(sel)
+        query = (request.args.get("q") or "").strip().upper()
+        if query:
+            records = [c for c in records
+                       if query in c.ident or query in c.name.upper()]
+        return render_template(
+            "fixes.html", sel=sel, records=records,
+            chosen=picks.selected_fixes(sel),
+            query=request.args.get("q") or "", picks=picks,
+            have_navaids=datasets.age_days("navaids",
+                                           settings.cache_dir) is not None)
+
+    @app.route("/fixes", methods=["POST"])
+    def save_fixes():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        by_ident = {c.ident: c for c in fix_candidates(sel)}
+        wanted = [i for i in request.form.getlist("fix") if i in by_ident]
+        rows = [(by_ident[i].ident, by_ident[i].lat, by_ident[i].lon)
+                for i in wanted]
+        store.save(settings.selection_path,
+                   store.with_points(sel, waypoints=rows))
+        flash(f"Saved {len(rows)} fix(es). Publish to rebuild the map.", "ok")
+        return redirect(url_for("fixes"))
+
+    @app.route("/fixes/import", methods=["POST"])
+    def import_fixes():
+        parsed, problems = fixesmod.parse_eaip(request.form.get("eaip") or "")
+        for problem in problems[:10]:
+            flash(problem, "error")
+        if len(problems) > 10:
+            flash(f"...and {len(problems) - 10} more unreadable line(s).",
+                  "error")
+        if parsed:
+            merged = {f.ident: f for f in fixesmod.load(settings.fixes_path)
+                      if f.source == "imported"}
+            merged.update({f.ident: f for f in parsed})
+            fixesmod.save(settings.fixes_path, list(merged.values()))
+            flash(f"Imported {len(parsed)} fix(es): "
+                  f"{', '.join(f.ident for f in parsed[:12])}"
+                  f"{'...' if len(parsed) > 12 else ''}. They still have to be "
+                  f"ticked below.", "ok")
+        elif not problems:
+            flash("Nothing to import.", "error")
+        return redirect(url_for("fixes"))
+
+    # ---------------------------------------------------------------- towns
+
+    @app.route("/towns")
+    def towns():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        blocked = need_datasets("towns")
+        if blocked:
+            return blocked
+
+        floor = request.args.get("min_population", "2000")
+        try:
+            floor = max(0, int(floor))
+        except ValueError:
+            floor = 2000
+        records = scoped("towns", datasets.towns, settings.cache_dir,
+                         box_for(sel), floor)
+        chosen = picks.selected_towns(sel, records)
+        return render_template(
+            "towns.html", sel=sel, records=records, chosen=chosen,
+            labels=picks.town_labels(sel, records), picks=picks,
+            floor=floor, map_w=MAP_W, map_h=MAP_H,
+            plotted=picks.layout(records, sel.home_lat, sel.home_lon,
+                                 sel.reach_nm, MAP_W, MAP_H))
+
+    @app.route("/towns", methods=["POST"])
+    def save_towns():
+        sel = load_selection()
+        if sel is None:
+            return redirect(url_for("site"))
+        records = scoped("towns", datasets.towns, settings.cache_dir,
+                         box_for(sel), 0)
+        by_uid = {t.uid: t for t in records}
+
+        rows, problems = [], []
+        for uid in request.form.getlist("town"):
+            town = by_uid.get(uid)
+            if town is None:
+                continue
+            label = (request.form.get(f"label_{uid}")
+                     or picks.default_label(town.name)).strip().upper()
+            complaint = picks.check_label(label)
+            if complaint:
+                problems.append(f"{town.name}: {complaint}")
+                continue
+            rows.append((label, town.lat, town.lon))
+
+        if problems:
+            # Refused as a set rather than partially: a save that dropped the
+            # one town with a bad label and reported it in a flash would be
+            # read as "saved", and the map would come back short.
+            for problem in problems:
+                flash(problem, "error")
+            flash("Nothing was saved — fix the labels and save again.",
+                  "error")
+            return redirect(url_for("towns"))
+
+        store.save(settings.selection_path, store.with_points(sel, towns=rows))
+        flash(f"Saved {len(rows)} town(s). Publish to rebuild the map.", "ok")
+        return redirect(url_for("towns"))
+
     @app.route("/healthz")
     def healthz():
         sel = load_selection()
@@ -180,6 +454,8 @@ def create_app(settings=None):
                 "has_selection": sel is not None,
                 "has_source": generate.yaml_path(
                     settings.source_cache).exists(),
-                "blob": settings.blob_path.exists()}
+                "blob": settings.blob_path.exists(),
+                "datasets": {name: datasets.age_days(name, settings.cache_dir)
+                             for name in datasets.SOURCES}}
 
     return app

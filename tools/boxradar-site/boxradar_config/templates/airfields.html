@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% set page = 'airfields' %}
+{% block title %}Airfields — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Airfields</h1>
+
+<p class="note">
+  Markers are cheap orientation, so mark plenty. Extended centrelines are not —
+  a centreline is a strong visual claim about where traffic is going, so draw
+  them only for the fields whose approach paths you care about. That is why the
+  two lists are separate.
+</p>
+
+<div class="bar">
+  <form method="get">
+    <input type="text" name="q" value="{{ query }}"
+           placeholder="ICAO, name or town">
+    {% if small %}<input type="hidden" name="small" value="1">{% endif %}
+    <button type="submit">Search</button>
+  </form>
+  <form method="get">
+    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+    {% if not small %}<input type="hidden" name="small" value="1">{% endif %}
+    <button type="submit">
+      {{ 'Hide small fields' if small else 'Include small fields' }}
+    </button>
+  </form>
+</div>
+
+<form method="post">
+  <p><button type="submit">Save airfields and centrelines</button>
+     <span class="why">{{ chosen|length }} marked,
+       {{ chosen_runways|length }} centreline(s)</span></p>
+
+  <table>
+    <tr>
+      <th></th><th>ICAO</th><th>name</th>
+      <th class="n">dist</th><th>brg</th><th>class</th>
+    </tr>
+    {% for a in records %}
+      <tr class="{{ 'picked' if a.ident in chosen }}">
+        <td><input type="checkbox" name="airfield" value="{{ a.ident }}"
+                   {{ 'checked' if a.ident in chosen }}></td>
+        <td>{{ a.ident }}</td>
+        <td>{{ a.name }}{% if a.municipality %}
+              <span class="why">— {{ a.municipality }}</span>{% endif %}</td>
+        {% set d = picks.distance_nm(sel.home_lat, sel.home_lon, a.lat, a.lon) %}
+        <td class="n">{{ '%.0f'|format(d) }}</td>
+        <td>{{ picks.compass(picks.bearing_deg(sel.home_lat, sel.home_lon,
+                                               a.lat, a.lon)) }}</td>
+        <td class="why">{{ a.kind.replace('_airport', '') }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+
+  {% if not records %}
+    <p class="note">Nothing matched. Try a wider search, or include small
+      fields.</p>
+  {% endif %}
+
+  <h2>Centrelines</h2>
+  {% if runways %}
+    <p class="note">
+      Offered only for airfields that are already marked and saved. The axis is
+      taken from both published thresholds rather than from a runway heading —
+      headings are magnetic and rounded to ten degrees, and sometimes disagree
+      with their own threshold coordinates by more than a degree.
+    </p>
+    <table>
+      <tr><th></th><th>field</th><th>runway</th><th class="n">length</th></tr>
+      {% for r in runways %}
+        <tr class="{{ 'picked' if runway_key(r) in chosen_runways }}">
+          <td><input type="checkbox" name="runway" value="{{ runway_key(r) }}"
+                     {{ 'checked' if runway_key(r) in chosen_runways }}></td>
+          <td>{{ r.airport }}</td>
+          <td>{{ r.ident }}</td>
+          <td class="n">{{ '%.0f'|format(r.length_ft) }} ft</td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="note">
+      Mark an airfield and save; its runways appear here afterwards.
+    </p>
+  {% endif %}
+
+  <p><button type="submit">Save airfields and centrelines</button></p>
+</form>
+{% endblock %}

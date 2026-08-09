@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% set page = 'towns' %}
+{% block title %}Towns — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Towns</h1>
+
+<p class="note">
+  "Which towns do I know instinctively" is a spatial question, so this page
+  leads with the map rather than a search box. Click a dot to jump to its row
+  below and tick it. Home is the cross at the centre; the circle is the search
+  reach. Dot size is population, which <b>ranks</b> candidates and never gates
+  them — a village you happen to know is a perfectly good ground reference.
+</p>
+
+<svg class="map" viewBox="0 0 {{ map_w }} {{ map_h }}"
+     width="{{ map_w }}" height="{{ map_h }}"
+     xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="towns within the search reach">
+  <circle cx="{{ map_w / 2 }}" cy="{{ map_h / 2 }}"
+          r="{{ (map_w if map_w < map_h else map_h) / 2 - 1 }}"
+          fill="none" stroke="#8886"/>
+  <path d="M{{ map_w / 2 - 8 }},{{ map_h / 2 }} h16
+           M{{ map_w / 2 }},{{ map_h / 2 - 8 }} v16"
+        stroke="currentColor" stroke-width="1.5"/>
+  {% for x, y, t in plotted %}
+    {% set r = 2.5 + (t.population ** 0.34) / 12.0 %}
+    <a href="#town-{{ t.uid }}">
+      <circle cx="{{ '%.1f'|format(x) }}" cy="{{ '%.1f'|format(y) }}"
+              r="{{ '%.1f'|format(r if r < 14 else 14) }}"
+              class="{{ 'picked' if t.uid in chosen }}">
+        <title>{{ t.name }} — {{ '{:,}'.format(t.population) }}</title>
+      </circle>
+      <text x="{{ '%.1f'|format(x + 5) }}" y="{{ '%.1f'|format(y - 4) }}"
+            >{{ t.name }}</text>
+    </a>
+  {% endfor %}
+</svg>
+
+<div class="bar">
+  <form method="get">
+    <label class="why">show towns over
+      <input type="text" name="min_population" value="{{ floor }}"
+             style="width:6rem"> people</label>
+    <button type="submit">Apply</button>
+  </form>
+</div>
+
+<form method="post">
+  <p><button type="submit">Save towns</button>
+     <span class="why">{{ chosen|length }} ticked —
+       labels are limited to {{ picks.MAX_LABEL }} characters, and shorter is
+       better at 6px each</span></p>
+  <table>
+    <tr>
+      <th></th><th>label</th><th>name</th>
+      <th class="n">population</th><th class="n">dist</th><th>brg</th>
+    </tr>
+    {% for t in records %}
+      <tr id="town-{{ t.uid }}" class="{{ 'picked' if t.uid in chosen }}">
+        <td><input type="checkbox" name="town" value="{{ t.uid }}"
+                   {{ 'checked' if t.uid in chosen }}></td>
+        <td><input class="label" type="text" name="label_{{ t.uid }}"
+                   maxlength="{{ picks.MAX_LABEL }}"
+                   value="{{ labels.get(t.uid, picks.default_label(t.name)) }}">
+        </td>
+        <td>{{ t.name }}</td>
+        <td class="n">{{ '{:,}'.format(t.population) }}</td>
+        {% set d = picks.distance_nm(sel.home_lat, sel.home_lon, t.lat, t.lon) %}
+        <td class="n">{{ '%.0f'|format(d) }}</td>
+        <td>{{ picks.compass(picks.bearing_deg(sel.home_lat, sel.home_lon,
+                                               t.lat, t.lon)) }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  {% if not records %}
+    <p class="note">Nothing in reach above that population. Lower the
+      threshold.</p>
+  {% endif %}
+  <p><button type="submit">Save towns</button></p>
+</form>
+{% endblock %}

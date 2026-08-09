@@ -139,6 +139,22 @@ def apply_airspace(sel, ticked):
                                towns=sel.towns)
 
 
+def with_points(sel, airfields=None, runways=None, waypoints=None,
+                towns=None):
+    """A copy of sel with some point sections replaced. None means keep.
+
+    One function rather than four so that "the page I was not on does not lose
+    its data" is a property of the code rather than of every caller
+    remembering to pass the other three through.
+    """
+    return selection.Selection(
+        sel.home_lat, sel.home_lon, sel.reach_nm, sel.groups,
+        airfields=sel.airfields if airfields is None else list(airfields),
+        runways=sel.runways if runways is None else list(runways),
+        waypoints=sel.waypoints if waypoints is None else list(waypoints),
+        towns=sel.towns if towns is None else list(towns))
+
+
 def with_site(sel, home_lat, home_lon, reach_nm):
     """A copy of sel with a different home. Everything else carries over."""
     return selection.Selection(home_lat, home_lon, reach_nm, sel.groups,

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% set page = 'fixes' %}
+{% block title %}Fixes — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Fixes</h1>
+
+<p class="note">
+  Two sources in one list, because they are the same thing to you and only
+  differ in where they come from. <b>Navaids</b> — the 3-letter VOR/NDB/DME
+  idents — are downloaded. <b>Enroute fixes</b> — 5-letter RNAV points like
+  LOREL — are published only in the NATS eAIP ENR 4.4 table and appear in no
+  free dataset, so they are curated and imported below.
+</p>
+
+{% if not have_navaids %}
+  <p class="flash error">
+    Navaids are not downloaded, so only curated fixes are listed —
+    <a href="{{ url_for('dataset_status') }}">get them here</a>.
+  </p>
+{% endif %}
+
+<div class="bar">
+  <form method="get">
+    <input type="text" name="q" value="{{ query }}" placeholder="ident or name">
+    <button type="submit">Search</button>
+  </form>
+</div>
+
+<form method="post">
+  <p><button type="submit">Save fixes</button>
+     <span class="why">{{ chosen|length }} ticked</span></p>
+  <table>
+    <tr>
+      <th></th><th>ident</th><th>name</th>
+      <th class="n">dist</th><th>brg</th><th>source</th>
+    </tr>
+    {% for c in records %}
+      <tr class="{{ 'picked' if c.ident in chosen }}">
+        <td><input type="checkbox" name="fix" value="{{ c.ident }}"
+                   {{ 'checked' if c.ident in chosen }}></td>
+        <td>{{ c.ident }}</td>
+        <td>{{ c.name }}</td>
+        {% set d = picks.distance_nm(sel.home_lat, sel.home_lon, c.lat, c.lon) %}
+        <td class="n">{{ '%.0f'|format(d) }}</td>
+        <td>{{ picks.compass(picks.bearing_deg(sel.home_lat, sel.home_lon,
+                                               c.lat, c.lon)) }}</td>
+        <td><span class="src">{{ c.kind }}</span>
+            <span class="why">{{ c.source }}</span></td>
+      </tr>
+    {% endfor %}
+  </table>
+  {% if not records %}
+    <p class="note">Nothing in reach matched.</p>
+  {% endif %}
+  <p><button type="submit">Save fixes</button></p>
+</form>
+
+<h2>Import from the eAIP</h2>
+<p class="note">
+  Paste rows from the NATS eAIP ENR 4.4 "significant points" table. The
+  published coordinate format (<code>DDMMSS.ssN DDDMMSS.ssE</code>) is read
+  directly — it is the same format the airspace source uses. Anything
+  unreadable is reported line by line rather than skipped, because forty
+  pasted rows yielding three fixes looks exactly like success.
+</p>
+<form method="post" action="{{ url_for('import_fixes') }}">
+  <textarea name="eaip" placeholder="ABBOT&#9;520058.00N&#9;0003558.49E&#10;LOREL&#9;520050.18N&#9;0000309.50W"></textarea>
+  <p><button type="submit">Import</button></p>
+</form>
+{% endblock %}

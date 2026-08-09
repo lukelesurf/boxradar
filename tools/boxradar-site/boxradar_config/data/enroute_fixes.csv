@@ -1,0 +1,15 @@
+# Enroute (RNAV) fixes — the one dataset with no machine-readable source.
+#
+# 5-letter significant points are published only in the NATS eAIP ENR 4.4
+# table, as DDMMSS.ssN/DDDMMSS.ssE. They are NOT in OurAirports navaids.csv,
+# which carries the 3-letter VOR/NDB/DME idents only — the configuration UI
+# gets those automatically and merges them with this table.
+#
+# Seeded with the fixes already curated and verified in include/location.h:
+# the two holds shared by the Stansted and Luton STARs. Add more with the
+# eAIP import box on the /fixes page, which parses the published DMS format
+# directly, or by appending rows here.
+#
+# ident,lat,lon,note
+LOREL,52.01394,-0.05264,hold — EGSS/EGGW STARs
+ABBOT,52.01611,0.59958,hold — EGSS/EGGW STARs

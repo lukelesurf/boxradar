@@ -29,6 +29,18 @@
                      box-sizing: border-box; }
   button { padding: .45rem .9rem; font-size: .95rem; }
   p.note { color: #8889; font-size: .85rem; max-width: 42rem; }
+  svg.map { max-width: 100%; height: auto; border: 1px solid #8884;
+             border-radius: 4px; background: #8881; }
+  svg.map a text { fill: currentColor; font-size: 9px; }
+  svg.map circle { fill: #2d8659aa; }
+  svg.map circle.picked { fill: #c0392b; }
+  tr:target { outline: 2px solid #c0392b; }
+  textarea { width: 100%; max-width: 44rem; min-height: 7rem;
+             font-family: ui-monospace, monospace; font-size: .85rem;
+             padding: .5rem; box-sizing: border-box; }
+  input.label { width: 5.5rem; text-transform: uppercase; padding: .2rem; }
+  .src { font-size: .78rem; padding: 0 .3rem; border: 1px solid #8886;
+         border-radius: 3px; }
 </style>
 
 <header>
@@ -37,6 +49,14 @@
      class="{{ 'on' if page == 'site' }}">Site</a>
   <a href="{{ url_for('airspace') }}"
      class="{{ 'on' if page == 'airspace' }}">Airspace</a>
+  <a href="{{ url_for('airfields') }}"
+     class="{{ 'on' if page == 'airfields' }}">Airfields</a>
+  <a href="{{ url_for('fixes') }}"
+     class="{{ 'on' if page == 'fixes' }}">Fixes</a>
+  <a href="{{ url_for('towns') }}"
+     class="{{ 'on' if page == 'towns' }}">Towns</a>
+  <a href="{{ url_for('dataset_status') }}"
+     class="{{ 'on' if page == 'datasets' }}">Data</a>
 </header>
 
 <main>

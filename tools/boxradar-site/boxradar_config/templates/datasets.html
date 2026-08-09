@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% set page = 'datasets' %}
+{% block title %}Data — BOXRADAR{% endblock %}
+
+{% block body %}
+<h1>Reference data</h1>
+
+{% if needed %}
+  <p class="flash error">
+    This page needs {{ needed|join(', ') }}, which {{ 'has' if needed|length == 1 else 'have' }}
+    not been downloaded yet.
+  </p>
+{% endif %}
+
+<p class="note">
+  About 32MB in total, cached on disk and re-filtered per site — so changing
+  the search reach never needs a re-download. Airfields, runways and navaids
+  come from
+  <a href="https://ourairports.com/data/">OurAirports</a>; towns from
+  <a href="https://www.geonames.org/">GeoNames</a>.
+</p>
+
+<table>
+  <tr><th>dataset</th><th class="n">age</th><th>used for</th></tr>
+  {% set purpose = {'airports': 'airfield markers, by ICAO',
+                    'runways': 'extended centrelines — both thresholds',
+                    'navaids': 'VOR/NDB idents on the Fixes page',
+                    'towns': 'ground references, ranked by population'} %}
+  {% for name, age in rows %}
+    <tr>
+      <td>{{ name }}</td>
+      <td class="n">
+        {% if age is none %}<b>not downloaded</b>
+        {% elif age < 1 %}today
+        {% else %}{{ '%.0f'|format(age) }} days{% endif %}
+      </td>
+      <td class="why">{{ purpose[name] }}</td>
+    </tr>
+  {% endfor %}
+</table>
+
+<form method="post" action="{{ url_for('fetch_datasets') }}">
+  {% if next_page %}<input type="hidden" name="next" value="{{ next_page }}">{% endif %}
+  <p><button type="submit">Download everything</button></p>
+</form>
+
+<p class="note">
+  Enroute fixes are not here. 5-letter RNAV fixes are published only in the
+  NATS eAIP ENR 4.4 table and appear in no downloadable dataset, so they ship
+  as a small curated table and are extended by pasting eAIP rows into the
+  <a href="{{ url_for('fixes') }}">Fixes</a> page.
+</p>
+{% endblock %}

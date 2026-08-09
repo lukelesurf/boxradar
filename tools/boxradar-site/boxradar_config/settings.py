@@ -31,6 +31,11 @@ class Settings:
         self.port = int(port)
 
     @property
+    def fixes_path(self):
+        """Imported enroute fixes, beside the selection they belong to."""
+        return self.selection_path.parent / "fixes.csv"
+
+    @property
     def source_cache(self):
         """Passed to generate.yaml_path(), which appends airspace/."""
         return self.cache_dir
