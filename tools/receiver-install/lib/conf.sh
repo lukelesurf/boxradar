@@ -13,7 +13,6 @@ conf_validate() {
   local problems=0
   _bad() { echo "receiver.conf: $*" >&2; problems=1; }
 
-  [[ -n ${HOSTNAME:-} ]] || _bad "HOSTNAME is empty"
   [[ ${HOSTNAME:-} =~ ^[a-z0-9][a-z0-9-]*$ ]] || \
     _bad "HOSTNAME must be lowercase letters, digits and hyphens"
 
@@ -39,8 +38,19 @@ conf_validate() {
   [[ ${METAR_STATION:-} =~ ^[A-Za-z]{4}$ ]] || \
     _bad "METAR_STATION must be a 4-letter ICAO code: '${METAR_STATION:-}'"
   conf_integer "${CALM_KT:-}" || _bad "CALM_KT must be a whole number"
-  [[ -n ${ADSBX_USER:-} ]] || _bad "ADSBX_USER is empty"
-  [[ -n ${FR24_KEY:-} ]] || _bad "FR24_KEY is empty"
+
+  # These three are interpolated into receiver.conf, which is later sourced
+  # (by root, during install). A value containing $(...), a backtick, quotes
+  # or whitespace would corrupt the file or execute as shell rather than
+  # being assigned — restricting the character set is not cosmetic here.
+  [[ ${ADSBX_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
+    _bad "ADSBX_USER may only contain letters, digits, dot, underscore and hyphen"
+  [[ ${FR24_KEY:-} =~ ^[A-Za-z0-9]+$ ]] || \
+    _bad "FR24_KEY may only contain letters and digits"
+  # Blank on a new box — the ADSBExchange installer generates it — so it is
+  # only constrained when present.
+  [[ -z ${ADSBX_UUID:-} || ${ADSBX_UUID:-} =~ ^[A-Za-z0-9-]+$ ]] || \
+    _bad "ADSBX_UUID may only contain letters, digits and hyphen"
 
   return $problems
 }
@@ -57,31 +67,31 @@ conf_write() {
 # Mode 0600 — this file carries feeder credentials. Never commit it.
 
 # Identity
-HOSTNAME=${HOSTNAME}
+HOSTNAME="${HOSTNAME}"
 
 # Position. ONE source, fanned out to readsb, ADSBExchange, MLAT and
 # selection.json. The hand-built receiver carried four different positions
 # spanning ~15m; MLAT is the consumer for which that was not cosmetic.
-LAT=${LAT}
-LON=${LON}
-ALT_FT=${ALT_FT}
+LAT="${LAT}"
+LON="${LON}"
+ALT_FT="${ALT_FT}"
 
 # Radio
-GAIN=${GAIN}
-PPM=${PPM}
+GAIN="${GAIN}"
+PPM="${PPM}"
 
 # Network. Blank STATIC_IP means DHCP.
-STATIC_IP=${STATIC_IP}
+STATIC_IP="${STATIC_IP}"
 
 # Weather
-METAR_STATION=${METAR_STATION}
-CALM_KT=${CALM_KT}
+METAR_STATION="${METAR_STATION}"
+CALM_KT="${CALM_KT}"
 
 # Feeder identity. Restored on reinstall so statistics and MLAT peer
 # reputation survive a rebuild rather than starting from zero.
-ADSBX_USER=${ADSBX_USER}
-ADSBX_UUID=${ADSBX_UUID}
-FR24_KEY=${FR24_KEY}
+ADSBX_USER="${ADSBX_USER}"
+ADSBX_UUID="${ADSBX_UUID}"
+FR24_KEY="${FR24_KEY}"
 EOF
 }
 

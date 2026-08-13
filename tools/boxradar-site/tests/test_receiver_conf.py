@@ -46,6 +46,9 @@ class TestValidate(unittest.TestCase):
     def test_non_numeric_latitude_fails(self):
         self.assertEqual(run("conf_validate", LAT="north").returncode, 1)
 
+    def test_non_numeric_longitude_fails(self):
+        self.assertEqual(run("conf_validate", LON="east").returncode, 1)
+
     def test_negative_longitude_is_fine(self):
         # Luton is west of Greenwich. A validator that rejected the sign would
         # break every site in the western half of the country.
@@ -89,6 +92,24 @@ class TestValidate(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("HOSTNAME", result.stderr)
 
+    def test_command_substitution_in_a_credential_is_rejected(self):
+        # receiver.conf is sourced, by root, during install. A credential
+        # carrying $(...) would execute rather than be assigned.
+        result = run("conf_validate", FR24_KEY="abc$(id)")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FR24_KEY", result.stderr)
+
+    def test_backtick_in_a_credential_is_rejected(self):
+        self.assertEqual(run("conf_validate", ADSBX_USER="a`id`b").returncode, 1)
+
+    def test_blank_adsbx_uuid_is_allowed(self):
+        # Blank on a new box — the ADSBExchange installer generates it.
+        self.assertEqual(run("conf_validate", ADSBX_UUID="").returncode, 0)
+
+    def test_a_real_looking_uuid_is_allowed(self):
+        self.assertEqual(run("conf_validate",
+                             ADSBX_UUID="c1f4e0a2-9b3d-4c8e-11aa-7f2b6d5e0c93").returncode, 0)
+
 
 class TestRoundTrip(unittest.TestCase):
     def test_write_then_load_recovers_every_value(self):
@@ -112,3 +133,17 @@ class TestRoundTrip(unittest.TestCase):
             path = pathlib.Path(d) / "receiver.conf"
             run(f'conf_write "{path}"')
             subprocess.run(["bash", "-n", str(path)], check=True)
+
+    def test_quoted_write_preserves_a_value_with_whitespace_and_a_hash(self):
+        # conf_write quotes every value so that a value with whitespace or a
+        # '#' round-trips intact rather than corrupting the file — conf_write
+        # itself does not call conf_validate, so this exercises the quoting
+        # directly rather than relying on the character-class checks to keep
+        # such values out.
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "receiver.conf"
+            self.assertEqual(
+                run(f'conf_write "{path}"',
+                    STATIC_IP="not a real ip # trailing").returncode, 0)
+            result = run(f'conf_load "{path}"; echo "$STATIC_IP"')
+            self.assertEqual(result.stdout.strip(), "not a real ip # trailing")
