@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include "device_config.h"
+#include "geo_store.h"
 #include "site_config.h"
 
 namespace {
@@ -12,11 +13,6 @@ WebServer *s_server = nullptr;
 uint32_t s_closeAt = 0;
 uint32_t s_restartAt = 0;
 
-// What the Pi renders its form from. Reporting the SOURCE alongside the value
-// is the point of this endpoint: a key sitting in NVS shadows its compiled
-// default permanently, so "7, from NVS" and "7, compiled in" are different
-// facts even though they are the same number. Without that distinction the
-// UI's "use built-in default" control would have nothing to act on.
 // Why the board last restarted, in words. Without serial access this is the
 // only way to answer "it reset and I do not know why" — and the answers are
 // very different diagnoses: a brownout is the power supply, a panic or a
@@ -38,6 +34,11 @@ const char *resetReasonName() {
   }
 }
 
+// What the Pi renders its form from. Reporting the SOURCE alongside the value
+// is the point of this endpoint: a key sitting in NVS shadows its compiled
+// default permanently, so "7, from NVS" and "7, compiled in" are different
+// facts even though they are the same number. Without that distinction the
+// UI's "use built-in default" control would have nothing to act on.
 void handleRead() {
   JsonDocument doc;
 
@@ -50,6 +51,12 @@ void handleRead() {
   health["heap_free"] = ESP.getFreeHeap();
   health["heap_min"] = esp_get_minimum_free_heap_size();
   health["rssi"] = WiFi.RSSI();
+  // The geography store's own account of its last load. Every way a published
+  // map can fail to appear ends here and nowhere else: a rejected CRC, a home
+  // that does not match, a malloc that failed because the swap needs the old
+  // blob and the new one live at once. Without this the symptom is "I
+  // published and nothing changed", with no way to tell which.
+  health["geo"] = geoStoreStatus();
 
   JsonObject fields = doc["fields"].to<JsonObject>();
   for (size_t i = 0; i < radar::DEVICE_FIELD_COUNT; i++) {
