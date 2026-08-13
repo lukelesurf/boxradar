@@ -26,7 +26,18 @@ mem_mb=$(( $(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 ))
   "${mem_mb}MB RAM. Enough, but 2GB is comfortable — the first coastline
    build for a new area peaks at 367MB."
 
-lsusb | grep -qiE 'RTL2838|RTL2832|Realtek.*DVB-T' || fail \
+# Captured first, then matched, not `lsusb | grep -qiE ...`: grep -q exits
+# the instant it matches, closing the pipe while lsusb may still be writing
+# later devices. Under pipefail that SIGPIPE reports as pipeline failure,
+# not grep's — so this would fail preflight on a box with *more* USB
+# devices attached, precisely when the dongle is present. Reliable today
+# only because lsusb's output is short enough to finish before grep -q
+# gets a chance to close the pipe; not guaranteed on a box with several USB
+# devices on the same hub. `|| true` belongs on the capture — lsusb itself
+# is not expected to fail, but a failure there should read as "no SDR
+# found", not a raw script abort.
+usb_devices="$(lsusb 2>/dev/null || true)"
+grep -qiE 'RTL2838|RTL2832|Realtek.*DVB-T' <<<"$usb_devices" || fail \
   "no RTL-SDR found in lsusb. Plug the dongle in and re-run."
 
 for host in deb.debian.org github.com overpass-api.de; do

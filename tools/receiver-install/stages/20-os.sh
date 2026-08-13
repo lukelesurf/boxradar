@@ -63,14 +63,27 @@ fi
 
 # Any inherited reboot cron is removed. A receiver that reboots on a timer is
 # hiding a fault, not fixing one.
-if crontab -l 2>/dev/null | grep -q 'shutdown -r'; then
+#
+# Captured once, then matched twice, rather than `crontab -l | grep -q` as
+# the condition: grep -q exits the instant it matches, closing the pipe
+# while crontab may still be writing later lines. Under pipefail that
+# SIGPIPE is what the pipeline reports as its exit status, not grep's — so
+# `if` takes the else branch precisely when the reboot line *is* present,
+# and this stage silently reports success while the three-hourly reboot
+# survives. It "works" on a short crontab today only because crontab -l
+# finishes writing before grep -q gets a chance to close the pipe; it is
+# not guaranteed to keep working as root's crontab grows. `|| true` belongs
+# on this capture (crontab -l legitimately fails with no crontab at all,
+# the common case on a fresh box) — not on the match below.
+cron_content="$(crontab -l 2>/dev/null || true)"
+if grep -q 'shutdown -r' <<<"$cron_content"; then
   echo "removing a scheduled reboot from root's crontab"
   tmp=$(mktemp)
   # grep exits 1 when the reboot line is the *only* line, since -v then
   # selects nothing — that is success here, not failure, so it alone is
   # tolerated. The write below is not: a failed `crontab "$tmp"` must abort
   # the stage rather than report success while the reboot cron survives.
-  crontab -l 2>/dev/null | grep -v 'shutdown -r' >"$tmp" || true
+  grep -v 'shutdown -r' <<<"$cron_content" >"$tmp" || true
   crontab "$tmp"
   rm -f "$tmp"
 fi
@@ -89,7 +102,14 @@ if [[ -e /etc/lighttpd/conf-enabled/95-tar1090-otherport.conf ]]; then
   ufw allow 8504/tcp >/dev/null
 fi
 ufw --force enable >/dev/null
-echo "ufw: $(ufw status | head -1)"
+# Same shape as the fixes above (head -1 can close the pipe on ufw while it
+# is still writing later rule lines), just cosmetic here: embedded inside a
+# larger command substitution rather than a bare assignment, a SIGPIPE'd
+# `ufw` cannot trip `set -e`, so at worst this prints a blank status line —
+# but there is no reason to leave the pattern sitting here for the next
+# person to copy.
+ufw_status="$(ufw status || true)"
+echo "ufw: $(head -1 <<<"$ufw_status")"
 
 # Security updates only. This box may be in a house you cannot reach.
 cat >/etc/apt/apt.conf.d/51boxradar-unattended <<'EOF'
@@ -111,10 +131,25 @@ if [[ -n ${STATIC_IP:-} ]]; then
   # that is really on wifi (or vice versa) on a Pi with both up — plausible
   # for exactly the box someone wants a static address on — and report
   # success while networking is silently wrong.
-  dev="$(ip -4 route show default | awk '{print $5; exit}')"
+  #
+  # Captured first, then matched: piping straight from `ip`/`nmcli` into an
+  # awk that `exit`s after one line (the first line here; the first match
+  # in the nmcli case) closes the pipe before the upstream command is
+  # guaranteed to have finished writing — on a box with more than one
+  # default route or more than one active connection, that upstream can
+  # still SIGPIPE. Under pipefail that reports as pipeline failure, and
+  # `conn=$(...)` was a bare `[[ ... ]] &&` statement at the top level, so
+  # that failure would abort the whole script right here under `set -e`,
+  # before the friendly diagnostic below ever ran. Same shape as the
+  # crontab and MLAT-peer fixes elsewhere in this round; `|| true` on each
+  # capture, never on the match.
+  route_out="$(ip -4 route show default || true)"
+  dev="$(awk '{print $5; exit}' <<<"$route_out")"
   conn=""
-  [[ -n $dev ]] && conn="$(nmcli -t -f NAME,DEVICE connection show --active \
-                            | awk -F: -v d="$dev" '$2 == d { print $1; exit }')"
+  if [[ -n $dev ]]; then
+    active_conns="$(nmcli -t -f NAME,DEVICE connection show --active || true)"
+    conn="$(awk -F: -v d="$dev" '$2 == d { print $1; exit }' <<<"$active_conns")"
+  fi
   if [[ -z $conn ]]; then
     echo "cannot determine which connection to give $STATIC_IP" >&2
     echo "active connections:" >&2

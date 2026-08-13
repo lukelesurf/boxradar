@@ -26,15 +26,20 @@ echo "verifying:"
 if stats=$(curl -sf --max-time 10 http://127.0.0.1/tar1090/data/stats.json); then
   pass "tar1090 is serving readsb stats"
 
-  # total.position_count_by_type is the field that answers "is this
-  # working" — see docs/receiver-pi.md. It is cumulative since readsb
-  # started and covers every position source (adsb_icao, mlat, ...), so a
-  # non-zero sum proves both that the SDR is decoding and that at least one
-  # source is producing fixes. (aircraft_count_by_type looks like the
-  # obvious field to reach for instead, but this readsb build leaves it
-  # absent — it reads back as None — so it cannot be used here. An empty or
-  # unparsable body, e.g. from the redirect case above, sums to zero the
-  # same as a genuinely quiet receiver, and fails the same way.)
+  # total.position_count_by_type, not total.messages: both fields genuinely
+  # exist in readsb's stats.json (confirmed on the live receiver —
+  # total.messages was present and climbing, e.g. 6868511), so this is not
+  # a missing-field workaround. position_count_by_type is used because it
+  # is the field docs/receiver-pi.md documents as answering "is this
+  # working": cumulative since readsb started, and broken down by source,
+  # so a non-zero sum proves a position was actually solved, and which kind
+  # (adsb_icao, mlat, ...) it came from. A raw message count can climb on
+  # noise and repeated frames alone and says nothing about whether any
+  # position was ever produced. (aircraft_count_by_type looks like the
+  # obvious field to reach for instead of either, but this readsb build
+  # leaves it absent — it reads back as None — so it cannot be used here.
+  # An empty or unparsable body, e.g. from the redirect case above, sums to
+  # zero the same as a genuinely quiet receiver, and fails the same way.)
   # Broad except, not just (ValueError, KeyError): readsb's JSON shape is
   # exactly the kind of thing that has already surprised this project once
   # (aircraft_count_by_type reading back as None on this build — see the
@@ -66,7 +71,16 @@ fi
 # does not error, it just never appears. Matched against the local
 # address:port column only (not the whole line), anchored on the end, so a
 # coincidental 30104 in a queue-length column can't produce a false pass.
-if ss -tln 2>/dev/null | awk '{print $4}' | grep -q ':30104$'; then
+#
+# Captured first, then matched with no live pipe into grep -q: `ss | awk |
+# grep -q` would let grep -q close the pipe the instant it matches, and
+# under pipefail a SIGPIPE'd upstream (ss or awk, still writing on a box
+# with many listening sockets) reports as pipeline failure — inverting this
+# check exactly when the port *is* listening. See the mlat-client peer
+# check below, which hit this for real on the live receiver.
+listeners="$(ss -tln 2>/dev/null || true)"
+ports="$(awk '{print $4}' <<<"$listeners")"
+if grep -q ':30104$' <<<"$ports"; then
   pass "MLAT return port 30104 is listening"
 else
   fail "port 30104 is not listening — MLAT results have nowhere to go"
@@ -85,7 +99,12 @@ else
 fi
 
 metar=$(curl -sf --max-time 20 "http://127.0.0.1:8081/metar/${METAR_STATION}" || true)
-if printf '%s' "$metar" | grep -q '"stations"'; then
+# $metar is already fully captured above (curl has exited), so matching
+# against it with a herestring rather than piping it into grep -q avoids
+# even the in-memory version of the same pipefail/SIGPIPE hazard the port
+# check above and the MLAT-peer check further below were fixed for — there
+# is no live producer left that could be signalled.
+if grep -q '"stations"' <<<"$metar"; then
   pass "METAR for $METAR_STATION is being served"
 else
   fail "no METAR for $METAR_STATION — check the ICAO and outbound HTTPS"
@@ -120,8 +139,15 @@ fi
 # MLAT synchronisation takes minutes and depends on neighbouring receivers, so
 # this warns rather than fails on a box that has only just come up.
 if systemctl is-active --quiet adsbexchange-mlat; then
-  if journalctl -u adsbexchange-mlat -n 50 --no-pager 2>/dev/null \
-     | grep -q 'peer_count'; then
+  # Captured first, then matched, not `journalctl | grep -q`: grep -q exits
+  # the instant it matches, closing the pipe while journalctl may still be
+  # writing the rest of the 50 lines. Under pipefail that SIGPIPE (rc 141)
+  # is what the pipeline reports as its exit status, not grep's — so `if`
+  # takes the *else* branch precisely when peer_count *is* present. Caught
+  # against the live receiver: 10 peer_count lines and 78 synced peers, but
+  # this check still reported "no peers yet" until fixed.
+  mlat_log="$(journalctl -u adsbexchange-mlat -n 50 --no-pager 2>/dev/null || true)"
+  if grep -q 'peer_count' <<<"$mlat_log"; then
     pass "mlat-client has peers"
   else
     warn "mlat-client has no peers yet — normal for the first few minutes"
