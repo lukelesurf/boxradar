@@ -189,11 +189,17 @@ class TestWizard(DriverCase):
         "typedsecret999",   # FR24_KEY
     ]) + "\n"
 
-    def test_a_key_typed_at_the_wizard_prompt_never_reaches_the_log(self):
-        # read -r echoes what is typed. If logging started before the
-        # wizard, the FR24 key would be written to the log before redact()
-        # knew the value to mask. This is the ordering the driver must
-        # preserve.
+    def test_the_wizard_completes_and_writes_a_valid_conf(self):
+        # Drives the wizard end to end from piped answers and confirms it
+        # completes, the stage after it runs, and the typed secret is not
+        # sitting in the log. It does NOT prove the wizard-before-logging
+        # ordering: read -p only emits its prompt to a terminal, and the
+        # tty (not this process) echoes what's typed, so a piped-stdin run
+        # produces the same (empty) prompt/echo output regardless of
+        # whether logging started before or after the wizard — confirmed
+        # by mutation-testing a reordered copy of install.sh, which passed
+        # this exact assertion too. The ordering itself is covered
+        # structurally by test_the_wizard_runs_before_logging_starts below.
         (self.root / "receiver.conf").unlink(missing_ok=True)
         self.stage("10-first.sh", "echo ran-10")
         result = self.run_driver(stdin=self.ANSWERS)
@@ -201,6 +207,20 @@ class TestWizard(DriverCase):
         log = (self.root / "install.log").read_text()
         self.assertNotIn("typedsecret999", log)
         self.assertIn("ran-10", log)
+
+    def test_the_wizard_runs_before_logging_starts(self):
+        # Structural, not behavioural, and deliberately so: read -p emits
+        # its prompt only to a terminal, so a piped-stdin test sees nothing
+        # either way and would pass under both orderings (verified by
+        # mutation). The invariant that matters is source order — on a
+        # re-run the FR24 prompt carries the stored key as its default, and
+        # tee would capture it if logging had already started.
+        src = INSTALL.read_text().splitlines()
+        wizard = next(i for i, l in enumerate(src) if l.strip() == "run_wizard")
+        logging_starts = next(i for i, l in enumerate(src)
+                              if l.startswith("exec > >("))
+        self.assertLess(wizard, logging_starts,
+                        "run_wizard must precede the tee redirection")
 
     def test_the_wizard_writes_a_conf_the_next_run_reuses(self):
         # Proves conf_write is actually wired up — it had no caller before
