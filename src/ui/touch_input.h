@@ -23,6 +23,16 @@ void touchInputInit();
 bool touchInputPoll(UiState &ui, const radar::AircraftStore &s,
                     const Viewport &vp);
 
+// How long the current continuous press has lasted, or 0 if nothing is down.
+// Never returns 0 while a finger IS down, because 0 is what HoldGesture reads
+// as "released". Valid only after touchInputPoll() or touchInputTapped() has
+// run this frame — those are what refresh the underlying state.
+//
+// Duration is the one interaction axis this panel has left. Position is fully
+// spoken for by the table above, and XPT2046 is 4-wire resistive, so there is
+// no second finger to detect and `z` is contact force rather than a count.
+uint32_t touchInputHeldMs();
+
 // Press-edge only, ignoring position — used while the panel is dark, where a
 // tap must wake the display WITHOUT also selecting whatever happened to be
 // under the finger.

@@ -311,11 +311,40 @@ happened live, from this project's own diagnostics, and would have pointed the
 Device page's push at a laptop. `test_config_device_contract.py` fails if the
 firmware stops using 1.0.
 
+`POST /restart` reboots the board, offered as a button on the Device page
+beside the health block — and the same thing is available at the panel by
+**holding a finger anywhere on it for three seconds**, with a countdown that
+borrows the status strip for the duration and cancels if you let go.
+
+Duration is the only interaction axis that panel had left: position is fully
+spoken for by the existing tap gestures, and XPT2046 is a 4-wire resistive
+controller, so there is no second finger to detect and `z` is contact force
+rather than a count. Holding previously did nothing at all, so the gesture
+collides with nothing and costs no pixels at rest.
+
+Restarting matters because it is currently the workaround for a published map
+that will not load — see the geo status below.
+
 `GET /config` also returns a **health** block — uptime, why the board last
 reset, free and minimum-free heap, and RSSI — shown on the Device page. Without
 a USB cable that is the only view of the board's condition, and "it reset and I
 do not know why" is otherwise unanswerable: brownout is the power supply, panic
 or watchdog is firmware, software restart is something asking it to.
+
+It also reports the geography store's own account of its last load, and that
+is where every way a map can fail to appear ends up:
+
+```
+fetch: 18784 bytes, 15 airspace, 124 coast (0 dropped), 11 fields, ...
+malloc 18784 failed, 75976 heap free
+```
+
+The second is a real, reproducible fault: `geoStoreRefresh` allocates a whole
+second blob as scratch while the live one is still held, so a swap wants
+~37.5KB in two contiguous chunks. After hours of running there is 76KB free
+and no 18.8KB block in it, so the map only ever updates at boot. Pre-existing
+— the ten-minute poll always took the same path — and restarting is the
+workaround until the loader stops needing two copies at once.
 
 **The wake signal is an HTTP response header** (`X-Boxradar-Config`) on the
 ordinary `/contacts` poll, not a field in the payload. The contact format is

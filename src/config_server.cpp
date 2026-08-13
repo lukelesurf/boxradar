@@ -142,6 +142,16 @@ void handleWrite() {
   }
 }
 
+// Restarting is the workaround for a map that will not load: a fresh heap is
+// unfragmented, so the fetch that failed succeeds on the next boot. Offered
+// here as well as by the hold gesture because the Device page is where you
+// find out you need it — the geo status above says so in words.
+void handleRestart() {
+  s_server->send(200, "application/json", "{\"restarting\":true}");
+  Serial.println("cfgsrv: restart requested");
+  s_restartAt = millis() + 500;  // let the response flush first
+}
+
 void handleOther() {
   s_server->send(404, "application/json", "{\"error\":\"not found\"}");
 }
@@ -164,6 +174,7 @@ void configServerOpen() {
   s_server = new WebServer(80);
   s_server->on("/config", HTTP_GET, handleRead);
   s_server->on("/config", HTTP_POST, handleWrite);
+  s_server->on("/restart", HTTP_POST, handleRestart);
   s_server->onNotFound(handleOther);
   s_server->begin();
   Serial.printf("cfgsrv: listening on http://%s/config for %us\n",

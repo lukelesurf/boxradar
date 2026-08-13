@@ -136,3 +136,21 @@ void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
     seg(spr, x, buf, TYPE_INTERESTING);
   }
 }
+
+void drawHoldToRestart(TFT_eSprite &spr, float progress) {
+  if (progress < 0.0f) progress = 0.0f;
+  if (progress > 1.0f) progress = 1.0f;
+
+  spr.fillRect(0, STATUS_Y, SCOPE_W, STATUS_H, TFT_BLACK);
+  spr.setTextColor(TFT_ORANGE, TFT_BLACK);
+  spr.drawString("HOLD TO RESTART", 2, TEXT_Y, 1);
+
+  // The bar takes the right-hand half of the strip. Drawn as an outline that
+  // fills, so at a glance you can see both how far along it is and how far
+  // there is left to go — a bare filling block tells you only the former.
+  const int x0 = 96, x1 = SCOPE_W - 2;
+  const int y0 = STATUS_Y + 2, h = STATUS_H - 4;
+  spr.drawRect(x0, y0, x1 - x0, h, TFT_ORANGE);
+  int fill = (int)((float)(x1 - x0 - 2) * progress);
+  if (fill > 0) spr.fillRect(x0 + 1, y0 + 1, fill, h - 2, TFT_ORANGE);
+}

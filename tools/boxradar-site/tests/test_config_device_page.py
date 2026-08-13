@@ -36,7 +36,8 @@ FIELDS = {
 
 
 HEALTH = {"uptime_s": 7325, "reset_reason": "brownout (power)",
-          "heap_free": 80924, "heap_min": 29620, "rssi": -49}
+          "heap_free": 80924, "heap_min": 29620, "rssi": -49,
+          "geo": "malloc 18784 failed, 75976 heap free"}
 
 
 class FakeBoard:
@@ -47,6 +48,7 @@ class FakeBoard:
         self.error = error
         self.woke = 0
         self.writes = []
+        self.restarts = []
 
     def wake(self):
         self.woke += 1
@@ -62,6 +64,12 @@ class FakeBoard:
 
     def read_config(self, addr):
         return self.read(addr)["fields"]
+
+    def restart(self, addr):
+        if self.error:
+            raise device.BoardError(self.error)
+        self.restarts.append(addr)
+        return {"restarting": True}
 
     def write_config(self, addr, values, clears):
         if self.error:
@@ -141,6 +149,12 @@ class TestReading(DevicePageCase):
         self.assertIn(b"29,620", body)       # heap low-water mark
         self.assertIn(b"-49 dBm", body)
 
+    def test_the_geo_status_is_shown(self):
+        # The line that says WHY a published map did not appear, and the
+        # reason the restart button is next to it.
+        client = self.build(FakeBoard())
+        self.assertIn(b"malloc 18784 failed", client.get("/device").data)
+
     def test_a_display_service_that_is_down_is_reported(self):
         down = dict(ABSENT, error="cannot reach the display service")
         client = self.build(FakeBoard(snapshot=down))
@@ -192,6 +206,31 @@ class TestSaving(DevicePageCase):
         board.error = "the board at 192.0.2.42 refused the write"
         body = self.post(client, nstart="23").data
         self.assertIn(b"refused the write", body)
+
+
+class TestRestart(DevicePageCase):
+    def test_the_button_restarts_the_board(self):
+        client = self.build(FakeBoard())
+        client.post("/device/restart", follow_redirects=True)
+        self.assertEqual(self.board.restarts, ["192.0.2.42"])
+
+    def test_it_says_the_board_is_coming_back(self):
+        client = self.build(FakeBoard())
+        body = client.post("/device/restart", follow_redirects=True).data
+        self.assertIn(b"fifteen seconds", body)
+
+    def test_restarting_an_absent_board_explains_rather_than_hanging(self):
+        client = self.build(FakeBoard(snapshot=dict(ABSENT)))
+        body = client.post("/device/restart", follow_redirects=True).data
+        self.assertEqual(self.board.restarts, [])
+        self.assertIn(b"nothing to restart", body)
+
+    def test_a_board_that_refuses_is_flashed_not_raised(self):
+        board = FakeBoard()
+        client = self.build(board)
+        board.error = "connection refused"
+        body = client.post("/device/restart", follow_redirects=True).data
+        self.assertIn(b"connection refused", body)
 
 
 if __name__ == "__main__":

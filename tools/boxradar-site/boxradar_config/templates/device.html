@@ -53,9 +53,25 @@
         <td class="n">{{ '{:,}'.format(health.heap_min) }}</td>
         <td class="n">{{ health.rssi }} dBm</td>
       </tr>
+      {% if health.geo %}
+        <tr><th>map</th><td colspan="4" class="why">{{ health.geo }}</td></tr>
+      {% endif %}
     </table>
   </div>
+  <form method="post" action="{{ url_for('restart_device') }}">
+    <p><button type="submit">Restart board</button>
+       <span class="why">Back in about fifteen seconds. Worth doing if
+         <b>map</b> above reports a failed load — a fresh heap is
+         unfragmented, so the fetch that failed succeeds on the next boot.
+         You can also hold a finger anywhere on the panel for three
+         seconds.</span></p>
+  </form>
+
   <p class="note">
+    <b>Map</b> is the geography store's own account of its last load, and
+    every way a published map can fail to appear ends there: a rejected
+    checksum, a home that does not match, or an allocation that failed
+    because a swap needs the old blob and the new one in memory at once.
     <b>Last reset</b> is the only way to tell why the board restarted without a
     USB cable: <i>brownout</i> is the power supply, <i>panic</i> or
     <i>watchdog</i> is firmware, and <i>software restart</i> is something

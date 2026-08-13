@@ -18,6 +18,14 @@ void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
                       const radar::Metar &metar, int onScreen,
                       int mlatOnScreen, float rangeNm);
 
+// Overwrites the status strip with a hold-to-restart countdown, for the
+// duration of the gesture only.
+//
+// It reuses the strip rather than drawing anywhere new because those pixels
+// are already spent — nothing is added to the layout, and at rest the gesture
+// has no affordance at all. `progress` is 0..1; see radar::HoldGesture.
+void drawHoldToRestart(TFT_eSprite &spr, float progress);
+
 // Touch target for the zoom toggle, which is the range readout itself.
 //
 // Reported back rather than hardcoded because the readout's x position moves

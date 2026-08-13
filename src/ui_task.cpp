@@ -11,7 +11,9 @@
 #include "shared_state.h"
 #include "ui/layout.h"
 #include "ui/scope.h"
+#include "ui/status_bar.h"
 #include "ui/touch_input.h"
+#include "hold_gesture.h"
 #include "ui/viewport.h"
 
 TFT_eSPI tft;
@@ -19,6 +21,14 @@ static TFT_eSprite s_scope(&tft);
 static radar::AircraftStore s_snap;
 static radar::Metar s_metar;
 static UiState s_ui;
+// Hold anywhere for three seconds to restart. Duration is the only
+// interaction axis this panel has left — position is fully spoken for by the
+// tap table in touch_input.h, and a 4-wire resistive panel has no second
+// finger to offer. Costs no pixels at rest: the countdown borrows the status
+// strip, which is drawn every frame anyway.
+static constexpr uint32_t HOLD_HINT_MS = 500, HOLD_RESTART_MS = 3000;
+static radar::HoldGesture s_hold(HOLD_HINT_MS, HOLD_RESTART_MS);
+static UiState s_uiBeforeHold;
 #ifdef NIGHT_CLOCK
 static int s_lastClockMin = -1;
 #endif
@@ -207,7 +217,35 @@ static void uiTaskLoop(void *) {
     // around at 3am doesn't have the screen die under your finger. Hit-tested
     // against the viewport the frame above was drawn with, which is the one
     // the finger was actually aiming at.
-    if (touchInputPoll(s_ui, s_snap, vp)) nightModeWake();
+    // Captured before the poll, because the poll mutates it. Touch is
+    // edge-triggered, so the first touch of a long press has already fired
+    // its ordinary tap action (a zoom) by the time the hold is knowable —
+    // cancelling the hold has to put that back.
+    UiState beforePress = s_ui;
+    if (touchInputPoll(s_ui, s_snap, vp)) {
+      nightModeWake();
+      s_uiBeforeHold = beforePress;
+    }
+    switch (s_hold.update(touchInputHeldMs())) {
+    case radar::HOLD_HINTING:
+      drawHoldToRestart(s_scope, s_hold.progress(touchInputHeldMs()));
+      break;
+    case radar::HOLD_CANCELLED:
+      s_ui = s_uiBeforeHold;  // undo the zoom the press edge caused
+      break;
+    case radar::HOLD_FIRED: {
+      // One last frame so the panel says what is about to happen, rather than
+      // going black with no explanation.
+      drawHoldToRestart(s_scope, 1.0f);
+      s_scope.pushSprite(0, 0);
+      Serial.println("ui: hold-to-restart fired");
+      delay(400);
+      ESP.restart();
+      break;
+    }
+    default:
+      break;
+    }
     if (s_ui.selectedHex && !s_snap.findByHex(s_ui.selectedHex)) {
       // selected aircraft aged out of the snapshot: clear stale selection
       s_ui.selectedHex = 0;

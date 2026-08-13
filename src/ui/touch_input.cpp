@@ -16,6 +16,7 @@ static constexpr int TAP_RADIUS_PX = 20;
 static SPIClass s_touchSpi(VSPI);
 static XPT2046_Touchscreen s_touch(TOUCH_CS, TOUCH_IRQ);
 static bool s_wasDown = false;
+static uint32_t s_downAtMs = 0;
 
 void touchInputInit() {
   s_touchSpi.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
@@ -41,10 +42,23 @@ static const radar::Aircraft *nearestBlip(const radar::AircraftStore &s,
 // poll, and lit frames never call the tap-only path.
 static bool pressEdge() {
   bool down = s_touch.touched();
-  if (!down) { s_wasDown = false; return false; }
+  if (!down) { s_wasDown = false; s_downAtMs = 0; return false; }
   if (s_wasDown) return false; // act on press edge only
   s_wasDown = true;
+  s_downAtMs = millis();
   return true;
+}
+
+uint32_t touchInputHeldMs() {
+  // Reads the state pressEdge() maintains rather than polling the panel
+  // again: touch is on its own SPI bus but a second transaction per frame
+  // would be pure waste, and the caller always runs pressEdge() first.
+  if (!s_wasDown || s_downAtMs == 0) return 0;
+  uint32_t held = millis() - s_downAtMs;
+  // Never report zero while a finger is genuinely down — zero is the "nothing
+  // pressed" signal to HoldGesture, and on the press-edge frame the elapsed
+  // time really is zero.
+  return held == 0 ? 1 : held;
 }
 
 bool touchInputTapped() { return pressEdge(); }

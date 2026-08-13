@@ -252,6 +252,20 @@ class Client:
         """What the board currently holds, per key, with its source."""
         return self.read(addr)["fields"]
 
+    def restart(self, addr):
+        """Ask the board to reboot.
+
+        The workaround for a map that will not load: geoStoreRefresh needs a
+        contiguous block the size of the whole blob while still holding the
+        live one, and a heap that has been running for hours does not always
+        have one. A fresh boot does.
+        """
+        try:
+            return self._json("POST", f"http://{addr}/restart", b"")
+        except Exception as e:
+            raise BoardError(f"could not ask the board at {addr} to "
+                             f"restart: {e}") from e
+
     def write_config(self, addr, values, clears):
         """Push only what differs, and report what was done.
 

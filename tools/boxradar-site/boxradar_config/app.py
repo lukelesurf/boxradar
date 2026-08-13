@@ -39,6 +39,7 @@ STEP_FOR_ENDPOINT = {
     "fixes": "points", "save_fixes": "points", "import_fixes": "points",
     "towns": "points", "save_towns": "points",
     "device_page": "device", "save_device": "device",
+    "restart_device": "device",
     "preview_page": "publish",
 }
 
@@ -707,6 +708,23 @@ def create_app(settings=None, board=None):
             groups=device.GROUPS, fields_in=device.fields_in,
             retry=bool(snapshot.get("fresh") and fields is None
                        and not request.args.get("noretry")))
+
+    @app.route("/device/restart", methods=["POST"])
+    def restart_device():
+        client = board_client()
+        snapshot = client.presence()
+        if not snapshot.get("fresh"):
+            flash("The board has not polled recently, so there is nothing to "
+                  "restart.", "error")
+            return redirect(url_for("device_page"))
+        try:
+            client.restart(snapshot["addr"])
+        except device.BoardError as e:
+            flash(str(e), "error")
+            return redirect(url_for("device_page"))
+        flash("Restarting. It is back in about fifteen seconds, and picks up "
+              "the published map on the way.", "ok")
+        return redirect(url_for("device_page"))
 
     @app.route("/device", methods=["POST"])
     def save_device():
