@@ -4,8 +4,19 @@ import unittest
 import urllib.error
 import urllib.request
 
-from boxradar_site import contacts, feed, server
+from boxradar_site import contacts, feed, presence, server
 from boxradar_site.config import SiteConfig
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
 
 
 class FakeCache:
@@ -38,10 +49,13 @@ class ServerTest(unittest.TestCase):
         self.cache = FakeCache()
         self.feed = FakeFeed()
         self.cfg = SiteConfig({"EGSS": [("04", 43), ("22", 223)]})
+        self.clock = FakeClock()
+        self.presence = presence.Presence(clock=self.clock)
         # Port 0 lets the OS choose, so tests never collide with the real
         # service or with each other.
         self.httpd = server.make_server(("127.0.0.1", 0), self.cache, self.cfg,
-                                        fetch_feed=self.feed)
+                                        fetch_feed=self.feed,
+                                        board=self.presence)
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever,
                                        daemon=True)
@@ -260,6 +274,146 @@ class TestHealthRoute(ServerTest):
         status, body = self.get_expecting_error("/metar/")
         self.assertEqual(status, 400)
         self.assertIn("error", body)
+
+
+class TestBoardRoutes(ServerTest):
+    """Presence and the config-wake signal.
+
+    The signal rides on a RESPONSE HEADER of the existing /contacts poll, not
+    in the payload. The contact header is <4sHHHH with no reserved field, so a
+    flag byte would have meant bumping CONTACT_VERSION — and contact_feed.h
+    rejects a version it does not know outright, blanking the scope until
+    firmware and Pi were updated in lockstep. An unknown response header is
+    ignored by definition, so an updated Pi keeps working with old firmware.
+    """
+
+    HOME = "lat=51.88501837&lon=0.23502732"
+
+    def poll_contacts(self):
+        url = f"http://127.0.0.1:{self.port}/contacts?{self.HOME}&n=32"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return r.read(), r.headers
+
+    def post(self, path, expect=200):
+        url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, data=b"", method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                self.assertEqual(r.status, expect)
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, expect)
+            return json.load(e)
+
+    def test_polling_records_the_board(self):
+        self.assertIsNone(self.presence.snapshot()["addr"])
+        self.poll_contacts()
+        snap = self.presence.snapshot()
+        self.assertEqual(snap["addr"], "127.0.0.1")
+        self.assertTrue(snap["fresh"])
+
+    def test_board_route_reports_the_snapshot(self):
+        self.poll_contacts()
+        status, body = self.get("/board")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["addr"], "127.0.0.1")
+        self.assertTrue(body["fresh"])
+        self.assertFalse(body["waking"])
+
+    def test_board_route_before_anything_has_polled(self):
+        status, body = self.get("/board")
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["addr"])
+        self.assertFalse(body["fresh"])
+
+    def test_no_config_header_when_nobody_asked(self):
+        # The board must never be told to open a server unprompted.
+        _, headers = self.poll_contacts()
+        self.assertIsNone(headers.get("X-Boxradar-Config"))
+
+    def test_wake_sets_the_header_on_the_next_poll(self):
+        self.post("/board/wake")
+        _, headers = self.poll_contacts()
+        self.assertEqual(headers.get("X-Boxradar-Config"), "1")
+
+    def test_the_header_stops_once_the_window_closes(self):
+        self.post("/board/wake")
+        self.clock.advance(presence.WAKE_WINDOW_S + 1)
+        _, headers = self.poll_contacts()
+        self.assertIsNone(headers.get("X-Boxradar-Config"))
+
+    def test_the_payload_is_byte_identical_either_way(self):
+        # The whole reason for using a header is that the binary format does
+        # not change. If waking altered a single byte of the body, the format
+        # would need a version bump after all and this design would be wrong.
+        self.feed.aircraft = [
+            {"hex": "4008f3", "flight": "BAW123", "lat": 51.95, "lon": 0.05,
+             "alt_baro": 3000, "gs": 220, "track": 90, "seen": 1.0,
+             "rssi": -12.5},
+        ]
+        quiet, _ = self.poll_contacts()
+        self.post("/board/wake")
+        waking, headers = self.poll_contacts()
+        self.assertEqual(headers.get("X-Boxradar-Config"), "1")
+        self.assertEqual(quiet, waking)
+
+    def test_wake_reports_whether_the_board_is_even_there(self):
+        # Pressing wake against a board nobody has heard from is not an error,
+        # but the UI has to be able to say so rather than spin.
+        body = self.post("/board/wake")
+        self.assertFalse(body["fresh"])
+        self.poll_contacts()
+        body = self.post("/board/wake")
+        self.assertTrue(body["fresh"])
+        self.assertTrue(body["waking"])
+
+    def test_the_header_rides_a_503_too(self):
+        # A failing receiver must not also cost you the ability to configure
+        # the board. The board is still polling and still reachable; only the
+        # traffic behind the request is missing, and the two have nothing to
+        # do with each other. Found by running it, not by reading it: the
+        # header started life in the binary responder, which a 503 never
+        # reaches.
+        self.feed.error = feed.FeedError("receiver unreachable")
+        self.post("/board/wake")
+        url = f"http://127.0.0.1:{self.port}/contacts?{self.HOME}&n=32"
+        try:
+            urllib.request.urlopen(url, timeout=5)
+            self.fail("expected a 503")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 503)
+            self.assertEqual(e.headers.get("X-Boxradar-Config"), "1")
+
+    def test_a_failed_poll_still_records_presence(self):
+        self.feed.error = feed.FeedError("receiver unreachable")
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{self.port}/contacts?{self.HOME}&n=32",
+                timeout=5)
+        except urllib.error.HTTPError:
+            pass
+        self.assertTrue(self.presence.snapshot()["fresh"])
+
+    def test_a_rejected_request_does_not_count_as_the_board(self):
+        # A 400 means whatever sent it did not speak the protocol, so it was
+        # not the board and must not update where we think the board is.
+        self.get_expecting_error("/contacts?lat=51.9&n=32")
+        self.assertIsNone(self.presence.snapshot()["addr"])
+
+    def test_the_header_never_appears_on_unrelated_routes(self):
+        self.post("/board/wake")
+        url = f"http://127.0.0.1:{self.port}/healthz"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            self.assertIsNone(r.headers.get("X-Boxradar-Config"))
+
+    def test_wake_is_not_a_get(self):
+        # It changes state. A GET would let a stray browser prefetch open the
+        # board's config server.
+        status, _ = self.get_expecting_error("/board/wake")
+        self.assertEqual(status, 404)
+
+    def test_unknown_post_is_404(self):
+        self.post("/nope", expect=404)
 
 
 if __name__ == "__main__":

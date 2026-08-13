@@ -30,8 +30,8 @@ PKG = ROOT / "boxradar_site"
 CONFIG_PKG = ROOT / "boxradar_config"
 
 SERVICE_MODULES = ["metar.py", "cache.py", "server.py", "upstream.py",
-                   "config.py", "contacts.py", "feed.py", "__main__.py",
-                   "__init__.py"]
+                   "config.py", "contacts.py", "feed.py", "presence.py",
+                   "__main__.py", "__init__.py"]
 
 # apt: python3-shapely, python3-yaml, python3-flask (which pulls jinja2,
 # werkzeug, click, itsdangerous — all imported by Flask, not by us).
