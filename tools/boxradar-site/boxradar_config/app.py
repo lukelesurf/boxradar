@@ -42,10 +42,6 @@ STEP_FOR_ENDPOINT = {
     "preview_page": "publish",
 }
 
-# The town map, in CSS pixels. Not the panel's 240x320 — this is a picker, and
-# a map you choose from wants to be bigger than the one you end up with.
-MAP_W, MAP_H = 640, 640
-
 # End-of-stream marker for the download queue. A distinct object rather than
 # None, because None is what a throttled progress update returns and the two
 # must never be confused — see the note in _fetch_reporting.
@@ -465,13 +461,20 @@ def create_app(settings=None, board=None):
         records = scoped("airports", datasets.airfields, settings.cache_dir,
                          box, types)
 
-        query = (request.args.get("q") or "").strip().upper()
-        if query:
-            records = [a for a in records
-                       if query in a.ident or query in a.name.upper()
-                       or query in a.municipality.upper()]
-
         chosen = picks.selected_airfields(sel)
+        # The class toggle is a coarse gate the browser cannot apply for
+        # itself, and it used to hide fields that were already selected —
+        # which a save then dropped, because a save rebuilds the selection
+        # from exactly what the form contained. Anything selected is rendered
+        # regardless of the gate.
+        if not chosen <= {a.ident for a in records}:
+            every = scoped("airports", datasets.airfields, settings.cache_dir,
+                           box, datasets.AIRPORT_TYPES)
+            records = picks.merge_selected(
+                records, [a for a in every if a.ident in chosen],
+                lambda a: a.ident)
+        records = picks.by_distance(records, sel.home_lat, sel.home_lon)
+
         # Runways are only offered for airfields already ticked. Offering every
         # runway in the box would be hundreds of rows for a list where two or
         # three entries is the normal answer.
@@ -482,8 +485,7 @@ def create_app(settings=None, board=None):
             "airfields.html", sel=sel, records=records, chosen=chosen,
             runways=runway_records,
             chosen_runways=picks.selected_runways(sel, runway_records),
-            query=request.args.get("q") or "", small=small, picks=picks,
-            runway_key=picks.runway_key)
+            small=small, picks=picks, runway_key=picks.runway_key)
 
     @app.route("/points/airfields", methods=["POST"])
     def save_airfields():
@@ -546,15 +548,11 @@ def create_app(settings=None, board=None):
         sel = load_selection()
         if sel is None:
             return redirect(url_for("site"))
-        records = fix_candidates(sel)
-        query = (request.args.get("q") or "").strip().upper()
-        if query:
-            records = [c for c in records
-                       if query in c.ident or query in c.name.upper()]
+        records = picks.by_distance(fix_candidates(sel),
+                                    sel.home_lat, sel.home_lon)
         return render_template(
             "fixes.html", sel=sel, records=records,
-            chosen=picks.selected_fixes(sel),
-            query=request.args.get("q") or "", picks=picks,
+            chosen=picks.selected_fixes(sel), picks=picks,
             have_navaids=datasets.age_days("navaids",
                                            settings.cache_dir) is not None)
 
@@ -609,15 +607,30 @@ def create_app(settings=None, board=None):
             floor = max(0, int(floor))
         except ValueError:
             floor = 2000
+        # The floor stays server-side and is not something the browser could
+        # take over: at 0 this box holds 12,102 towns and an 8MB page that
+        # takes 20 seconds to render on the Pi. At the 2000 default it is
+        # 1,179 rows, which the browser filters instantly.
         records = scoped("towns", datasets.towns, settings.cache_dir,
                          box_for(sel), floor)
+
         chosen = picks.selected_towns(sel, records)
+        # A town under the floor is invisible, and a save then dropped it.
+        # Only pay for the unfiltered list when something selected is actually
+        # missing from the filtered one — the common case is that it is not.
+        if len(chosen) < len(sel.towns):
+            every = scoped("towns", datasets.towns, settings.cache_dir,
+                           box_for(sel), 0)
+            wanted = picks.selected_towns(sel, every)
+            records = picks.merge_selected(
+                records, [t for t in every if t.uid in wanted],
+                lambda t: t.uid)
+            chosen = picks.selected_towns(sel, records)
+        records = picks.by_distance(records, sel.home_lat, sel.home_lon)
+
         return render_template(
             "towns.html", sel=sel, records=records, chosen=chosen,
-            labels=picks.town_labels(sel, records), picks=picks,
-            floor=floor, map_w=MAP_W, map_h=MAP_H,
-            plotted=picks.layout(records, sel.home_lat, sel.home_lon,
-                                 sel.reach_nm, MAP_W, MAP_H))
+            labels=picks.town_labels(sel, records), picks=picks, floor=floor)
 
     @app.route("/points/towns", methods=["POST"])
     def save_towns():

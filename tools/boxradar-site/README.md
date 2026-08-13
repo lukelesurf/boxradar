@@ -212,7 +212,7 @@ Six steps in dependency order, shown as a progress strip on every page:
 | 3 | `/airspace` | the catalog as a table, tick to select, filter as you type, Suggest |
 | 4 | `/points/airfields` | search by ICAO, name or town; centrelines per runway |
 | 4 | `/points/fixes` | navaids and enroute fixes in one list, plus eAIP import |
-| 4 | `/points/towns` | a map to click, ranked by population, with editable labels |
+| 4 | `/points/towns` | ranked by population, with editable labels |
 | 5 | `/device` | the board's own settings, read off the board itself |
 | 6 | `/preview` | what the panel will draw, at each range |
 | | `/healthz` | selection, source, blob and dataset ages |
@@ -220,6 +220,36 @@ Six steps in dependency order, shown as a progress strip on every page:
 Every step is a plain link — the order is guidance, not a state machine, and
 nothing is bookmark-hostile. `/datasets` still resolves, as an alias for
 `/data`.
+
+All four picker pages filter **as you type**, in the browser, over rows the
+server has already sent. `_filter.html` is the whole implementation — 40 lines,
+no library.
+
+That is a correctness decision as much as a speed one. Every one of these pages
+rebuilds its selection from exactly what the form contained, so anything not
+rendered was silently deleted on save. Three cases were live before this:
+
+| what was hidden | how |
+|---|---|
+| non-matching airspace | a `?kind=` filter, server-side |
+| a selected small airfield | the class toggle, on by default |
+| a selected sub-floor town | the population floor, on by default |
+
+The last two needed no search at all — visiting the page and pressing Save was
+enough. Hiding rows in the browser leaves their checkboxes submitting, so the
+form is always complete; and anything **selected** is now rendered whatever the
+coarse gate says (`picks.merge_selected`).
+
+Two gates stay server-side because the browser cannot do them: the airfield
+class toggle and the town population floor. At a floor of 0 the box holds
+12,102 towns and an 8MB page the Pi takes 20s to render; at the 2,000 default
+it is 1,179 rows the browser filters instantly.
+
+Every picker lists **nearest first**. The datasets' own orders — airport class,
+ident, population — all bury the nearest thing in the middle.
+
+The town map is gone. It was 293KB of a 788KB page, and a dot cloud answered
+"which of these do I know" worse than a distance column does.
 
 **Publishing is on every page**, in a bar at the bottom that also says whether
 the board is drawing the current selection or a publish behind. It used to be a

@@ -25,10 +25,9 @@
 {% endif %}
 
 <div class="bar">
-  <form method="get">
-    <input type="text" name="q" value="{{ query }}" placeholder="ident or name">
-    <button type="submit">Search</button>
-  </form>
+  <input type="search" id="find" placeholder="ident, name or procedure"
+         autocomplete="off" aria-label="Filter fixes">
+  <span class="why" id="counts" data-noun="ticked"></span>
 </div>
 
 <form method="post">
@@ -40,7 +39,8 @@
       <th class="n">dist</th><th>brg</th><th>source</th>
     </tr>
     {% for c in records %}
-      <tr class="{{ 'picked' if c.ident in chosen }}">
+      <tr class="{{ 'picked' if c.ident in chosen }}"
+          data-search="{{ (c.ident ~ ' ' ~ c.name ~ ' ' ~ c.kind)|upper }}">
         <td><input type="checkbox" name="fix" value="{{ c.ident }}"
                    {{ 'checked' if c.ident in chosen }}></td>
         <td>{{ c.ident }}</td>
@@ -55,7 +55,7 @@
     {% endfor %}
   </table>
   {% if not records %}
-    <p class="note">Nothing in reach matched.</p>
+    <p class="note">Nothing in reach.</p>
   {% endif %}
   <p><button type="submit">Save fixes</button></p>
 </form>
@@ -72,4 +72,5 @@
   <textarea name="eaip" placeholder="ABBOT&#9;520058.00N&#9;0003558.49E&#10;LOREL&#9;520050.18N&#9;0000309.50W"></textarea>
   <p><button type="submit">Import</button></p>
 </form>
+{% include '_filter.html' %}
 {% endblock %}

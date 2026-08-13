@@ -90,10 +90,13 @@ class TestAirfields(PickerCase):
         self.assertNotIn(b"EGTR", self.client.get("/points/airfields").data)
         self.assertIn(b"EGTR", self.client.get("/points/airfields?small=1").data)
 
-    def test_search_narrows_the_list(self):
+    def test_searching_is_no_longer_a_round_trip(self):
+        # ?q= used to filter server-side. It now renders everything and the
+        # browser hides rows, which is what stops a save under a search
+        # dropping what was not visible.
         r = self.client.get("/points/airfields?q=cambridge")
         self.assertIn(b"EGSC", r.data)
-        self.assertNotIn(b">EGSS<", r.data)
+        self.assertIn(b"EGSS", r.data)
 
     def test_saving_writes_the_markers(self):
         self.client.post("/points/airfields", data={"airfield": ["EGSS", "EGGW"]})
@@ -227,10 +230,11 @@ class TestTowns(PickerCase):
         self.assertIn(b"Stevenage", r.data)
         self.assertNotIn(b"Glasgow", r.data)
 
-    def test_the_map_plots_them(self):
+    def test_there_is_no_map(self):
+        # 293KB of a 788KB page, and a dot cloud at 640px told you less than
+        # a distance column does.
         r = self.client.get("/points/towns?min_population=0")
-        self.assertIn(b"<svg", r.data)
-        self.assertIn(b"#town-2636940", r.data)  # dot links to its row
+        self.assertNotIn(b'<svg class="map"', r.data)
 
     def test_population_ranks_but_does_not_gate(self):
         r = self.client.get("/points/towns?min_population=0")
@@ -280,6 +284,115 @@ class TestTowns(PickerCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFilteringAndOrder(PickerCase):
+    """Client-side filtering across all three panels, and nearest-first order.
+
+    The gate tests here are the important ones. Both were proven against the
+    live app before this change: a selected small airfield and a selected
+    sub-floor town were each dropped by visiting the page and pressing Save,
+    with no search typed and no warning. A save rebuilds the selection from
+    exactly what the form contained, so anything the gate hid was simply not
+    there.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.install(airports=AIRPORTS, runways=RUNWAYS, navaids=NAVAIDS,
+                     towns=TOWNS)
+
+    def rows(self, body, name):
+        """Checkbox values in render order."""
+        return [chunk.split('value="')[1].split('"')[0]
+                for chunk in body.decode().split("<input ")[1:]
+                if f'name="{name}"' in chunk.split(">")[0]]
+
+    def distances(self, body):
+        """The dist column, in render order.
+
+        First numeric cell of each row: every one of these tables puts dist
+        there. Scraping every class="n" cell would also pick up population.
+        """
+        import re
+        out = []
+        for row in body.decode().split("<tr")[1:]:
+            found = re.search(r'<td class="n">(\d+)</td>', row)
+            if found:
+                out.append(int(found.group(1)))
+        return out
+
+    # ------------------------------------------------------------- filtering
+
+    def test_every_panel_offers_a_filter_box(self):
+        for path in ("/points/airfields", "/points/fixes", "/points/towns"):
+            body = self.client.get(path).data
+            self.assertIn(b'id="find"', body, path)
+            self.assertIn(b'id="counts"', body, path)
+
+    def test_every_panel_marks_its_rows_searchable(self):
+        for path in ("/points/airfields", "/points/fixes", "/points/towns"):
+            self.assertIn(b"data-search=", self.client.get(path).data, path)
+
+    def test_airfields_are_searchable_by_icao_name_and_town(self):
+        body = self.client.get("/points/airfields").data.decode()
+        row = [c for c in body.split("<tr") if "EGSC" in c][0]
+        search = row.split('data-search="')[1].split('"')[0]
+        self.assertIn("EGSC", search)
+        self.assertIn("CAMBRIDGE", search)
+
+    # ----------------------------------------------------------------- order
+
+    def test_airfields_are_nearest_first(self):
+        d = self.distances(self.client.get("/points/airfields").data)
+        self.assertEqual(d, sorted(d), d)
+
+    def test_fixes_are_nearest_first(self):
+        d = self.distances(self.client.get("/points/fixes").data)
+        self.assertEqual(d, sorted(d), d)
+
+    def test_towns_are_nearest_first(self):
+        d = self.distances(
+            self.client.get("/points/towns?min_population=0").data)
+        self.assertEqual(d, sorted(d), d)
+
+    # ------------------------------------------------- gates cannot hide a pick
+
+    def test_a_selected_small_airfield_survives_the_default_view(self):
+        self.client.post("/points/airfields", data={"airfield": "EGTR"})
+        body = self.client.get("/points/airfields").data   # small hidden
+        self.assertIn(b"EGTR", body,
+                      "a selected field the class gate hides must still render")
+
+    def test_saving_the_default_view_keeps_a_selected_small_airfield(self):
+        self.client.post("/points/airfields", data={"airfield": "EGTR"})
+        body = self.client.get("/points/airfields").data
+        self.client.post("/points/airfields",
+                         data={"airfield": self.rows(body, "airfield")})
+        self.assertIn("EGTR", [r[0] for r in self.stored()["airfields"]])
+
+    def test_a_selected_sub_floor_town_survives_the_default_view(self):
+        self.client.post("/points/towns", data={"town": "1000001",
+                                                "label_1000001": "TINY"})
+        body = self.client.get("/points/towns?min_population=1000").data
+        self.assertIn(b"TINY", body,
+                      "a selected town under the floor must still render")
+
+    def test_saving_a_floored_view_keeps_a_selected_sub_floor_town(self):
+        self.client.post("/points/towns", data={"town": "1000001",
+                                                "label_1000001": "TINY"})
+        body = self.client.get("/points/towns?min_population=1000").data
+        form = {"town": self.rows(body, "town")}
+        for uid in form["town"]:
+            form[f"label_{uid}"] = "X"
+        form["label_1000001"] = "TINY"
+        self.client.post("/points/towns", data=form)
+        self.assertIn("TINY", [r[0] for r in self.stored()["towns"]])
+
+    def test_an_unselected_hidden_item_stays_hidden(self):
+        # The union is only for what is selected. Rendering every small field
+        # regardless would defeat the toggle.
+        self.assertNotIn(b"EGTR", self.client.get("/points/airfields").data)
 
 
 class TestPreview(PickerCase):

@@ -14,14 +14,13 @@
 </p>
 
 <div class="bar">
+  {# Filtering is done in the browser, so this is a bare input with nothing to
+     submit. The class toggle below stays a real request: it changes which
+     records the server reads, which the page cannot do for itself. #}
+  <input type="search" id="find" placeholder="ICAO, name or town"
+         autocomplete="off" aria-label="Filter airfields">
+  <span class="why" id="counts" data-noun="marked"></span>
   <form method="get">
-    <input type="text" name="q" value="{{ query }}"
-           placeholder="ICAO, name or town">
-    {% if small %}<input type="hidden" name="small" value="1">{% endif %}
-    <button type="submit">Search</button>
-  </form>
-  <form method="get">
-    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
     {% if not small %}<input type="hidden" name="small" value="1">{% endif %}
     <button type="submit">
       {{ 'Hide small fields' if small else 'Include small fields' }}
@@ -40,7 +39,8 @@
       <th class="n">dist</th><th>brg</th><th>class</th>
     </tr>
     {% for a in records %}
-      <tr class="{{ 'picked' if a.ident in chosen }}">
+      <tr class="{{ 'picked' if a.ident in chosen }}"
+          data-search="{{ (a.ident ~ ' ' ~ a.name ~ ' ' ~ a.municipality)|upper }}">
         <td><input type="checkbox" name="airfield" value="{{ a.ident }}"
                    {{ 'checked' if a.ident in chosen }}></td>
         <td>{{ a.ident }}</td>
@@ -56,8 +56,8 @@
   </table>
 
   {% if not records %}
-    <p class="note">Nothing matched. Try a wider search, or include small
-      fields.</p>
+    <p class="note">Nothing in reach. Include small fields, or widen the reach
+      on the Site page.</p>
   {% endif %}
 
   <h2>Centrelines</h2>
@@ -88,4 +88,5 @@
 
   <p><button type="submit">Save airfields and centrelines</button></p>
 </form>
+{% include '_filter.html' %}
 {% endblock %}

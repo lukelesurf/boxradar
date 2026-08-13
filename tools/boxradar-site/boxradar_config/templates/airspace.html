@@ -25,7 +25,7 @@
   </select>
   <input type="search" id="find" placeholder="filter by name"
          autocomplete="off" aria-label="Filter by name">
-  <span class="why" id="counts"></span>
+  <span class="why" id="counts" data-noun="ticked"></span>
   {# A GET form, not a button in an anchor: nesting interactive elements is
      invalid and browsers disagree about what it does. #}
   <form method="get">
@@ -75,52 +75,7 @@
   {% endif %}
 </form>
 
-{# No library, and none needed: this is row.hidden over an array the page has
-   already rendered. Roughly 250 rows here, so a filter pass is well under a
-   frame and there is nothing to debounce.
-
-   Hiding a row leaves its checkbox in the form, which is the point — a Save
-   while filtered submits every feature, not just the visible ones. Do not
-   "optimise" this into removing rows from the DOM or disabling their inputs:
-   either would restore the bug this replaced, and silently. #}
-<script>
-(function () {
-  var rows = Array.prototype.slice.call(
-    document.querySelectorAll('tr[data-search]'));
-  if (!rows.length) return;
-  var find = document.getElementById('find');
-  var kind = document.getElementById('kind');
-  var counts = document.getElementById('counts');
-
-  function apply() {
-    var text = find.value.trim().toUpperCase();
-    var want = kind.value;
-    var shown = 0, ticked = 0;
-    for (var i = 0; i < rows.length; i++) {
-      var row = rows[i];
-      var hit = (!want || row.dataset.kind === want) &&
-                (!text || row.dataset.search.indexOf(text) !== -1);
-      row.hidden = !hit;
-      if (hit) shown++;
-      if (row.querySelector('input[type=checkbox]').checked) ticked++;
-    }
-    // The ticked count deliberately counts EVERY row, not the visible ones:
-    // it is the reassurance that filtering has not quietly dropped anything,
-    // so it has to speak for the whole selection.
-    counts.textContent = 'showing ' + shown + ' of ' + rows.length +
-                         ' · ' + ticked + ' ticked';
-  }
-
-  find.addEventListener('input', apply);
-  kind.addEventListener('change', apply);
-  // Ticking changes the count, and the count is the thing that says nothing
-  // was lost, so it must not go stale while you work.
-  document.addEventListener('change', function (e) {
-    if (e.target.name === 'feature') apply();
-  });
-  apply();  // the select may arrive pre-set from ?kind= on a bookmark
-})();
-</script>
+{% include '_filter.html' %}
 
 {% if sel.groups %}
   <h2>Groups</h2>

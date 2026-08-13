@@ -1,0 +1,59 @@
+{# As-you-type filtering, shared by the airspace picker and the three points
+   panels. Include it after the table.
+
+   Needs, in the page: an <input id="find">, a <span id="counts">, rows marked
+   `data-search="UPPERCASE HAYSTACK"`, and optionally a <select id="kind"> with
+   rows carrying a matching `data-kind`.
+
+   No library, and none needed: this is row.hidden over an array the page has
+   already rendered. The biggest list here is ~1200 towns, so a filter pass is
+   well under a frame and there is nothing to debounce.
+
+   **Hiding a row leaves its checkbox in the form, and that is the point.**
+   Every one of these pages rebuilds its selection from exactly what was
+   submitted, so a filter that removed rows from the DOM — or disabled their
+   inputs — would silently delete whatever was not on screen when you pressed
+   Save. That was a real bug on all four pages before this. Do not "optimise"
+   it into doing either. #}
+<script>
+(function () {
+  var rows = Array.prototype.slice.call(
+    document.querySelectorAll('tr[data-search]'));
+  if (!rows.length) return;
+  var find = document.getElementById('find');
+  var kind = document.getElementById('kind');
+  var counts = document.getElementById('counts');
+  var noun = (counts && counts.dataset.noun) || 'shown';
+
+  function apply() {
+    var text = find ? find.value.trim().toUpperCase() : '';
+    var want = kind ? kind.value : '';
+    var shown = 0, ticked = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var hit = (!want || row.dataset.kind === want) &&
+                (!text || row.dataset.search.indexOf(text) !== -1);
+      row.hidden = !hit;
+      if (hit) shown++;
+      var box = row.querySelector('input[type=checkbox]');
+      if (box && box.checked) ticked++;
+    }
+    // The ticked count deliberately counts EVERY row, not the visible ones:
+    // it is the reassurance that filtering has dropped nothing, so it has to
+    // speak for the whole selection.
+    if (counts) {
+      counts.textContent = 'showing ' + shown + ' of ' + rows.length +
+                           ' · ' + ticked + ' ' + noun;
+    }
+  }
+
+  if (find) find.addEventListener('input', apply);
+  if (kind) kind.addEventListener('change', apply);
+  // Ticking changes the count, and the count is what says nothing was lost,
+  // so it must not go stale while you work.
+  document.addEventListener('change', function (e) {
+    if (e.target.type === 'checkbox') apply();
+  });
+  apply();  // a select may arrive pre-set from the query string
+})();
+</script>

@@ -150,25 +150,29 @@ def compass(bearing):
     return COMPASS[int((bearing + 11.25) % 360 / 22.5)]
 
 
-# ------------------------------------------------------------------- layout
-# A crude equirectangular projection for the town map. Deliberately not the
-# firmware's — src/ui/viewport.h is the real one, and reimplementing it here
-# would mean maintaining two that drift. This only has to answer "where is
-# this town relative to home", which does not need to be the same picture the
-# panel draws.
+def by_distance(records, home_lat, home_lon):
+    """Nearest first.
 
-def layout(records, home_lat, home_lon, reach_nm, width, height):
-    """[(x, y, record)] for plotting, with home at the centre."""
-    if reach_nm <= 0:
-        return []
-    scale = min(width, height) / (2.0 * reach_nm)
-    cos_lat = math.cos(math.radians(home_lat))
-    out = []
-    for record in records:
-        dx = (record.lon - home_lon) * NM_PER_DEG_LAT * cos_lat * scale
-        dy = (record.lat - home_lat) * NM_PER_DEG_LAT * scale
-        x = width / 2.0 + dx
-        y = height / 2.0 - dy  # screen y grows downward
-        if -10 <= x <= width + 10 and -10 <= y <= height + 10:
-            out.append((x, y, record))
-    return out
+    Every picker orders this way now. The lists are answers to "what is near
+    me that I would recognise", and the datasets' own orders — airport class,
+    ident, population — all bury the nearest thing somewhere in the middle.
+
+    Sorted here rather than in the template so it is computed once per record
+    rather than once per cell, and so it can be tested without rendering.
+    """
+    return sorted(records,
+                  key=lambda r: distance_nm(home_lat, home_lon, r.lat, r.lon))
+
+
+def merge_selected(records, extras, key):
+    """`records` plus any of `extras` it does not already contain.
+
+    Every picker has a coarse gate the browser cannot do for it — the airfield
+    class toggle, the town population floor — and those gates used to hide
+    things that were already selected. Because a save rebuilds the selection
+    from exactly what the form contained, a hidden-but-selected item was
+    silently dropped by doing nothing more than visiting the page and pressing
+    Save. Whatever is selected is therefore always rendered, gate or no gate.
+    """
+    seen = {key(r) for r in records}
+    return list(records) + [e for e in extras if key(e) not in seen]
