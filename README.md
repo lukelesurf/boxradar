@@ -61,10 +61,10 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
 - **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
 - **Trails** are distance-gated, so the dots are evenly spaced whether
   the aircraft is a 90kt Cessna or a 450kt jet, at every range
-- **Next-overhead readout** (experimental, `OVERHEAD_PREDICTION`): the
-  aircraft predicted to pass closest to overhead soonest, amber when it's
-  an MLAT target or a rare type. Manoeuvring aircraft are excluded rather
-  than guessed at — see below
+- **Next-overhead readout** (`OVERHEAD_PREDICTION`): the aircraft predicted
+  to pass closest to overhead soonest, amber when it's an MLAT target or a
+  rare type. Manoeuvring aircraft are excluded rather than guessed at — see
+  below
 - **Tap to zoom.** Two view states rather than a cycle of ranges: a 50nm
   overview you choose from, and a 10nm (or 5nm) detail view centred on
   wherever you tapped. One gesture per state — the overview only

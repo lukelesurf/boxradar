@@ -3,9 +3,12 @@
 
 // Predicts which aircraft will next pass close to overhead.
 //
-// EXPERIMENTAL — designed to be removed cheaply. Deleting overhead.{h,cpp},
-// src/ui/overhead_readout.{h,cpp}, test/test_overhead/, and the
-// OVERHEAD_PREDICTION block in src/ui/scope.cpp takes it out entirely.
+// Compile-time optional, though not worth removing for space: commenting
+// out OVERHEAD_PREDICTION in config.h drops the three #ifdef blocks in
+// src/ui/scope.cpp and --gc-sections then collects this, which measures at
+// 1424 bytes of flash. Deleting overhead.{h,cpp},
+// src/ui/overhead_readout.{h,cpp} and test/test_overhead/ takes it out of
+// the tree entirely.
 //
 // This is deliberately a readout, not an alert. Under a downwind leg
 // something is almost always about to go overhead, so "is anything

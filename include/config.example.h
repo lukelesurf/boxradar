@@ -48,9 +48,9 @@
 // will keep drawing the previous area's coast.
 #define DRAW_COASTLINE
 
-// EXPERIMENTAL: "OVHD <callsign> <n>s" readout in the top-left corner,
-// predicting the next aircraft to pass close to overhead. Comment out to
-// disable; see lib/radarcore/overhead.h for how to remove it entirely.
+// "OVHD <callsign> <n>s" readout in the top-left corner, predicting the
+// next aircraft to pass close to overhead. Comment out to disable; see
+// lib/radarcore/overhead.h for how to drop it from the tree entirely.
 #define OVERHEAD_PREDICTION
 
 // Blank the display overnight, waking on a tap. Comment out NIGHT_BLANKING

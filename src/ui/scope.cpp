@@ -411,7 +411,6 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   }
 
 #ifdef OVERHEAD_PREDICTION
-  // Experimental; delete this block and the include above to remove.
   // Drawn before the banner so a 7700 always wins the top of the screen.
   drawOverheadReadout(
       spr, s, s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
