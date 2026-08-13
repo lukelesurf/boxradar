@@ -125,7 +125,7 @@ class TestPackageLayout(unittest.TestCase):
         self.assertTrue((CONFIG_PKG / "__init__.py").is_file())
 
     def test_the_config_ui_does_not_import_the_service(self):
-        # It may use boxradar_site.geo, and nothing else from that package.
+        # It may use boxradar_site.geo or boxradar_site.metar (for constants).
         # The service half is a running daemon, not a library.
         for path in python_files(CONFIG_PKG):
             tree = ast.parse(path.read_text())
@@ -133,7 +133,8 @@ class TestPackageLayout(unittest.TestCase):
                 if isinstance(node, ast.ImportFrom) and node.module:
                     if node.module.startswith("boxradar_site"):
                         self.assertTrue(
-                            node.module.startswith("boxradar_site.geo"),
+                            node.module.startswith("boxradar_site.geo") or
+                            node.module.startswith("boxradar_site.metar"),
                             f"{path.name} imports {node.module}")
 
 

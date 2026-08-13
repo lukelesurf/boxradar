@@ -6,11 +6,14 @@ publishes le_heading_degT=44, the thresholds give 43, and 43 is what was
 entered by hand — the coordinates win, exactly as datasets.runways() documents.
 """
 
+import json
 import pathlib
 import tempfile
 import unittest
 
 from boxradar_config import datasets, headings
+from boxradar_site import config as site_config_module
+from boxradar_site.metar import DEFAULT_CALM_KT
 
 RUNWAYS = '''"id","airport_ref","airport_ident","length_ft","width_ft","surface","lighted","closed","le_ident","le_latitude_deg","le_longitude_deg","le_elevation_ft","le_heading_degT","le_displaced_threshold_ft","he_ident","he_latitude_deg","he_longitude_deg","he_elevation_ft","he_heading_degT","he_displaced_threshold_ft"
 1,1,"EGSS",10000,150,"ASP",1,0,"04",51.875081,0.219933,321,44,0,"22",51.895166,0.250050,336,224,0
@@ -81,3 +84,39 @@ class TestMetarRunways(HeadingCase):
 
     def test_an_unknown_station_gives_nothing(self):
         self.assertEqual(headings.metar_runways(self.cache, "ZZZZ"), [])
+
+
+class TestSiteConfig(HeadingCase):
+    def test_document_shape(self):
+        doc = headings.site_config(self.cache, "EGSS")
+        self.assertEqual(doc, {"runways": {"EGSS": [["04", 43], ["22", 223]]},
+                               "calm_kt": DEFAULT_CALM_KT})
+
+    def test_calm_kt_is_overridable(self):
+        doc = headings.site_config(self.cache, "EGSS", calm_kt=10)
+        self.assertEqual(doc["calm_kt"], 10)
+
+    def test_unknown_station_still_gives_a_valid_document(self):
+        # An empty runway table must not be a crash: pick_runway() degrades to
+        # no-runway, and the rest of the METAR readout still works.
+        doc = headings.site_config(self.cache, "ZZZZ")
+        self.assertEqual(doc, {"runways": {}, "calm_kt": DEFAULT_CALM_KT})
+
+    def test_written_file_is_read_back_by_the_real_consumer(self):
+        path = self.cache / "config.json"
+        headings.write_site_config(path, self.cache, "EGSS")
+        cfg = site_config_module.load(str(path))
+        self.assertEqual(cfg.runways_for("EGSS"), [("04", 43), ("22", 223)])
+        self.assertEqual(cfg.calm_kt, DEFAULT_CALM_KT)
+
+    def test_written_file_is_valid_json_with_a_trailing_newline(self):
+        path = self.cache / "config.json"
+        headings.write_site_config(path, self.cache, "EGSS")
+        text = path.read_text()
+        self.assertTrue(text.endswith("\n"))
+        json.loads(text)
+
+    def test_write_creates_the_parent_directory(self):
+        path = self.cache / "nested" / "deeper" / "config.json"
+        headings.write_site_config(path, self.cache, "EGSS")
+        self.assertTrue(path.exists())

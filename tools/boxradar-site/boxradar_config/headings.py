@@ -14,7 +14,11 @@ EGMC — all three agree, including EGSS 04, where the dataset publishes 44 and
 the thresholds give 43.
 """
 
+import json
 import math
+import pathlib
+
+from boxradar_site.metar import DEFAULT_CALM_KT
 
 from . import datasets
 
@@ -45,3 +49,29 @@ def metar_runways(cache_dir, icao):
         if high and high != "?":
             out.append((high, int(round(heading + 180.0)) % 360))
     return out
+
+
+def site_config(cache_dir, icao, calm_kt=None):
+    """The /etc/boxradar-site/config.json document for one station.
+
+    A station with no runways in the dataset still yields a valid document.
+    pick_runway() degrades to no-runway on an empty table, and wind, cloud and
+    visibility do not depend on it.
+    """
+    calm = DEFAULT_CALM_KT if calm_kt is None else int(calm_kt)
+    pairs = metar_runways(cache_dir, icao)
+    table = {icao.upper(): [[d, h] for d, h in pairs]} if pairs else {}
+    return {"runways": table, "calm_kt": calm}
+
+
+def write_site_config(path, cache_dir, icao, calm_kt=None):
+    """Write the document, atomically. Returns what was written."""
+    doc = site_config(cache_dir, icao, calm_kt)
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Same directory so the rename is atomic: boxradar-site reads this file at
+    # startup, and a half-written one would be ignored as unparseable.
+    tmp = path.with_suffix(path.suffix + ".part")
+    tmp.write_text(json.dumps(doc, indent=2) + "\n")
+    tmp.replace(path)
+    return doc
