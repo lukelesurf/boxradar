@@ -277,9 +277,18 @@ def create_app(settings=None, board=None):
             flash(f"Could not write {settings.blob_path}: {e}. The previously "
                   f"published map is untouched.", "error")
             return redirect(url_for("airspace"))
+        # The blob is on disk; everything from here is a courtesy. Ringing the
+        # bell means the board refetches within a poll or two instead of
+        # waiting out its geography interval — but the publish has already
+        # succeeded, so a display service that is down must not make it look
+        # otherwise.
+        rung = board_client().reload_geo() is not None
         flash(f"Published {len(result.blob)} bytes to "
-              f"{settings.blob_path} ({result.summary()}). The board picks "
-              f"it up on its next geography poll.", "ok")
+              f"{settings.blob_path} ({result.summary()}). "
+              + ("The board picks it up within a few seconds."
+                 if rung else
+                 "Could not reach the display service to notify the board, so "
+                 "it picks the map up on its next geography poll."), "ok")
         return redirect(url_for("airspace"))
 
     # ------------------------------------------------------------- datasets
@@ -685,14 +694,16 @@ def create_app(settings=None, board=None):
         """
         client = board_client()
         snapshot = client.wake()
-        fields, problem = None, None
+        fields, health, problem = None, None, None
         if snapshot.get("fresh"):
             try:
-                fields = client.read_config(snapshot["addr"])
+                payload = client.read(snapshot["addr"])
+                fields, health = payload["fields"], payload.get("health")
             except device.BoardError as e:
                 problem = str(e)
         return render_template(
-            "device.html", snapshot=snapshot, fields=fields, problem=problem,
+            "device.html", snapshot=snapshot, fields=fields, health=health,
+            problem=problem,
             groups=device.GROUPS, fields_in=device.fields_in,
             retry=bool(snapshot.get("fresh") and fields is None
                        and not request.args.get("noretry")))

@@ -40,6 +40,31 @@
   </p>
 {% endif %}
 
+{% if health %}
+  <div class="scroll">
+    <table>
+      <tr><th>uptime</th><th>last reset</th><th class="n">heap free</th>
+          <th class="n">heap low</th><th class="n">signal</th></tr>
+      <tr>
+        <td>{{ '%dh %dm'|format(health.uptime_s // 3600,
+                                (health.uptime_s % 3600) // 60) }}</td>
+        <td>{{ health.reset_reason }}</td>
+        <td class="n">{{ '{:,}'.format(health.heap_free) }}</td>
+        <td class="n">{{ '{:,}'.format(health.heap_min) }}</td>
+        <td class="n">{{ health.rssi }} dBm</td>
+      </tr>
+    </table>
+  </div>
+  <p class="note">
+    <b>Last reset</b> is the only way to tell why the board restarted without a
+    USB cable: <i>brownout</i> is the power supply, <i>panic</i> or
+    <i>watchdog</i> is firmware, and <i>software restart</i> is something
+    asking it to — an OTA flash or a settings save. <b>Heap low</b> is the
+    least free memory since boot; the render sprite puts the floor near 43KB,
+    so a figure well under that is worth knowing about.
+  </p>
+{% endif %}
+
 {% if problem %}
   <p class="flash error">{{ problem }}</p>
 {% elif retry %}

@@ -290,9 +290,22 @@ class TestBoardRoutes(ServerTest):
     HOME = "lat=51.88501837&lon=0.23502732"
 
     def poll_contacts(self):
+        """As a browser or curl would: HTTP/1.1."""
         url = f"http://127.0.0.1:{self.port}/contacts?{self.HOME}&n=32"
         with urllib.request.urlopen(url, timeout=5) as r:
             return r.read(), r.headers
+
+    def poll_contacts_as_board(self):
+        """As the firmware does: HTTP/1.0, which is what identifies it."""
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn._http_vsn = 10
+        conn._http_vsn_str = "HTTP/1.0"
+        conn.request("GET", f"/contacts?{self.HOME}&n=32")
+        r = conn.getresponse()
+        body, headers = r.read(), r.headers
+        conn.close()
+        return body, headers
 
     def post(self, path, expect=200):
         url = f"http://127.0.0.1:{self.port}{path}"
@@ -307,13 +320,13 @@ class TestBoardRoutes(ServerTest):
 
     def test_polling_records_the_board(self):
         self.assertIsNone(self.presence.snapshot()["addr"])
-        self.poll_contacts()
+        self.poll_contacts_as_board()
         snap = self.presence.snapshot()
         self.assertEqual(snap["addr"], "127.0.0.1")
         self.assertTrue(snap["fresh"])
 
     def test_board_route_reports_the_snapshot(self):
-        self.poll_contacts()
+        self.poll_contacts_as_board()
         status, body = self.get("/board")
         self.assertEqual(status, 200)
         self.assertEqual(body["addr"], "127.0.0.1")
@@ -362,7 +375,7 @@ class TestBoardRoutes(ServerTest):
         # but the UI has to be able to say so rather than spin.
         body = self.post("/board/wake")
         self.assertFalse(body["fresh"])
-        self.poll_contacts()
+        self.poll_contacts_as_board()
         body = self.post("/board/wake")
         self.assertTrue(body["fresh"])
         self.assertTrue(body["waking"])
@@ -387,10 +400,8 @@ class TestBoardRoutes(ServerTest):
     def test_a_failed_poll_still_records_presence(self):
         self.feed.error = feed.FeedError("receiver unreachable")
         try:
-            urllib.request.urlopen(
-                f"http://127.0.0.1:{self.port}/contacts?{self.HOME}&n=32",
-                timeout=5)
-        except urllib.error.HTTPError:
+            self.poll_contacts_as_board()
+        except Exception:
             pass
         self.assertTrue(self.presence.snapshot()["fresh"])
 
@@ -405,6 +416,70 @@ class TestBoardRoutes(ServerTest):
         url = f"http://127.0.0.1:{self.port}/healthz"
         with urllib.request.urlopen(url, timeout=5) as r:
             self.assertIsNone(r.headers.get("X-Boxradar-Config"))
+
+    def test_a_browser_or_curl_is_not_mistaken_for_the_board(self):
+        """Found live, from this project's own diagnostics.
+
+        urllib sends HTTP/1.1, as browsers and curl do. The board sends 1.0
+        because net_task.cpp calls useHTTP10(true). Recording every caller had
+        /board reporting the home server's address, and would have pointed the
+        Device page's config push at a workstation.
+        """
+        self.poll_contacts()          # urllib: HTTP/1.1
+        self.assertIsNone(self.presence.snapshot()["addr"])
+
+    def test_an_http_10_poll_is_the_board(self):
+        self.poll_contacts_as_board()
+        self.assertEqual(self.presence.snapshot()["addr"], "127.0.0.1")
+
+    def test_a_later_browser_request_does_not_refresh_the_board(self):
+        # Otherwise an unplugged board looks alive for as long as anyone has
+        # the page open.
+        self.poll_contacts_as_board()
+        self.clock.advance(60)
+        self.poll_contacts()
+        snap = self.presence.snapshot()
+        self.assertEqual(snap["addr"], "127.0.0.1")
+        self.assertFalse(snap["fresh"])
+
+    def test_geo_reload_sets_its_own_header(self):
+        self.post("/board/reload-geo")
+        _, headers = self.poll_contacts()
+        self.assertEqual(headers.get("X-Boxradar-Geo"), "1")
+        self.assertIsNone(headers.get("X-Boxradar-Config"),
+                          "publishing must not open the settings server")
+
+    def test_wake_does_not_set_the_geo_header(self):
+        self.post("/board/wake")
+        _, headers = self.poll_contacts()
+        self.assertEqual(headers.get("X-Boxradar-Config"), "1")
+        self.assertIsNone(headers.get("X-Boxradar-Geo"))
+
+    def test_both_signals_can_ride_together(self):
+        self.post("/board/wake")
+        self.post("/board/reload-geo")
+        _, headers = self.poll_contacts()
+        self.assertEqual(headers.get("X-Boxradar-Config"), "1")
+        self.assertEqual(headers.get("X-Boxradar-Geo"), "1")
+
+    def test_the_geo_header_rides_a_503_too(self):
+        # Same reason as the config one: a broken receiver must not also stop
+        # a published map from reaching the board.
+        self.feed.error = feed.FeedError("receiver unreachable")
+        self.post("/board/reload-geo")
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{self.port}/contacts?{self.HOME}&n=32",
+                timeout=5)
+            self.fail("expected a 503")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.headers.get("X-Boxradar-Geo"), "1")
+
+    def test_the_geo_window_expires(self):
+        self.post("/board/reload-geo")
+        self.clock.advance(presence.WAKE_WINDOW_S + 1)
+        _, headers = self.poll_contacts()
+        self.assertIsNone(headers.get("X-Boxradar-Geo"))
 
     def test_wake_is_not_a_get(self):
         # It changes state. A GET would let a stray browser prefetch open the

@@ -35,10 +35,15 @@ FIELDS = {
 }
 
 
+HEALTH = {"uptime_s": 7325, "reset_reason": "brownout (power)",
+          "heap_free": 80924, "heap_min": 29620, "rssi": -49}
+
+
 class FakeBoard:
-    def __init__(self, snapshot=None, fields=None, error=None):
+    def __init__(self, snapshot=None, fields=None, error=None, health=None):
         self.snapshot = snapshot or dict(PRESENT)
         self.fields = fields if fields is not None else dict(FIELDS)
+        self.health = health if health is not None else dict(HEALTH)
         self.error = error
         self.woke = 0
         self.writes = []
@@ -50,10 +55,13 @@ class FakeBoard:
     def presence(self):
         return self.snapshot
 
-    def read_config(self, addr):
+    def read(self, addr):
         if self.error:
             raise device.BoardError(self.error)
-        return self.fields
+        return {"fields": self.fields, "health": self.health}
+
+    def read_config(self, addr):
+        return self.read(addr)["fields"]
 
     def write_config(self, addr, values, clears):
         if self.error:
@@ -121,6 +129,17 @@ class TestReading(DevicePageCase):
         body = client.get("/device?noretry=1").data
         self.assertNotIn(b"http-equiv=\"refresh\"", body)
         self.assertIn(b"no answer", body)
+
+    def test_the_health_block_is_shown(self):
+        # Without serial access this is the only view of the board's
+        # condition, and "it reset and I do not know why" is otherwise
+        # unanswerable.
+        client = self.build(FakeBoard())
+        body = client.get("/device").data
+        self.assertIn(b"brownout (power)", body)
+        self.assertIn(b"2h 2m", body)        # 7325s
+        self.assertIn(b"29,620", body)       # heap low-water mark
+        self.assertIn(b"-49 dBm", body)
 
     def test_a_display_service_that_is_down_is_reported(self):
         down = dict(ABSENT, error="cannot reach the display service")

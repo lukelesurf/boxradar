@@ -25,6 +25,12 @@ bool geoStoreBegin();
 // Returns true if the in-memory map is currently valid.
 bool geoStoreRefresh();
 
+// Make the next geography poll due immediately, rather than at the end of
+// GEO_POLL_INTERVAL_MS. Called when the Pi flags a freshly published map on a
+// contact-poll response; the interval poll remains the fallback for a signal
+// that was missed. Does no network work itself.
+void geoStoreRefreshSoon();
+
 const radar::GeoMap &geoMap();
 
 // One line for the serial log, and later the status strip.

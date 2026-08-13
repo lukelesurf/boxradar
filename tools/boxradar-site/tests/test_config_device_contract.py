@@ -114,13 +114,36 @@ class ContractTest(unittest.TestCase):
         for forbidden in ("ssid", "pass", "recv", "otahost", "otapass"):
             self.assertNotIn(forbidden, self.firmware)
 
-    def test_the_wake_header_name_matches_the_firmware(self):
-        # net_task.cpp collects exactly one header name. A mismatch would mean
-        # the board never opens its config server and nothing anywhere logs a
-        # reason.
-        from boxradar_site.server import CONFIG_HEADER
+    def test_both_signal_header_names_match_the_firmware(self):
+        # net_task.cpp collects these by name. A mismatch would mean the board
+        # never opens its config server, or never notices a published map, and
+        # nothing anywhere would log a reason.
+        from boxradar_site.server import CONFIG_HEADER, GEO_HEADER
         net_task = NET_TASK.read_text()
-        self.assertIn(f'"{CONFIG_HEADER}"', net_task)
+        for header in (CONFIG_HEADER, GEO_HEADER):
+            self.assertIn(f'"{header}"', net_task, header)
+
+    def test_the_board_still_identifies_itself_by_http_10(self):
+        """The Pi tells the board apart from a browser by its HTTP version.
+
+        If the firmware ever stopped calling useHTTP10(true), presence would
+        silently stop working: /board would report whichever workstation last
+        opened the feed, and the Device page would push settings at it. That
+        happened once already from this project's own diagnostics, which is
+        why it is pinned here rather than left as a comment.
+        """
+        from boxradar_site.server import BOARD_HTTP_VERSION
+        self.assertEqual(BOARD_HTTP_VERSION, "HTTP/1.0")
+        self.assertIn("useHTTP10(true)", NET_TASK.read_text())
+
+    def test_the_geo_signal_does_not_fetch_inside_the_contact_poll(self):
+        # Geography has its own cadence and its own `if` so that a slow blob
+        # fetch can never delay traffic. The signal must only mark it due.
+        net_task = NET_TASK.read_text()
+        poll = net_task[net_task.index("static void poll()"):
+                        net_task.index("#ifdef METAR_ENABLED")]
+        self.assertIn("geoStoreRefreshSoon()", poll)
+        self.assertNotIn("geoStoreRefresh()", poll)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,15 @@ static bool netReady() {
 static AircraftStore s_staging;
 static AircraftStore s_prev;
 
+// Set when the Pi says a new map has been published, cleared when the geo
+// branch runs. The 10-minute poll stays as the fallback: this signal rides one
+// response and a board that was rebooting, off, or off-wifi when it went out
+// simply never hears it — and a map that never updates, with nothing to say
+// so, is worse than one that updates late.
+static volatile bool s_geoDue = false;
+
+void geoStoreRefreshSoon() { s_geoDue = true; }
+
 // Started lazily, the first time WiFi is up — not just at boot — so a board
 // that fails the 15s boot-time WiFi wait still becomes OTA-flashable once
 // WiFi eventually connects (previously it stayed unflashable until a power
@@ -116,14 +125,19 @@ static void poll() {
   // header costs old firmware nothing at all.
   //
   // Static, because collectHeaders() keeps the pointer rather than copying.
-  static const char *WANTED[] = {"X-Boxradar-Config"};
-  http.collectHeaders(WANTED, 1);
+  static const char *WANTED[] = {"X-Boxradar-Config", "X-Boxradar-Geo"};
+  http.collectHeaders(WANTED, 2);
   int code = http.GET();
-  // Checked BEFORE the status check, deliberately. The Pi answers 503 when
-  // the receiver is unreachable, and a broken readsb must not also cost you
-  // the ability to configure the board — it is still polling and still on the
-  // network, which is everything this needs.
+  // Both checked BEFORE the status check, deliberately. The Pi answers 503
+  // when the receiver is unreachable, and a broken readsb must not also cost
+  // you the ability to configure the board or to publish it a map — it is
+  // still polling and still on the network, which is everything these need.
   if (http.header("X-Boxradar-Config").length() > 0) configServerOpen();
+  // Does NOT fetch here. Geography gets its own cadence and its own `if` in
+  // the task loop precisely so a slow blob fetch can never delay traffic;
+  // reaching into the contact poll to do one would undo that. This only makes
+  // the next loop iteration due.
+  if (http.header("X-Boxradar-Geo").length() > 0) geoStoreRefreshSoon();
   if (code != HTTP_CODE_OK) {
     pollFailed("http error", code);
     http.end();
@@ -242,8 +256,9 @@ static void netTaskLoop(void *) {
     // slow fetch can never delay traffic or the OTA handler.
     static uint32_t lastGeo = 0;
     if (!g_otaActive && netReady() &&
-        (lastGeo == 0 || millis() - lastGeo >= GEO_POLL_INTERVAL_MS)) {
+        (lastGeo == 0 || s_geoDue || millis() - lastGeo >= GEO_POLL_INTERVAL_MS)) {
       lastGeo = millis();
+      s_geoDue = false;
       geoStoreRefresh();
     }
 #endif

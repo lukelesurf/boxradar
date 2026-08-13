@@ -5,6 +5,7 @@
     GET  /contacts?lat=&lon=&n=   the binary traffic feed
     GET  /board              where the board is and when it last polled
     POST /board/wake         ask it to open its config server
+    POST /board/reload-geo   ask it to refetch the map now
     GET  /healthz            liveness
 
 The /metar response envelope is fixed by lib/radarcore/metar.cpp and must not
@@ -36,6 +37,24 @@ from .metar import envelope, normalise
 # open its settings server. Read by net_task.cpp, which collects exactly this
 # one header name.
 CONFIG_HEADER = "X-Boxradar-Config"
+
+# Set on a /contacts response after a map is published, so the board refetches
+# within a poll or two instead of waiting out its own geography interval. The
+# poll stays as the fallback: a signal that is missed — board rebooting, off,
+# off-wifi — is silent, and a map that never updates with nothing to say so is
+# worse than one that updates late.
+GEO_HEADER = "X-Boxradar-Geo"
+
+# How the board is told apart from a browser, a curl or a health check asking
+# for the same URL. net_task.cpp calls useHTTP10(true) deliberately — a 1.0
+# response has no chunked encoding, so the body can be read against a known
+# Content-Length — and nothing else on this LAN speaks 1.0 by default.
+#
+# It has to be told apart: recording every caller as the board reported the
+# wrong address on /board and would have pointed the Device page's push at a
+# workstation. That happened, live, from this project's own diagnostics.
+# tests/test_config_device_contract.py fails if the firmware stops using 1.0.
+BOARD_HTTP_VERSION = "HTTP/1.0"
 
 # ICAO location indicators are four letters. Validated rather than trusted:
 # this is an unauthenticated LAN service and the value is interpolated into an
@@ -130,6 +149,10 @@ def _make_handler(cache, cfg, fetch_feed, board):
                 board.wake()
                 self._json(200, board.snapshot())
                 return
+            if path == "/board/reload-geo":
+                board.reload_geo()
+                self._json(200, board.snapshot())
+                return
             self._json(404, {"error": "not found"})
 
         def _contacts(self, query):
@@ -144,23 +167,27 @@ def _make_handler(cache, cfg, fetch_feed, board):
             # must not move where we think the board is; a receiver outage is
             # a different failure from an absent board, and the UI has to be
             # able to tell them apart.
-            board.saw(self.client_address[0])
+            board.saw(self.client_address[0],
+                      board_shaped=self.request_version == BOARD_HTTP_VERSION)
 
             # Resolved once, here, and attached to whichever response goes
-            # out. It belongs to the ROUTE, not to the success path: a
+            # out. They belong to the ROUTE, not to the success path: a
             # receiver that is down must not also cost you the ability to
-            # configure the board, which is still polling and still reachable.
+            # configure the board or to publish a map to it — it is still
+            # polling and still reachable.
             wanted = board.wants_config()
+            geo = board.wants_geo()
             try:
                 aircraft = fetch_feed()
             except feed.FeedError as e:
                 # 503 rather than an empty 200: a header with no records is a
                 # legitimate answer meaning "quiet sky", and the board would
                 # believe it. Losing the receiver must not read as silence.
-                self._json(503, {"error": str(e)}, config_wanted=wanted)
+                self._json(503, {"error": str(e)}, config_wanted=wanted,
+                           geo_wanted=geo)
                 return
             self._binary(200, contacts.build(aircraft, lat, lon, n),
-                         config_wanted=wanted)
+                         config_wanted=wanted, geo_wanted=geo)
 
         def _metar(self, segment):
             ids = parse_ids(segment)
@@ -183,20 +210,24 @@ def _make_handler(cache, cfg, fetch_feed, board):
             ]
             self._json(200, envelope(stations, fetched_at, stale))
 
-        def _binary(self, status, body, config_wanted=False):
+        def _binary(self, status, body, config_wanted=False,
+                    geo_wanted=False):
             self.send_response(status)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             # Note what this does NOT do: touch `body`. The binary feed is a
-            # specified format with a native test suite behind it, and the
-            # signal stays entirely outside it.
+            # specified format with a native test suite behind it, and both
+            # signals stay entirely outside it.
             if config_wanted:
                 self.send_header(CONFIG_HEADER, "1")
+            if geo_wanted:
+                self.send_header(GEO_HEADER, "1")
             self.end_headers()
             self.wfile.write(body)
 
-        def _json(self, status, payload, config_wanted=False):
+        def _json(self, status, payload, config_wanted=False,
+                  geo_wanted=False):
             body = (json.dumps(payload, separators=(",", ":")) + "\n").encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -204,6 +235,8 @@ def _make_handler(cache, cfg, fetch_feed, board):
             self.send_header("Cache-Control", "no-store")
             if config_wanted:
                 self.send_header(CONFIG_HEADER, "1")
+            if geo_wanted:
+                self.send_header(GEO_HEADER, "1")
             self.end_headers()
             self.wfile.write(body)
 

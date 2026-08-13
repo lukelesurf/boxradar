@@ -47,9 +47,21 @@ class Presence:
         self._addr = None
         self._seen_at = None
         self._wake_until = None
+        self._geo_until = None
 
-    def saw(self, addr):
-        """Record a poll from `addr`. Called on the 1Hz path — keep it cheap."""
+    def saw(self, addr, board_shaped):
+        """Record a poll from `addr`, if it came from the display.
+
+        `board_shaped` is the caller's judgement — see server.py, which decides
+        on the request's HTTP version. Anything else asking for /contacts is a
+        browser, a curl or a health check, and recording it here reported the
+        wrong address on /board and would have had the Device page offering to
+        configure a workstation. That happened, live.
+
+        Called on the 1Hz path, so keep it cheap.
+        """
+        if not board_shaped:
+            return
         with self._lock:
             self._addr = addr
             self._seen_at = self._clock()
@@ -59,11 +71,28 @@ class Presence:
         with self._lock:
             self._wake_until = self._clock() + WAKE_WINDOW_S
 
+    def reload_geo(self):
+        """Ask the board to refetch the map now rather than on its own poll.
+
+        A separate window from the config wake. They are asked for by
+        different things at different moments, and publishing a map must not
+        open the board's settings server as a side effect.
+        """
+        with self._lock:
+            self._geo_until = self._clock() + WAKE_WINDOW_S
+
+    def _open(self, until):
+        return until is not None and self._clock() < until
+
     def wants_config(self):
         """True while the wake window is open."""
         with self._lock:
-            return (self._wake_until is not None
-                    and self._clock() < self._wake_until)
+            return self._open(self._wake_until)
+
+    def wants_geo(self):
+        """True while a published map is still being advertised."""
+        with self._lock:
+            return self._open(self._geo_until)
 
     def snapshot(self):
         """Everything the configuration UI needs, in one consistent read.
@@ -81,6 +110,8 @@ class Presence:
                 # known to have been right, and "192.0.2.42, not seen for
                 # 5m" tells you more than a blank field does.
                 "fresh": age is not None and age <= FRESH_S,
-                "waking": (self._wake_until is not None
-                           and now < self._wake_until),
+                "waking": self._wake_until is not None
+                and now < self._wake_until,
+                "reloading": self._geo_until is not None
+                and now < self._geo_until,
             }

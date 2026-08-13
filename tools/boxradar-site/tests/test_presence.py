@@ -37,8 +37,30 @@ class PresenceTest(unittest.TestCase):
         self.assertIsNone(snap["age_s"])
         self.assertFalse(snap["fresh"])
 
+    def test_only_board_shaped_polls_count(self):
+        """A curl or a browser hitting /contacts is not the display.
+
+        Found live: diagnostic requests from the home server were recorded as the
+        board, so /board reported the wrong address and the Device page would
+        have offered to configure a workstation. The board is identified by
+        HTTP/1.0, which net_task.cpp sets deliberately (useHTTP10) and which
+        no browser or curl sends by default.
+        """
+        self.presence.saw("192.0.2.248", board_shaped=False)
+        self.assertIsNone(self.presence.snapshot()["addr"])
+
+    def test_a_later_non_board_request_does_not_overwrite_the_board(self):
+        self.presence.saw("192.0.2.20", board_shaped=True)
+        self.clock.advance(1)
+        self.presence.saw("192.0.2.248", board_shaped=False)
+        snap = self.presence.snapshot()
+        self.assertEqual(snap["addr"], "192.0.2.20")
+        # ...and it does not refresh the age either, or an unplugged board
+        # would look alive for as long as anything else polled.
+        self.assertEqual(snap["age_s"], 1)
+
     def test_records_the_address_it_was_last_polled_from(self):
-        self.presence.saw("192.0.2.42")
+        self.presence.saw("192.0.2.42", board_shaped=True)
         snap = self.presence.snapshot()
         self.assertEqual(snap["addr"], "192.0.2.42")
         self.assertEqual(snap["age_s"], 0.0)
@@ -47,13 +69,13 @@ class PresenceTest(unittest.TestCase):
     def test_a_new_address_replaces_the_old_one(self):
         # A DHCP lease change must not leave the UI pushing at an address the
         # board no longer has. Last poll wins, always.
-        self.presence.saw("192.0.2.42")
+        self.presence.saw("192.0.2.42", board_shaped=True)
         self.clock.advance(60)
-        self.presence.saw("192.0.2.77")
+        self.presence.saw("192.0.2.77", board_shaped=True)
         self.assertEqual(self.presence.snapshot()["addr"], "192.0.2.77")
 
     def test_goes_stale_once_the_polls_stop(self):
-        self.presence.saw("192.0.2.42")
+        self.presence.saw("192.0.2.42", board_shaped=True)
         self.clock.advance(presence.FRESH_S + 0.1)
         snap = self.presence.snapshot()
         self.assertFalse(snap["fresh"])
@@ -102,6 +124,44 @@ class WakeTest(unittest.TestCase):
         self.assertFalse(self.presence.snapshot()["waking"])
         self.presence.wake()
         self.assertTrue(self.presence.snapshot()["waking"])
+
+
+class GeoReloadTest(unittest.TestCase):
+    """Publishing rings a bell so the board picks the map up in seconds.
+
+    A separate window from the config wake, not a shared one: they are asked
+    for by different things at different times, and a publish must not open
+    the board's settings server as a side effect.
+    """
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.presence = presence.Presence(clock=self.clock)
+
+    def test_not_wanted_by_default(self):
+        self.assertFalse(self.presence.wants_geo())
+
+    def test_reload_asks_for_it(self):
+        self.presence.reload_geo()
+        self.assertTrue(self.presence.wants_geo())
+
+    def test_it_expires(self):
+        self.presence.reload_geo()
+        self.clock.advance(presence.WAKE_WINDOW_S + 0.1)
+        self.assertFalse(self.presence.wants_geo())
+
+    def test_the_two_signals_are_independent(self):
+        self.presence.reload_geo()
+        self.assertFalse(self.presence.wants_config(),
+                         "publishing must not open the settings server")
+        self.presence.wake()
+        self.assertTrue(self.presence.wants_geo())
+        self.assertTrue(self.presence.wants_config())
+
+    def test_snapshot_reports_it(self):
+        self.assertFalse(self.presence.snapshot()["reloading"])
+        self.presence.reload_geo()
+        self.assertTrue(self.presence.snapshot()["reloading"])
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ asked for, and the station list stops being configuration on both sides.
 | `GET /contacts?lat=&lon=&n=` | the binary traffic feed |
 | `GET /board` | the board's address and how long since it last polled |
 | `POST /board/wake` | asks the board to open its settings server |
+| `POST /board/reload-geo` | tells it a new map is published |
 | `GET /healthz` | `{"ok":true,"version":"..."}` |
 
 `400` for anything that is not one to eight four-letter ICAO codes. `503`
@@ -289,6 +290,32 @@ No address is ever typed in. The board polls the display service every two
 seconds, so the Pi has known where it is since it booted — and if it has not
 polled for ten seconds the page says so instead of offering a form that could
 only fail.
+
+**Publishing rings a bell.** A second header, `X-Boxradar-Geo`, goes out after
+a map is written, and the board refetches within a poll or two instead of
+waiting out its geography interval. Measured on the receiver: **0.5s**, against
+a control run that saw no fetch at all in 20s.
+
+The 10-minute poll **stays**, as the fallback. It is not what it looks like: it
+sends `If-None-Match` and gets a 197-byte 304 in 19ms, so 144 polls a day cost
+about 28KB. A push that is missed — board rebooting, off, off-wifi — is silent,
+and a map that never updates with nothing to say so is worse than one that
+updates late. Ringing the bell is also best-effort: the blob is on disk before
+the call is made, so a display service that is down costs you the poll interval
+and never a failed publish.
+
+**The board is identified by its HTTP version.** `net_task.cpp` calls
+`useHTTP10(true)`, and nothing else on the LAN speaks 1.0 by default. Without
+that check `/board` reported whichever workstation last opened the feed — which
+happened live, from this project's own diagnostics, and would have pointed the
+Device page's push at a laptop. `test_config_device_contract.py` fails if the
+firmware stops using 1.0.
+
+`GET /config` also returns a **health** block — uptime, why the board last
+reset, free and minimum-free heap, and RSSI — shown on the Device page. Without
+a USB cable that is the only view of the board's condition, and "it reset and I
+do not know why" is otherwise unanswerable: brownout is the power supply, panic
+or watchdog is firmware, software restart is something asking it to.
 
 **The wake signal is an HTTP response header** (`X-Boxradar-Config`) on the
 ordinary `/contacts` poll, not a field in the payload. The contact format is

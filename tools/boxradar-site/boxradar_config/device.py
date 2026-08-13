@@ -212,10 +212,30 @@ class Client:
             return {"addr": None, "fresh": False, "waking": False,
                     "error": f"cannot reach the display service: {e}"}
 
+    def reload_geo(self):
+        """Tell the board a new map is up. Best effort, by design.
+
+        Returns None if the display service could not be reached. The blob is
+        already written by the time this is called, so a failure here costs
+        the board's geography poll interval and nothing else — it must never
+        turn a publish that succeeded into one that looks failed.
+        """
+        try:
+            return self._json("POST", f"{self.feed_url}/board/reload-geo", b"")
+        except Exception:
+            return None
+
     # ------------------------------------------------------------- the board
 
-    def read_config(self, addr):
-        """What the board currently holds, per key, with its source."""
+    def read(self, addr):
+        """The board's whole answer: its settings and its health.
+
+        Health is uptime, why it last reset, heap and RSSI. Without serial
+        access that is the only view of the board's condition there is, and
+        "it reset and I do not know why" is otherwise unanswerable — a
+        brownout is the power supply, a panic is firmware, and a software
+        restart is something asking it to.
+        """
         try:
             payload = self._json("GET", f"http://{addr}/config")
         except Exception as e:
@@ -223,11 +243,14 @@ class Client:
                 f"no answer from the board at {addr}: {e}. It opens its "
                 f"settings server for a minute after being asked — if this "
                 f"keeps failing, check it is still polling.") from e
-        fields = payload.get("fields")
-        if not isinstance(fields, dict):
+        if not isinstance(payload.get("fields"), dict):
             raise BoardError(f"the board at {addr} answered with something "
                              f"unexpected: {payload!r}")
-        return fields
+        return payload
+
+    def read_config(self, addr):
+        """What the board currently holds, per key, with its source."""
+        return self.read(addr)["fields"]
 
     def write_config(self, addr, values, clears):
         """Push only what differs, and report what was done.

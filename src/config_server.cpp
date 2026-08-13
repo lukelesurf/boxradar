@@ -17,8 +17,40 @@ uint32_t s_restartAt = 0;
 // default permanently, so "7, from NVS" and "7, compiled in" are different
 // facts even though they are the same number. Without that distinction the
 // UI's "use built-in default" control would have nothing to act on.
+// Why the board last restarted, in words. Without serial access this is the
+// only way to answer "it reset and I do not know why" — and the answers are
+// very different diagnoses: a brownout is the power supply, a panic or a
+// watchdog is firmware, and a software reset is an intended restart such as
+// the one a settings save performs.
+const char *resetReasonName() {
+  switch (esp_reset_reason()) {
+  case ESP_RST_POWERON: return "power on";
+  case ESP_RST_EXT: return "external reset";
+  case ESP_RST_SW: return "software restart";
+  case ESP_RST_PANIC: return "panic or exception";
+  case ESP_RST_INT_WDT: return "interrupt watchdog";
+  case ESP_RST_TASK_WDT: return "task watchdog";
+  case ESP_RST_WDT: return "other watchdog";
+  case ESP_RST_DEEPSLEEP: return "deep sleep wake";
+  case ESP_RST_BROWNOUT: return "brownout (power)";
+  case ESP_RST_SDIO: return "sdio";
+  default: return "unknown";
+  }
+}
+
 void handleRead() {
   JsonDocument doc;
+
+  // Health, not configuration. Cheap to gather and it is the only view of the
+  // board's condition that does not need a USB cable — minimum-free heap in
+  // particular is the number that says whether a reset was memory pressure.
+  JsonObject health = doc["health"].to<JsonObject>();
+  health["uptime_s"] = millis() / 1000;
+  health["reset_reason"] = resetReasonName();
+  health["heap_free"] = ESP.getFreeHeap();
+  health["heap_min"] = esp_get_minimum_free_heap_size();
+  health["rssi"] = WiFi.RSSI();
+
   JsonObject fields = doc["fields"].to<JsonObject>();
   for (size_t i = 0; i < radar::DEVICE_FIELD_COUNT; i++) {
     const radar::DeviceField &f = radar::DEVICE_FIELDS[i];
