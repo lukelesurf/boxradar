@@ -11,6 +11,10 @@ echo "hostname -> $HOSTNAME"
 hostnamectl set-hostname "$HOSTNAME"
 # 127.0.1.1 must track the hostname or sudo warns on every invocation.
 if grep -q '^127\.0\.1\.1' /etc/hosts; then
+  # Unescaped interpolation into a sed replacement is safe only because
+  # conf_validate already restricts HOSTNAME to [a-z0-9-]: no /, & or
+  # backslash can reach here. A future loosening of that regex needs to
+  # revisit this line too.
   sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$HOSTNAME/" /etc/hosts
 else
   printf '127.0.1.1\t%s\n' "$HOSTNAME" >>/etc/hosts
@@ -61,15 +65,14 @@ fi
 # hiding a fault, not fixing one.
 if crontab -l 2>/dev/null | grep -q 'shutdown -r'; then
   echo "removing a scheduled reboot from root's crontab"
-  # If the reboot line is the *only* line, grep -v selects nothing and exits
-  # 1 even though crontab - (which reads its now-empty stdin fine) succeeds.
-  # Under pipefail that 1 becomes the pipeline's status, and since this is a
-  # bare statement rather than an if/&&/|| condition, set -e would abort the
-  # rest of the stage right here — after the crontab has already been
-  # cleared, but before ufw and everything else runs. `|| true` treats that
-  # exit the same way the rest of this stage treats other "not an error"
-  # nonzero statuses.
-  crontab -l 2>/dev/null | grep -v 'shutdown -r' | crontab - || true
+  tmp=$(mktemp)
+  # grep exits 1 when the reboot line is the *only* line, since -v then
+  # selects nothing — that is success here, not failure, so it alone is
+  # tolerated. The write below is not: a failed `crontab "$tmp"` must abort
+  # the stage rather than report success while the reboot cron survives.
+  crontab -l 2>/dev/null | grep -v 'shutdown -r' >"$tmp" || true
+  crontab "$tmp"
+  rm -f "$tmp"
 fi
 
 echo "configuring ufw"
@@ -103,8 +106,24 @@ EOF
 systemctl enable --now unattended-upgrades >/dev/null
 
 if [[ -n ${STATIC_IP:-} ]]; then
-  conn="$(nmcli -t -f NAME connection show --active | head -1)"
-  echo "setting static IP $STATIC_IP on '$conn'"
+  # The connection carrying the default route is the one actually in use.
+  # "First active connection" would put the address on Ethernet for a box
+  # that is really on wifi (or vice versa) on a Pi with both up — plausible
+  # for exactly the box someone wants a static address on — and report
+  # success while networking is silently wrong.
+  dev="$(ip -4 route show default | awk '{print $5; exit}')"
+  conn=""
+  [[ -n $dev ]] && conn="$(nmcli -t -f NAME,DEVICE connection show --active \
+                            | awk -F: -v d="$dev" '$2 == d { print $1; exit }')"
+  if [[ -z $conn ]]; then
+    echo "cannot determine which connection to give $STATIC_IP" >&2
+    echo "active connections:" >&2
+    nmcli -t -f NAME,DEVICE connection show --active >&2
+    echo "set it by hand with: nmcli connection modify <name> \\" >&2
+    echo "  ipv4.method manual ipv4.addresses $STATIC_IP" >&2
+    exit 1
+  fi
+  echo "setting static IP $STATIC_IP on '$conn' ($dev)"
   nmcli connection modify "$conn" ipv4.method manual ipv4.addresses "$STATIC_IP"
   echo "NOTE: the address changes on the next reboot or reconnect."
 fi
