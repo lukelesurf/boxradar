@@ -7,10 +7,13 @@ datablocks over a map of coastline, controlled airspace, runway centrelines,
 airfields, navigation fixes and towns. Successor to the ESP8266/Nokia 5110
 original.
 
-![BOXRADAR in its printed wedge case, showing the 10nm range: traffic
-inside the Stansted CTA, airspace outlines, runway centrelines and
-airfield markers, with two-line datablocks on the
-scope](docs/boxradar-case.jpg)
+![BOXRADAR in its printed wedge enclosure on a desk, running the 10nm
+range: eleven datablocks over the Stansted CTA with airspace outlines,
+runway centrelines, coastline and the BKY/HARL/BPK fixes, an "OVHD GZIPI
+74s" alert in the top-left corner, and the status strip reading "AC 11
+(1) +21 - 10nm - EGSS 04? - 120/03 - CLEAR". The LDR light path is
+visible as a small hole in the bezel below the
+screen.](docs/boxradar-enclosure.jpg)
 
 ## Hardware
 
