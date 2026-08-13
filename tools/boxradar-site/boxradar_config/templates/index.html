@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}BOXRADAR site{% endblock %}
+
+{% block body %}
+<h1>Site configuration</h1>
+
+<p class="note">
+  Six steps, in the order they depend on each other. Each one is a link — once
+  you know your way around, go straight to the one you want. Publishing is what
+  the board actually sees, and the bar at the bottom says whether what it is
+  drawing matches what is selected here.
+</p>
+
+{% if next_step %}
+  <h2>Next</h2>
+  <p>
+    <b>{{ next_step.label }}</b>
+    {% if next_step.state == 'blocked' %}
+      — {{ next_step.detail }}.
+    {% elif next_step.state == 'stale' %}
+      — the board is drawing an older map than the one selected here.
+    {% else %}
+      — {{ next_step.detail }}.
+    {% endif %}
+  </p>
+  <p><a href="{{ next_step.route }}"><button type="button">Go to
+    {{ next_step.label|lower }}</button></a></p>
+{% else %}
+  <h2>Nothing outstanding</h2>
+  <p class="note">
+    Every step is done and the published map matches the current selection.
+  </p>
+{% endif %}
+
+<h2>Where things stand</h2>
+<div class="scroll">
+  <table>
+    <tr><th>step</th><th>state</th><th>detail</th></tr>
+    {% for step in rail %}
+      <tr>
+        <td><a href="{{ step.route }}">{{ step.label }}</a></td>
+        <td>{{ step.state }}</td>
+        <td class="why">{{ step.detail or '—' }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<p class="note">
+  <b>Blocked</b> means something earlier has not been done yet, and the detail
+  says which. <b>Stale</b> is the publish step only: the selection has changed
+  since the map was built, so the board is a publish behind.
+</p>
+{% endblock %}

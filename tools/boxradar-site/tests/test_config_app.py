@@ -64,10 +64,31 @@ class AppCase(unittest.TestCase):
 
 
 class TestFirstRun(AppCase):
-    def test_index_leads_to_the_site_page(self):
+    def test_index_names_the_next_action_rather_than_redirecting(self):
+        # It used to redirect to /site, which redirected to /airspace, which
+        # might then render source.html telling you to fetch the source —
+        # three hops before anything said what to do. The order was known all
+        # along and is now shown.
         r = self.client.get("/")
-        self.assertEqual(r.status_code, 302)
-        self.assertIn("/site", r.headers["Location"])
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b"Site", r.data)
+        self.assertIn(b"Next", r.data)
+
+    def test_the_progress_strip_is_on_every_page(self):
+        for path in ("/", "/site", "/data"):
+            r = self.client.get(path)
+            self.assertEqual(r.status_code, 200, path)
+            self.assertIn(b"Setup steps", r.data, path)
+
+    def test_publish_is_reachable_from_every_page(self):
+        # The complaint that started this: every save flashed "Publish to
+        # rebuild the map" from a page with no publish button on it.
+        # follow_redirects because a first run with no selection still bounces
+        # the pickers to /site — the point is that wherever you land, the
+        # commit bar is there.
+        for path in ("/site", "/data", "/points/airfields", "/airspace"):
+            r = self.client.get(path, follow_redirects=True)
+            self.assertIn(b"Publish to board", r.data, path)
 
     def test_airspace_leads_to_the_site_page(self):
         r = self.client.get("/airspace")

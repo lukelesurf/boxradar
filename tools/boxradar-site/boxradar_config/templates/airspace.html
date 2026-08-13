@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% set page = 'airspace' %}
 {% block title %}Airspace — BOXRADAR{% endblock %}
 
 {% block body %}
@@ -29,12 +28,12 @@
     <input type="hidden" name="suggest" value="1">
     <button type="submit">Suggest</button>
   </form>
+  {# Publish is no longer here. It is the one action that changes what the
+     board draws, and it now sits in the bar at the bottom of every page —
+     including the ones that used to flash "Publish to rebuild the map" at you
+     from somewhere you could not publish from. #}
   <form method="post" action="{{ url_for('fetch_source') }}">
     <button type="submit">Update source</button>
-  </form>
-  <form method="post" action="{{ url_for('publish') }}">
-    <label><input type="checkbox" name="coastline" checked> coastline</label>
-    <button type="submit" {{ 'disabled' if missing }}>Publish map</button>
   </form>
 </div>
 

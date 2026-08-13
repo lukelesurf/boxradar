@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Device — BOXRADAR{% endblock %}
+
+{% block body %}
+{# A single no-JS retry, only while the board is being woken. The board sees
+   the request on its next contact poll, about two seconds away, so one
+   refresh is almost always enough — and ?noretry stops it looping if it is
+   not. #}
+{% if retry %}<meta http-equiv="refresh" content="3;url={{ url_for('device_page') }}?noretry=1">{% endif %}
+
+<h1>Device</h1>
+
+<p class="note">
+  Settings that live on the board rather than on the Pi. Everything here used
+  to need an edit to <code>include/config.h</code> and a reflash. WiFi, the
+  receiver URL and the OTA password are deliberately not here — they stay
+  behind the board's own setup access point, where a typo cannot cost you the
+  network that makes it reflashable.
+</p>
+
+<h2>Board</h2>
+{% if snapshot.error %}
+  <p class="flash error">{{ snapshot.error }}</p>
+  <p class="note">
+    The address comes from the display service, which the board polls every
+    couple of seconds. Without it there is nothing to configure —
+    <code>systemctl status boxradar-site</code> is the place to look.
+  </p>
+{% elif not snapshot.fresh %}
+  <p class="flash error">
+    No contact poll recently{% if snapshot.addr %}, last seen at
+    {{ snapshot.addr }}{% endif %}. Check the board is powered and on the
+    network.
+  </p>
+{% else %}
+  <p class="note">
+    At <b>{{ snapshot.addr }}</b>, polling normally. No address to type in:
+    the board has been telling the display service where it is since it
+    booted.
+  </p>
+{% endif %}
+
+{% if problem %}
+  <p class="flash error">{{ problem }}</p>
+{% elif retry %}
+  <p class="flash">Asking the board to open its settings — one moment.</p>
+{% endif %}
+
+{% if fields %}
+  <form method="post">
+    {% for group in groups %}
+      <h2>{{ group.label }}</h2>
+      <p class="note">{{ group.note }}</p>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>setting</th><th>value</th><th class="n">allowed</th>
+            <th>source</th><th>use built-in default</th>
+          </tr>
+          {% for f in fields_in(group.key) %}
+            {% set entry = fields.get(f.key, {}) %}
+            <tr>
+              <td>
+                <label for="{{ f.key }}">{{ f.label }}</label>
+                <div class="why">{{ f.help }}</div>
+              </td>
+              <td>
+                {# Prefilled, unlike the board's setup portal, and safe to be:
+                   saving re-reads the board and sends only what differs, so
+                   pressing Save unchanged writes nothing to NVS at all. #}
+                <input type="text" id="{{ f.key }}" name="{{ f.key }}"
+                       value="{{ entry.get('value', '') }}"
+                       {% if f.kind == 'u' %}inputmode="numeric"{% endif %}>
+              </td>
+              <td class="n why">{{ f.range_text }}</td>
+              <td>
+                {% if entry.get('source') == 'nvs' %}
+                  <span class="src">saved on board</span>
+                {% else %}
+                  <span class="why">built in</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if entry.get('source') == 'nvs' %}
+                  <input type="checkbox" name="clear" value="{{ f.key }}"
+                         aria-label="Use the built-in default for {{ f.label }}">
+                {% else %}
+                  <span class="why">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </table>
+      </div>
+    {% endfor %}
+
+    <p class="note">
+      <b>Saved on board</b> means the value is stored in the board's NVS,
+      which overrides whatever is compiled into the firmware — permanently and
+      silently, so a later change to <code>config.h</code> for that setting
+      would appear to do nothing. Ticking <b>use built-in default</b> removes
+      the stored value so the compiled one takes over again.
+    </p>
+
+    <p><button type="submit">Save to board</button>
+       <span class="why">The board restarts to apply changes, so the scope
+       goes dark for a few seconds.</span></p>
+  </form>
+{% elif not retry and snapshot.fresh and not problem %}
+  <p><a href="{{ url_for('device_page') }}"><button type="button">Try
+    again</button></a></p>
+{% endif %}
+{% endblock %}

@@ -12,20 +12,40 @@ file to write, which is what the phase 4 scoping note said it should be.
 
 import secrets
 
-from flask import (Flask, flash, redirect, render_template, request,
+from flask import (Flask, flash, g, redirect, render_template, request,
                    url_for)
 
 from boxradar_site.geo import catalog, generate, rules, selection
 
-from . import VERSION, datasets, fixes as fixesmod, picks, preview, store
+from . import (VERSION, datasets, device, fixes as fixesmod, picks, preview,
+               steps, store)
 from .settings import Settings
+
+# Which step of the wizard each endpoint belongs to. The progress strip is
+# rendered from this rather than from a `page` variable set in each template,
+# so a route added without a home shows up as one with nothing highlighted
+# instead of silently inheriting whatever was there before.
+STEP_FOR_ENDPOINT = {
+    "index": "",
+    "site": "site",
+    "dataset_status": "data", "fetch_datasets": "data",
+    "airspace": "airspace", "save_airspace": "airspace",
+    "fetch_source": "airspace", "publish": "airspace",
+    "airfields": "points", "save_airfields": "points",
+    "fixes": "points", "save_fixes": "points", "import_fixes": "points",
+    "towns": "points", "save_towns": "points",
+    "device_page": "device", "save_device": "device",
+    "preview_page": "publish",
+}
 
 # The town map, in CSS pixels. Not the panel's 240x320 — this is a picker, and
 # a map you choose from wants to be bigger than the one you end up with.
 MAP_W, MAP_H = 640, 640
 
 
-def create_app(settings=None):
+def create_app(settings=None, board=None):
+    """`board` injects a device.Client, so tests never open a socket. Same
+    shape as make_server's fetch_feed on the display service side."""
     settings = settings or Settings.from_env()
     app = Flask(__name__)
     app.config["SETTINGS"] = settings
@@ -35,7 +55,32 @@ def create_app(settings=None):
     app.secret_key = secrets.token_bytes(32)
 
     def load_selection():
-        return store.load(settings.selection_path)
+        """The selection, parsed at most once per request.
+
+        Cached on `g` because the progress strip needs it on every render and
+        every view already loads it — without this, each page would parse the
+        same JSON twice.
+        """
+        if "selection" not in g:
+            try:
+                g.selection = store.load(settings.selection_path)
+            except Exception as e:
+                # A selection that will not parse must not take the whole UI
+                # down: the Site page is how you would fix it.
+                flash(f"Could not read the selection file: {e}", "error")
+                g.selection = None
+        return g.selection
+
+    @app.context_processor
+    def inject_rail():
+        """The progress strip, on every page.
+
+        Cheap by construction — steps.py may only stat() files and read the
+        Selection above. See test_config_steps.TestCost.
+        """
+        current = STEP_FOR_ENDPOINT.get(request.endpoint or "", "")
+        built = steps.rail(settings, load_selection(), current)
+        return {"rail": built, "next_step": steps.next_action(built)}
 
     # Parsing the 256KB airspace source and walking its ~700 features to build
     # the catalog costs about a second on a Pi and does not change between
@@ -91,9 +136,14 @@ def create_app(settings=None):
 
     @app.route("/")
     def index():
-        if load_selection() is None:
-            return redirect(url_for("site"))
-        return redirect(url_for("airspace"))
+        """The landing page names the single next action.
+
+        This used to be a redirect to /site, which redirected to /airspace,
+        which might then render source.html telling you to fetch the airspace
+        source — three hops before the UI said what to do. The order was
+        always known; it was just never shown.
+        """
+        return render_template("index.html", sel=load_selection())
 
     @app.route("/site", methods=["GET", "POST"])
     def site():
@@ -227,6 +277,10 @@ def create_app(settings=None):
 
     # ------------------------------------------------------------- datasets
 
+    # /datasets kept as an alias: it is in the README, in the systemd notes and
+    # probably in a browser history or two. Same endpoint, so url_for() emits
+    # the new path everywhere.
+    @app.route("/data", methods=["GET"])
     @app.route("/datasets", methods=["GET"])
     def dataset_status():
         return render_template(
@@ -265,8 +319,16 @@ def create_app(settings=None):
                   for name in datasets.SOURCES])
 
     # ------------------------------------------------------------ airfields
+    # Airfields, fixes and towns are three panels of one step. They are the
+    # same activity — picking point references — over the same selection and
+    # the same picks.py, and presenting them as three of seven equal tabs was
+    # most of what made the old nav read as a pile rather than an order.
 
-    @app.route("/airfields")
+    @app.route("/points")
+    def points():
+        return redirect(url_for("airfields"))
+
+    @app.route("/points/airfields")
     def airfields():
         sel = load_selection()
         if sel is None:
@@ -302,7 +364,7 @@ def create_app(settings=None):
             query=request.args.get("q") or "", small=small, picks=picks,
             runway_key=picks.runway_key)
 
-    @app.route("/airfields", methods=["POST"])
+    @app.route("/points/airfields", methods=["POST"])
     def save_airfields():
         sel = load_selection()
         if sel is None:
@@ -358,7 +420,7 @@ def create_app(settings=None):
         out.sort(key=lambda c: c.ident)
         return out
 
-    @app.route("/fixes")
+    @app.route("/points/fixes")
     def fixes():
         sel = load_selection()
         if sel is None:
@@ -375,7 +437,7 @@ def create_app(settings=None):
             have_navaids=datasets.age_days("navaids",
                                            settings.cache_dir) is not None)
 
-    @app.route("/fixes", methods=["POST"])
+    @app.route("/points/fixes", methods=["POST"])
     def save_fixes():
         sel = load_selection()
         if sel is None:
@@ -389,7 +451,7 @@ def create_app(settings=None):
         flash(f"Saved {len(rows)} fix(es). Publish to rebuild the map.", "ok")
         return redirect(url_for("fixes"))
 
-    @app.route("/fixes/import", methods=["POST"])
+    @app.route("/points/fixes/import", methods=["POST"])
     def import_fixes():
         parsed, problems = fixesmod.parse_eaip(request.form.get("eaip") or "")
         for problem in problems[:10]:
@@ -412,7 +474,7 @@ def create_app(settings=None):
 
     # ---------------------------------------------------------------- towns
 
-    @app.route("/towns")
+    @app.route("/points/towns")
     def towns():
         sel = load_selection()
         if sel is None:
@@ -436,7 +498,7 @@ def create_app(settings=None):
             plotted=picks.layout(records, sel.home_lat, sel.home_lon,
                                  sel.reach_nm, MAP_W, MAP_H))
 
-    @app.route("/towns", methods=["POST"])
+    @app.route("/points/towns", methods=["POST"])
     def save_towns():
         sel = load_selection()
         if sel is None:
@@ -471,6 +533,73 @@ def create_app(settings=None):
         store.save(settings.selection_path, store.with_points(sel, towns=rows))
         flash(f"Saved {len(rows)} town(s). Publish to rebuild the map.", "ok")
         return redirect(url_for("towns"))
+
+    # --------------------------------------------------------------- device
+
+    def board_client():
+        return board or device.Client(settings.feed_url)
+
+    @app.route("/device")
+    def device_page():
+        """The board's own settings, read back off the board itself.
+
+        Opening this page asks the display service to flag the next few
+        contact polls, which is what makes the board open its settings server.
+        The board answers within a couple of seconds, so a first load that
+        arrives before it has heard renders a waiting state and refreshes
+        itself once — no polling loop, no JavaScript.
+        """
+        client = board_client()
+        snapshot = client.wake()
+        fields, problem = None, None
+        if snapshot.get("fresh"):
+            try:
+                fields = client.read_config(snapshot["addr"])
+            except device.BoardError as e:
+                problem = str(e)
+        return render_template(
+            "device.html", snapshot=snapshot, fields=fields, problem=problem,
+            groups=device.GROUPS, fields_in=device.fields_in,
+            retry=bool(snapshot.get("fresh") and fields is None
+                       and not request.args.get("noretry")))
+
+    @app.route("/device", methods=["POST"])
+    def save_device():
+        client = board_client()
+        values, clears, problems = device.parse_form(request.form)
+        for problem in problems:
+            flash(problem, "error")
+        if problems:
+            # Refused as a set rather than partially, like the town labels: a
+            # save that wrote the good fields and flashed about the bad one
+            # would read as "saved" and leave the board half-configured.
+            flash("Nothing was sent to the board — fix the values above and "
+                  "save again.", "error")
+            return redirect(url_for("device_page"))
+
+        snapshot = client.presence()
+        if not snapshot.get("fresh"):
+            flash("The board has not polled recently, so there is nowhere to "
+                  "send this. Check it is powered and on the network.",
+                  "error")
+            return redirect(url_for("device_page"))
+
+        try:
+            result = client.write_config(snapshot["addr"], values, clears)
+        except device.BoardError as e:
+            flash(str(e), "error")
+            return redirect(url_for("device_page"))
+
+        for problem in result.get("problems") or []:
+            flash(f"The board refused {problem}", "error")
+        if not result["written"] and not result["cleared"]:
+            flash("Nothing to send — the board already holds these values.",
+                  "ok")
+        else:
+            flash(f"Sent {result['written']} change(s) and cleared "
+                  f"{result['cleared']} override(s). The board is restarting, "
+                  f"so the scope goes dark for a few seconds.", "ok")
+        return redirect(url_for("device_page"))
 
     # -------------------------------------------------------------- preview
 

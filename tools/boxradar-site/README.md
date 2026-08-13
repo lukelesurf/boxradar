@@ -36,6 +36,9 @@ asked for, and the station list stops being configuration on both sides.
 |---|---|
 | `GET /metar/EGSS` | one station |
 | `GET /metar/EGSS,EGGW` | several, in one upstream call |
+| `GET /contacts?lat=&lon=&n=` | the binary traffic feed |
+| `GET /board` | the board's address and how long since it last polled |
+| `POST /board/wake` | asks the board to open its settings server |
 | `GET /healthz` | `{"ok":true,"version":"..."}` |
 
 `400` for anything that is not one to eight four-letter ICAO codes. `503`
@@ -199,15 +202,90 @@ BOXRADAR_CONFIG_BLOB=/tmp/site/site.bin \
 python3 -m boxradar_config --host 127.0.0.1 --port 8099
 ```
 
-| page | does |
-|---|---|
-| `/site` | home latitude/longitude and the search reach |
-| `/airspace` | the catalog as a table, tick to select, Suggest, Publish |
-| `/airfields` | search by ICAO, name or town; centrelines per runway |
-| `/fixes` | navaids and enroute fixes in one list, plus eAIP import |
-| `/towns` | a map to click, ranked by population, with editable labels |
-| `/datasets` | what is downloaded and how old it is |
-| `/healthz` | selection, source, blob and dataset ages |
+Six steps in dependency order, shown as a progress strip on every page:
+
+| # | page | does |
+|---|---|---|
+| | `/` | names the single next action |
+| 1 | `/site` | home latitude/longitude and the search reach |
+| 2 | `/data` | what is downloaded and how old it is |
+| 3 | `/airspace` | the catalog as a table, tick to select, Suggest |
+| 4 | `/points/airfields` | search by ICAO, name or town; centrelines per runway |
+| 4 | `/points/fixes` | navaids and enroute fixes in one list, plus eAIP import |
+| 4 | `/points/towns` | a map to click, ranked by population, with editable labels |
+| 5 | `/device` | the board's own settings, read off the board itself |
+| 6 | `/preview` | what the panel will draw, at each range |
+| | `/healthz` | selection, source, blob and dataset ages |
+
+Every step is a plain link — the order is guidance, not a state machine, and
+nothing is bookmark-hostile. `/datasets` still resolves, as an alias for
+`/data`.
+
+**Publishing is on every page**, in a bar at the bottom that also says whether
+the board is drawing the current selection or a publish behind. It used to be a
+button on the Airspace tab while every other page flashed "Publish to rebuild
+the map" at you from somewhere you could not publish from.
+
+The progress strip is computed by `steps.py`, which may only `stat()` files and
+read the already-parsed selection — about 0.2ms per render. It must never reach
+for the catalog or a dataset filter, which cost a second or more each and are
+the reason `app.py` memoises them on mtime; a strip that touched them would put
+that cost onto every page including the cheap ones.
+`tests/test_config_steps.TestCost` enforces this by making the expensive calls
+raise.
+
+### Device settings
+
+Ten settings that used to need an edit to `include/config.h` and a reflash: the
+night-blanking block (`nstart`, `nend`, `nwake`, `nfade`, `nduty`), the three
+poll intervals (`poll`, `mpoll`, `gpoll`) and the clock (`ntp`, `tz`).
+
+**WiFi, the receiver URL and the OTA credentials are deliberately not here.**
+They stay behind the board's own setup access point (`src/portal.cpp`), where a
+typo cannot cost you the network that makes the board reflashable, or the OTA
+password that makes it flashable at all.
+
+Nothing is stored on the Pi. The board's NVS stays the single authority for its
+own configuration — the Pi reads it, renders a form, and pushes back a diff:
+
+```
+1. GET  127.0.0.1:8081/board       where the board is (display service)
+2. POST 127.0.0.1:8081/board/wake  flag the next few contact polls
+3. GET  <board>/config             what it holds, and whether from NVS
+4. POST <board>/config             only what differs, then it restarts
+```
+
+No address is ever typed in. The board polls the display service every two
+seconds, so the Pi has known where it is since it booted — and if it has not
+polled for ten seconds the page says so instead of offering a form that could
+only fail.
+
+**The wake signal is an HTTP response header** (`X-Boxradar-Config`) on the
+ordinary `/contacts` poll, not a field in the payload. The contact format is
+fixed-size with no reserved field, so a flag byte would have meant bumping
+`CONTACT_VERSION` — and `contact_feed.h` rejects an unknown version outright,
+blanking the scope of any board not reflashed in step with the Pi. An
+unrecognised response header costs old firmware nothing. It rides a 503 as well
+as a 200, because a receiver that is down must not also cost you the ability to
+configure the board.
+
+The board's settings server is allocated when asked and freed when the window
+closes, exactly as the setup portal already does — the render sprite leaves the
+heap floor around 43KB, and a permanently-listening `WebServer` would spend
+several KB of that to serve a page touched twice a year.
+
+**Only differences are written.** Writing a key to NVS shadows its compiled
+default permanently and silently, so a form that submitted all ten fields would
+make `config.h` dead code for all ten the first time you pressed Save. Each
+field that *is* overridden says so and offers "use built-in default", which
+removes just that key — previously only `siteConfigClear()` could, and that
+takes the WiFi credentials with it.
+
+The two field tables — `DEVICE_FIELDS` in `lib/radarcore/device_config.cpp` and
+`FIELDS` in `boxradar_config/device.py` — are checked against each other by
+`tests/test_config_device_contract.py`. Drift between them fails nowhere else:
+a key spelled differently on the two sides is not a compile error and not an
+exception, just a setting that silently never applies.
 
 ### Where the point references come from
 
@@ -245,6 +323,7 @@ one place they are stated:
 | `BOXRADAR_CONFIG_CACHE` | `/var/cache/boxradar-config` | YAIXM checkout and coastline |
 | `BOXRADAR_CONFIG_BLOB` | `/var/www/html/site.bin` | where lighttpd serves it from |
 | `BOXRADAR_CONFIG_PORT` | `8082` | |
+| `BOXRADAR_CONFIG_FEED` | `http://127.0.0.1:8081` | the display service, for the Device page |
 
 The selection lives under `/var/lib` rather than `/etc` because it stopped
 being a file a human edits the moment this UI existed. `StateDirectory=` and

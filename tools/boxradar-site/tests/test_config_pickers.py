@@ -77,48 +77,48 @@ class TestAirfields(PickerCase):
 
     def test_a_missing_dataset_offers_the_download(self):
         (self.data_dir / "airports.csv").unlink()
-        r = self.client.get("/airfields")
+        r = self.client.get("/points/airfields")
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"not been downloaded yet", r.data)
 
     def test_fields_in_reach_are_listed(self):
-        r = self.client.get("/airfields")
+        r = self.client.get("/points/airfields")
         self.assertIn(b"EGSS", r.data)
         self.assertIn(b"EGSC", r.data)
 
     def test_small_fields_are_hidden_by_default(self):
-        self.assertNotIn(b"EGTR", self.client.get("/airfields").data)
-        self.assertIn(b"EGTR", self.client.get("/airfields?small=1").data)
+        self.assertNotIn(b"EGTR", self.client.get("/points/airfields").data)
+        self.assertIn(b"EGTR", self.client.get("/points/airfields?small=1").data)
 
     def test_search_narrows_the_list(self):
-        r = self.client.get("/airfields?q=cambridge")
+        r = self.client.get("/points/airfields?q=cambridge")
         self.assertIn(b"EGSC", r.data)
         self.assertNotIn(b">EGSS<", r.data)
 
     def test_saving_writes_the_markers(self):
-        self.client.post("/airfields", data={"airfield": ["EGSS", "EGGW"]})
+        self.client.post("/points/airfields", data={"airfield": ["EGSS", "EGGW"]})
         self.assertEqual([row[0] for row in self.stored()["airfields"]],
                          ["EGSS", "EGGW"])
 
     def test_the_saved_position_is_the_dataset_one(self):
-        self.client.post("/airfields", data={"airfield": "EGSS"})
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
         _, lat, lon = self.stored()["airfields"][0]
         self.assertAlmostEqual(lat, 51.884998, places=5)
         self.assertAlmostEqual(lon, 0.235, places=5)
 
     def test_saved_fields_come_back_ticked(self):
-        self.client.post("/airfields", data={"airfield": "EGSS"})
-        self.assertTrue(ticked(self.client.get("/airfields"), "EGSS"))
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
+        self.assertTrue(ticked(self.client.get("/points/airfields"), "EGSS"))
 
     def test_runways_are_only_offered_for_saved_fields(self):
         self.assertIn(b"Mark an airfield and save",
-                      self.client.get("/airfields").data)
-        self.client.post("/airfields", data={"airfield": "EGSS"})
-        self.assertIn(b"04/22", self.client.get("/airfields").data)
+                      self.client.get("/points/airfields").data)
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
+        self.assertIn(b"04/22", self.client.get("/points/airfields").data)
 
     def test_a_centreline_is_saved_as_an_axis(self):
-        self.client.post("/airfields", data={"airfield": "EGSS"})
-        self.client.post("/airfields", data={"airfield": "EGSS",
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
+        self.client.post("/points/airfields", data={"airfield": "EGSS",
                                              "runway": "EGSS 04/22"})
         rows = self.stored()["runways"]
         self.assertEqual(len(rows), 1)
@@ -128,19 +128,19 @@ class TestAirfields(PickerCase):
     def test_a_saved_centreline_comes_back_ticked(self):
         # The round-trip that matters: the stored row is four bare floats with
         # no link to the runway it came from.
-        self.client.post("/airfields", data={"airfield": "EGSS"})
-        self.client.post("/airfields", data={"airfield": "EGSS",
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
+        self.client.post("/points/airfields", data={"airfield": "EGSS",
                                              "runway": "EGSS 04/22"})
-        self.assertTrue(ticked(self.client.get("/airfields"),
+        self.assertTrue(ticked(self.client.get("/points/airfields"),
                                "EGSS 04/22"))
 
     def test_unticking_a_field_drops_its_centrelines(self):
         # Otherwise the axis stays in the file with no marker above it, and
         # nothing on the page would ever show it again.
-        self.client.post("/airfields", data={"airfield": "EGSS"})
-        self.client.post("/airfields", data={"airfield": "EGSS",
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
+        self.client.post("/points/airfields", data={"airfield": "EGSS",
                                              "runway": "EGSS 04/22"})
-        self.client.post("/airfields", data={})
+        self.client.post("/points/airfields", data={})
         self.assertEqual(self.stored()["runways"], [])
 
     def test_saving_leaves_the_other_sections_alone(self):
@@ -150,7 +150,7 @@ class TestAirfields(PickerCase):
             HOME_LAT, HOME_LON, 65.0,
             [selection.Group("STANSTED", "LONDON STANSTED CTR")],
             towns=[("STVG", 51.90167, -0.20272)]))
-        self.client.post("/airfields", data={"airfield": "EGSS"})
+        self.client.post("/points/airfields", data={"airfield": "EGSS"})
         raw = self.stored()
         self.assertEqual(len(raw["airspace"]), 1)
         self.assertEqual(raw["towns"], [["STVG", 51.90167, -0.20272]])
@@ -162,57 +162,57 @@ class TestFixes(PickerCase):
         self.install(navaids=NAVAIDS)
 
     def test_navaids_and_curated_fixes_share_one_list(self):
-        r = self.client.get("/fixes")
+        r = self.client.get("/points/fixes")
         self.assertIn(b"BKY", r.data)     # downloaded navaid
         self.assertIn(b"LOREL", r.data)   # shipped enroute fix
 
     def test_the_box_disambiguates_a_reused_ident(self):
-        r = self.client.get("/fixes")
+        r = self.client.get("/points/fixes")
         self.assertIn(b"Barkway", r.data)
         self.assertNotIn(b"Bouake", r.data)
 
     def test_saving_writes_waypoints(self):
-        self.client.post("/fixes", data={"fix": ["BKY", "LOREL"]})
+        self.client.post("/points/fixes", data={"fix": ["BKY", "LOREL"]})
         self.assertEqual(sorted(row[0] for row in self.stored()["waypoints"]),
                          ["BKY", "LOREL"])
 
     def test_the_saved_navaid_position_matches_location_h(self):
-        self.client.post("/fixes", data={"fix": "BKY"})
+        self.client.post("/points/fixes", data={"fix": "BKY"})
         _, lat, lon = self.stored()["waypoints"][0]
         self.assertAlmostEqual(lat, 51.98970, places=4)
         self.assertAlmostEqual(lon, 0.061944, places=5)
 
     def test_saved_fixes_come_back_ticked(self):
-        self.client.post("/fixes", data={"fix": "BKY"})
-        self.assertTrue(ticked(self.client.get("/fixes"), "BKY"))
+        self.client.post("/points/fixes", data={"fix": "BKY"})
+        self.assertTrue(ticked(self.client.get("/points/fixes"), "BKY"))
 
     def test_working_without_navaids_downloaded(self):
         (self.data_dir / "navaids.csv").unlink()
-        r = self.client.get("/fixes")
+        r = self.client.get("/points/fixes")
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"LOREL", r.data)
         self.assertIn(b"Navaids are not downloaded", r.data)
 
     def test_importing_from_the_eaip_adds_a_fix(self):
-        self.client.post("/fixes/import",
+        self.client.post("/points/fixes/import",
                          data={"eaip": "TABOR\t515800.00N\t0001200.00E"})
-        self.assertIn(b"TABOR", self.client.get("/fixes").data)
+        self.assertIn(b"TABOR", self.client.get("/points/fixes").data)
 
     def test_an_imported_fix_can_then_be_selected(self):
-        self.client.post("/fixes/import",
+        self.client.post("/points/fixes/import",
                          data={"eaip": "TABOR\t515800.00N\t0001200.00E"})
-        self.client.post("/fixes", data={"fix": "TABOR"})
+        self.client.post("/points/fixes", data={"fix": "TABOR"})
         _, lat, lon = self.stored()["waypoints"][0]
         self.assertAlmostEqual(lat, 51.96667, places=4)
         self.assertAlmostEqual(lon, 0.2, places=4)
 
     def test_an_unreadable_paste_is_reported(self):
-        r = self.client.post("/fixes/import", data={"eaip": "nonsense"},
+        r = self.client.post("/points/fixes/import", data={"eaip": "nonsense"},
                              follow_redirects=True)
         self.assertIn(b"no coordinate pair", r.data)
 
     def test_an_import_survives_a_restart(self):
-        self.client.post("/fixes/import",
+        self.client.post("/points/fixes/import",
                          data={"eaip": "TABOR\t515800.00N\t0001200.00E"})
         self.assertTrue(self.settings.fixes_path.exists())
 
@@ -223,48 +223,48 @@ class TestTowns(PickerCase):
         self.install(towns=TOWNS)
 
     def test_towns_in_reach_are_listed(self):
-        r = self.client.get("/towns?min_population=0")
+        r = self.client.get("/points/towns?min_population=0")
         self.assertIn(b"Stevenage", r.data)
         self.assertNotIn(b"Glasgow", r.data)
 
     def test_the_map_plots_them(self):
-        r = self.client.get("/towns?min_population=0")
+        r = self.client.get("/points/towns?min_population=0")
         self.assertIn(b"<svg", r.data)
         self.assertIn(b"#town-2636940", r.data)  # dot links to its row
 
     def test_population_ranks_but_does_not_gate(self):
-        r = self.client.get("/towns?min_population=0")
+        r = self.client.get("/points/towns?min_population=0")
         self.assertIn(b"Tiny Hamlet", r.data)
 
     def test_a_floor_shortens_the_list(self):
-        r = self.client.get("/towns?min_population=1000")
+        r = self.client.get("/points/towns?min_population=1000")
         self.assertNotIn(b"Tiny Hamlet", r.data)
 
     def test_saving_uses_the_given_label(self):
-        self.client.post("/towns", data={"town": "2636940",
+        self.client.post("/points/towns", data={"town": "2636940",
                                          "label_2636940": "STVG"})
         self.assertEqual(self.stored()["towns"][0][0], "STVG")
 
     def test_a_label_is_uppercased(self):
-        self.client.post("/towns", data={"town": "2636940",
+        self.client.post("/points/towns", data={"town": "2636940",
                                          "label_2636940": "stvg"})
         self.assertEqual(self.stored()["towns"][0][0], "STVG")
 
     def test_a_saved_town_comes_back_ticked_with_its_label(self):
         # Matched on position, not name — the label is a hand-chosen
         # abbreviation that deliberately does not match the dataset.
-        self.client.post("/towns", data={"town": "2636940",
+        self.client.post("/points/towns", data={"town": "2636940",
                                          "label_2636940": "STVG"})
-        r = self.client.get("/towns?min_population=0")
+        r = self.client.get("/points/towns?min_population=0")
         self.assertIn(b'value="STVG"', r.data)
         self.assertTrue(ticked(r, "2636940"))
 
     def test_an_over_long_label_refuses_the_whole_save(self):
         # Not a partial save: dropping the one bad town and flashing about it
         # reads as success, and the map comes back short.
-        self.client.post("/towns", data={"town": "2636940",
+        self.client.post("/points/towns", data={"town": "2636940",
                                          "label_2636940": "STVG"})
-        r = self.client.post("/towns",
+        r = self.client.post("/points/towns",
                              data={"town": ["2636940", "2647044"],
                                    "label_2636940": "STVG",
                                    "label_2647044": "HERTFORDSHIRE"},
@@ -274,7 +274,7 @@ class TestTowns(PickerCase):
         self.assertEqual(len(self.stored()["towns"]), 1)
 
     def test_a_default_label_is_offered(self):
-        r = self.client.get("/towns?min_population=0")
+        r = self.client.get("/points/towns?min_population=0")
         self.assertIn(b'value="STEV"', r.data)
 
 

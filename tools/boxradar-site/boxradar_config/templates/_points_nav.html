@@ -1,0 +1,11 @@
+{# The three panels of the Points step. One step, three kinds of marker —
+   airfields and their centrelines, navaids and fixes, towns. They share the
+   selection, the save shape and picks.py, so they belong together. #}
+<nav class="sub" aria-label="Point references">
+  <a href="{{ url_for('airfields') }}"
+     class="{{ 'on' if panel == 'airfields' }}">Airfields</a>
+  <a href="{{ url_for('fixes') }}"
+     class="{{ 'on' if panel == 'fixes' }}">Fixes</a>
+  <a href="{{ url_for('towns') }}"
+     class="{{ 'on' if panel == 'towns' }}">Towns</a>
+</nav>

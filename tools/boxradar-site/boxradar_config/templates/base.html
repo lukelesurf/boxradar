@@ -1,75 +1,194 @@
 <!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}BOXRADAR site{% endblock %}</title>
+{#
+  One stylesheet, inline, no JavaScript and no external asset of any kind.
+  This is served by Flask's development server on the receiver Pi, which is
+  also running readsb, tar1090 and the 1Hz contact feed — every request this
+  page does not make is one the board's feed does not queue behind.
+
+  Colours are alpha-blended greys (#8884 and friends) over `color-scheme:
+  light dark`, so the whole UI themes itself from the browser with no media
+  query and no second palette to keep in step. Only the three semantic
+  colours are stated outright.
+#}
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0;
-         line-height: 1.4; }
-  header { padding: .8rem 1.2rem; border-bottom: 1px solid #8884;
-           display: flex; gap: 1.2rem; align-items: baseline; }
-  header b { font-size: 1.05rem; }
-  header a { text-decoration: none; }
-  header a.on { font-weight: 600; text-decoration: underline; }
-  main { padding: 1.2rem; }
-  .flash { padding: .6rem .9rem; margin: 0 0 .6rem; border-radius: 4px;
+  :root {
+    color-scheme: light dark;
+    --ok: #2d8659;
+    --err: #c0392b;
+    --warn: #a8730a;
+    --rule: #8884;
+    --dim: #8889;
+    --strip: 15.5rem;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; line-height: 1.45; }
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+
+  /* ------------------------------------------------------------ chrome */
+  header { padding: .7rem 1.2rem; border-bottom: 1px solid var(--rule);
+           display: flex; gap: .8rem; align-items: baseline; }
+  header b { font-size: 1.05rem; letter-spacing: .06em; }
+  header .where { color: var(--dim); font-size: .85rem; }
+
+  .shell { display: grid; grid-template-columns: var(--strip) 1fr;
+           align-items: start; }
+  main { padding: 1.2rem; min-width: 0; }
+
+  /* --------------------------------------------------- the progress strip
+     Six steps in dependency order, which is the thing the old flat tab bar
+     could not say. The connecting rule is the sequence; the mark column is
+     the state. Both are information, not decoration. */
+  .strip { border-right: 1px solid var(--rule); padding: 1rem .6rem 1rem 0;
+           position: sticky; top: 0; }
+  .strip ol { list-style: none; margin: 0; padding: 0; position: relative; }
+  /* The spine. Inset to sit under the centre of the mark column. */
+  .strip ol::before { content: ""; position: absolute; left: 1.55rem;
+                      top: 1.1rem; bottom: 1.1rem; width: 1px;
+                      background: var(--rule); }
+  .strip li { position: relative; }
+  .strip a { display: grid; grid-template-columns: 1.1rem 1.1rem 1fr;
+             gap: .5rem; align-items: baseline; padding: .42rem .5rem;
+             text-decoration: none; border-radius: 4px; }
+  .strip a:hover { background: #8881; }
+  .strip .n { font-family: ui-monospace, monospace; font-size: .74rem;
+              color: var(--dim); text-align: right; }
+  /* Opaque so the spine passes behind the glyph rather than through it. */
+  .strip .mark { font-family: ui-monospace, monospace; font-size: .82rem;
+                 text-align: center; background: Canvas; position: relative;
+                 z-index: 1; }
+  .strip .label { font-size: .92rem; }
+  .strip .detail { grid-column: 3; font-family: ui-monospace, monospace;
+                   font-size: .72rem; color: var(--dim);
+                   overflow-wrap: anywhere; }
+  .strip .done .mark { color: var(--ok); }
+  .strip .blocked .mark, .strip .blocked .detail { color: var(--err); }
+  .strip .stale .mark, .strip .stale .detail { color: var(--warn); }
+  .strip .on { background: #8882; box-shadow: inset 2px 0 0 var(--ok); }
+  .strip .on .label { font-weight: 600; }
+
+  /* ------------------------------------------------------- publish bar
+     Sticky, on every page. Publishing is the only action that changes what
+     the board draws, and it used to be a button on one tab of seven while
+     every other page flashed "Publish to rebuild the map" at you. */
+  .commit { position: sticky; bottom: 0; z-index: 2;
+            border-top: 1px solid var(--rule); background: Canvas;
+            padding: .6rem 1.2rem; display: flex; gap: .9rem;
+            align-items: center; flex-wrap: wrap; }
+  .commit .state { font-size: .85rem; color: var(--dim); }
+  .commit .state.stale { color: var(--warn); }
+  .commit .state.blocked { color: var(--err); }
+  .commit form { display: flex; gap: .7rem; align-items: center; }
+  .commit button { font-weight: 600; }
+
+  /* ------------------------------------------------------------ content */
+  h1 { font-size: 1.35rem; margin: 0 0 .3rem; }
+  h2 { font-size: 1.05rem; margin: 1.6rem 0 .4rem; }
+  .flash { padding: .55rem .9rem; margin: 0 0 .6rem; border-radius: 4px;
            border: 1px solid #8886; }
-  .flash.error { border-color: #c0392b; background: #c0392b18; }
-  .flash.ok { border-color: #2d8659; background: #2d865918; }
+  .flash.error { border-color: var(--err); background: #c0392b18; }
+  .flash.ok { border-color: var(--ok); background: #2d865918; }
   table { border-collapse: collapse; width: 100%; font-size: .9rem; }
   th, td { padding: .25rem .5rem; text-align: left;
            border-bottom: 1px solid #8883; }
   th { position: sticky; top: 0; background: Canvas; }
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   tr.picked { background: #2d865915; }
-  .why { color: #8889; font-size: .82rem; }
+  .why { color: var(--dim); font-size: .82rem; }
   .bar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap;
          margin: 0 0 .8rem; }
   label.f { display: block; margin: .7rem 0 .2rem; font-size: .9rem; }
   input[type=text] { padding: .45rem; font-size: 1rem; width: 14rem;
-                     box-sizing: border-box; }
+                     max-width: 100%; }
   button { padding: .45rem .9rem; font-size: .95rem; }
-  p.note { color: #8889; font-size: .85rem; max-width: 42rem; }
+  p.note { color: var(--dim); font-size: .85rem; max-width: 42rem; }
   svg.scope { display: block; margin: .4rem 0 1rem;
               image-rendering: pixelated; max-width: 100%;
-              height: auto; border: 1px solid #8884; }
-  svg.map { max-width: 100%; height: auto; border: 1px solid #8884;
-             border-radius: 4px; background: #8881; }
+              height: auto; border: 1px solid var(--rule); }
+  svg.map { max-width: 100%; height: auto; border: 1px solid var(--rule);
+            border-radius: 4px; background: #8881; }
   svg.map a text { fill: currentColor; font-size: 9px; }
   svg.map circle { fill: #2d8659aa; }
-  svg.map circle.picked { fill: #c0392b; }
-  tr:target { outline: 2px solid #c0392b; }
+  svg.map circle.picked { fill: var(--err); }
+  tr:target { outline: 2px solid var(--err); }
   textarea { width: 100%; max-width: 44rem; min-height: 7rem;
              font-family: ui-monospace, monospace; font-size: .85rem;
-             padding: .5rem; box-sizing: border-box; }
+             padding: .5rem; }
   input.label { width: 5.5rem; text-transform: uppercase; padding: .2rem; }
   .src { font-size: .78rem; padding: 0 .3rem; border: 1px solid #8886;
          border-radius: 3px; }
+
+  /* Sub-navigation, used by the three Points panels. */
+  .sub { display: flex; gap: .9rem; margin: 0 0 1rem;
+         border-bottom: 1px solid var(--rule); padding-bottom: .4rem; }
+  .sub a { text-decoration: none; font-size: .92rem; color: var(--dim); }
+  .sub a.on { color: inherit; font-weight: 600;
+              box-shadow: inset 0 -2px 0 var(--ok); }
+
+  /* Wide tables and diagrams scroll inside themselves; the page never does. */
+  .scroll { overflow-x: auto; }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: 1fr; }
+    .strip { border-right: 0; border-bottom: 1px solid var(--rule);
+             position: static; padding: .6rem 1rem; }
+    .strip ol { display: flex; gap: .3rem; overflow-x: auto;
+                padding-bottom: .3rem; }
+    .strip ol::before { display: none; }
+    .strip a { grid-template-columns: auto auto; white-space: nowrap; }
+    .strip .detail { display: none; }
+  }
 </style>
 
 <header>
   <b>BOXRADAR</b>
-  <a href="{{ url_for('site') }}"
-     class="{{ 'on' if page == 'site' }}">Site</a>
-  <a href="{{ url_for('airspace') }}"
-     class="{{ 'on' if page == 'airspace' }}">Airspace</a>
-  <a href="{{ url_for('airfields') }}"
-     class="{{ 'on' if page == 'airfields' }}">Airfields</a>
-  <a href="{{ url_for('fixes') }}"
-     class="{{ 'on' if page == 'fixes' }}">Fixes</a>
-  <a href="{{ url_for('towns') }}"
-     class="{{ 'on' if page == 'towns' }}">Towns</a>
-  <a href="{{ url_for('preview_page') }}"
-     class="{{ 'on' if page == 'preview' }}">Preview</a>
-  <a href="{{ url_for('dataset_status') }}"
-     class="{{ 'on' if page == 'datasets' }}">Data</a>
+  <span class="where">site configuration</span>
 </header>
 
-<main>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for category, message in messages %}
-      <p class="flash {{ category }}">{{ message }}</p>
-    {% endfor %}
-  {% endwith %}
+<div class="shell">
+  <nav class="strip" aria-label="Setup steps">
+    <ol>
+      {% for step in rail %}
+        <li>
+          <a href="{{ step.route }}"
+             class="{{ step.state }} {{ 'on' if step.active }}"
+             {% if step.active %}aria-current="step"{% endif %}>
+            <span class="n">{{ loop.index }}</span>
+            <span class="mark" aria-hidden="true">{{ step.mark }}</span>
+            <span class="label">{{ step.label }}</span>
+            {% if step.detail %}<span class="detail">{{ step.detail }}</span>{% endif %}
+          </a>
+        </li>
+      {% endfor %}
+    </ol>
+  </nav>
 
-  {% block body %}{% endblock %}
-</main>
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p class="flash {{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+
+    {% block body %}{% endblock %}
+  </main>
+</div>
+
+{% set publish = rail|selectattr('key', 'equalto', 'publish')|first %}
+<div class="commit">
+  <form method="post" action="{{ url_for('publish') }}">
+    <button type="submit">Publish to board</button>
+    <label><input type="checkbox" name="coastline" checked> coastline</label>
+  </form>
+  <span class="state {{ publish.state }}">
+    {%- if publish.state == 'stale' -%}
+      The board is drawing an older map than the one selected here.
+    {%- elif publish.state == 'done' -%}
+      Board is up to date — {{ publish.detail }}.
+    {%- else -%}
+      Nothing published yet.
+    {%- endif -%}
+  </span>
+</div>

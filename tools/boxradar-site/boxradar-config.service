@@ -22,6 +22,13 @@ Environment=PYTHONUNBUFFERED=1
 Environment=BOXRADAR_CONFIG_SELECTION=/var/lib/boxradar-config/selection.json
 Environment=BOXRADAR_CONFIG_CACHE=/var/cache/boxradar-config
 Environment=BOXRADAR_CONFIG_BLOB=/var/www/html/site.bin
+# The display service, for the Device page. It is the only thing on this Pi
+# the board talks to, so it is the only thing that knows the board's address.
+# Reached over HTTP rather than by import, which keeps the two units genuinely
+# independent — and it is why there is no After= on boxradar-site here: the
+# Device page reports a display service that is down, rather than failing to
+# start because of one.
+Environment=BOXRADAR_CONFIG_FEED=http://127.0.0.1:8081
 ExecStart=/usr/bin/python3 -m boxradar_config --port 8082
 Restart=always
 RestartSec=5
