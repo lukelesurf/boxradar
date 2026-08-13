@@ -1,4 +1,5 @@
 #include "geoblob.h"
+#include "geostream.h"
 #include <string.h>
 
 namespace radar {
@@ -31,19 +32,9 @@ float readF32(const uint8_t *p) {
   return v;
 }
 
-// CRC-32 (IEEE 802.3, reflected) to match Python's zlib.crc32. Computed
-// bitwise rather than from a 1KB table: this runs once per blob load, and
-// 22KB of input costs well under a millisecond at 240MHz.
-uint32_t crc32(const uint8_t *data, size_t len) {
-  uint32_t crc = 0xFFFFFFFFu;
-  for (size_t i = 0; i < len; i++) {
-    crc ^= data[i];
-    for (int bit = 0; bit < 8; bit++) {
-      crc = (crc >> 1) ^ (0xEDB88320u & (~(crc & 1u) + 1u));
-    }
-  }
-  return ~crc;
-}
+// CRC-32 lives in geostream.cpp now, so the buffer reader and the streaming
+// validator cannot drift apart. Having had two copies of an algorithm that
+// must agree byte for byte was one bug waiting to happen.
 
 bool nearly(float a, float b) {
   float d = a - b;
@@ -82,7 +73,7 @@ GeoStatus GeoBlob::open(const uint8_t *data, size_t len, float homeLat,
   uint32_t crc = readU32(data + 8);
   uint32_t bodyLen = readU32(data + 12);
   if (CRC_START + bodyLen > len) return GEO_TRUNCATED;
-  if (crc32(data + CRC_START, bodyLen) != crc) return GEO_BAD_CRC;
+  if (geoCrc32(data + CRC_START, bodyLen) != crc) return GEO_BAD_CRC;
 
   float blobLat = readF32(data + CRC_START);
   float blobLon = readF32(data + CRC_START + 4);

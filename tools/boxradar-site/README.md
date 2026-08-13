@@ -339,12 +339,34 @@ fetch: 18784 bytes, 15 airspace, 124 coast (0 dropped), 11 fields, ...
 malloc 18784 failed, 75976 heap free
 ```
 
-The second is a real, reproducible fault: `geoStoreRefresh` allocates a whole
-second blob as scratch while the live one is still held, so a swap wants
-~37.5KB in two contiguous chunks. After hours of running there is 76KB free
-and no 18.8KB block in it, so the map only ever updates at boot. Pre-existing
-— the ten-minute poll always took the same path — and restarting is the
-workaround until the loader stops needing two copies at once.
+The second was a real, reproducible fault, now fixed. `geoStoreRefresh` used
+to allocate a whole second blob as scratch while the live one was still held,
+wanting ~37.5KB in two contiguous chunks; after hours of running there is 76KB
+free and no 18.8KB block in it, so the map only ever updated at boot.
+
+The download is now **streamed to a file and validated on the way past**.
+Magic, version, CRC and home are all checkable against the bytes as they
+arrive — see `lib/radarcore/geostream.h` — so nothing is allocated until the
+blob is known to be intact and for the right site. Only then is the old buffer
+freed, and only then is the new one allocated, which means it asks for a block
+the same size as the one just handed back rather than for a second one beside
+it. Peak is one blob, not two.
+
+The safety property survives: a rejected or cut-off download leaves the live
+map, its buffer and the cache exactly as they were, because the staging file
+is separate until it is promoted by rename. If the load fails after the free,
+the previous cache is reloaded rather than leaving the panel blank.
+
+Verified on the board: seven consecutive in-flight reloads, all successful,
+where every one failed before. Peak heap improved (minimum free 11.2KB to
+13.2KB) and settled rather than marching down. Free heap does drift about
+200 bytes per load, which is immaterial at a few publishes a session but is
+not nothing — it has not been chased.
+
+`geoStoreLock()` closes a pre-existing race while it is there. geoblob is
+zero-copy, so every outline the UI task draws is a pointer into the buffer the
+net task may be freeing; the store holds the lock only for pointer
+assignments, never across the download or the file read.
 
 **The wake signal is an HTTP response header** (`X-Boxradar-Config`) on the
 ordinary `/contacts` poll, not a field in the payload. The contact format is

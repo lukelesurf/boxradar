@@ -4,6 +4,9 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 #include "config.h"
+#include "geostream.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 using radar::GeoMap;
 using radar::GeoStatus;
@@ -12,6 +15,15 @@ namespace {
 
 const char *CACHE_PATH = "/site.bin";
 const char *ETAG_PATH = "/site.etag";
+// The download lands here first and is only promoted once it has validated,
+// so a bad or cut-off fetch cannot take the last good map with it.
+const char *TMP_PATH = "/site.new";
+
+// 512 bytes on the net task's 12KB stack. The whole point of streaming is that
+// this is the only buffer the download needs.
+const size_t CHUNK = 512;
+
+SemaphoreHandle_t s_mapMutex = nullptr;
 
 GeoMap s_map;
 uint8_t *s_buf = nullptr;
@@ -43,7 +55,9 @@ bool allocBuffer(size_t len) {
               (unsigned)ESP.getFreeHeap());
     return false;
   }
-  if (s_buf) free(s_buf);
+  // No free here: the caller has already released the old buffer, which is
+  // exactly what makes this allocation reuse that block instead of hunting
+  // for a second one.
   s_buf = next;
   s_bufLen = len;
   return true;
@@ -66,9 +80,27 @@ bool openBuffer(const char *source) {
   return true;
 }
 
-bool loadFromCache() {
-  if (!s_fsReady || !LittleFS.exists(CACHE_PATH)) return false;
-  File f = LittleFS.open(CACHE_PATH, "r");
+// Frees the live buffer and leaves the map invalid. Brief, and under the lock,
+// because the UI task may be holding pointers into what is about to go.
+void releaseBuffer() {
+  geoStoreLock();
+  s_map = radar::GeoMap();
+  if (s_buf) free(s_buf);
+  s_buf = nullptr;
+  s_bufLen = 0;
+  geoStoreUnlock();
+}
+
+// Reads a validated file into a freshly allocated buffer and makes it live.
+//
+// Called only after releaseBuffer(), so the allocation is asking for a block
+// the same size as the one just handed back — which is what stops this failing
+// on a fragmented heap. Holding the old blob while allocating the new wanted
+// ~37.5KB in two contiguous pieces, and after a few hours there is no such
+// pair: 76KB free and the malloc still fails.
+bool loadFile(const char *path, const char *source) {
+  if (!s_fsReady || !LittleFS.exists(path)) return false;
+  File f = LittleFS.open(path, "r");
   if (!f) return false;
   size_t len = f.size();
   if (!allocBuffer(len)) {
@@ -78,25 +110,24 @@ bool loadFromCache() {
   size_t got = f.read(s_buf, len);
   f.close();
   if (got != len) {
-    setStatus("cache short read %u of %u", (unsigned)got, (unsigned)len);
+    setStatus("%s short read %u of %u", source, (unsigned)got, (unsigned)len);
     return false;
   }
-  return openBuffer("cache");
+  geoStoreLock();
+  bool ok = openBuffer(source);
+  geoStoreUnlock();
+  return ok;
 }
 
-void saveToCache(const String &etag) {
+bool loadFromCache() { return loadFile(CACHE_PATH, "cache"); }
+
+// Promotes the validated download to be the cache. A rename, because the blob
+// is already on disk — it was streamed there instead of through the heap.
+void promoteTmp(const String &etag) {
   if (!s_fsReady) return;
-  File f = LittleFS.open(CACHE_PATH, "w");
-  if (!f) {
-    Serial.println("geo: cache open for write failed");
-    return;
-  }
-  size_t wrote = f.write(s_buf, s_bufLen);
-  f.close();
-  if (wrote != s_bufLen) {
-    Serial.printf("geo: cache short write %u of %u\n", (unsigned)wrote,
-                  (unsigned)s_bufLen);
-    LittleFS.remove(CACHE_PATH);  // a partial cache is worse than none
+  LittleFS.remove(CACHE_PATH);
+  if (!LittleFS.rename(TMP_PATH, CACHE_PATH)) {
+    Serial.println("geo: could not promote the download to the cache");
     return;
   }
   File e = LittleFS.open(ETAG_PATH, "w");
@@ -117,7 +148,22 @@ String readEtag() {
 
 } // namespace
 
+void geoStoreLock() {
+  if (s_mapMutex) xSemaphoreTake(s_mapMutex, portMAX_DELAY);
+}
+
+void geoStoreUnlock() {
+  if (s_mapMutex) xSemaphoreGive(s_mapMutex);
+}
+
 bool geoStoreBegin() {
+  // Created before anything can draw: startNetTask() calls this, and
+  // startUiTask() runs after it in main.cpp. The lock/unlock pair is a no-op
+  // until it exists, so an ordering change degrades to the old behaviour
+  // rather than crashing.
+  s_mapMutex = xSemaphoreCreateMutex();
+  // A download interrupted by a reset leaves this behind, and it is not the
+  // cache, so nothing would ever clean it up.
   // Format on failure: a blank or corrupt partition should fix itself once
   // rather than fail on every boot forever.
   s_fsReady = LittleFS.begin(true);
@@ -125,6 +171,7 @@ bool geoStoreBegin() {
     setStatus("LittleFS mount failed");
     return false;
   }
+  LittleFS.remove(TMP_PATH);
   if (loadFromCache()) return true;
   setStatus("no usable cache");
   return false;
@@ -168,53 +215,78 @@ bool geoStoreRefresh() {
     http.end();
     return s_map.valid();
   }
-
-  // Read into a scratch buffer first. Validating before touching either the
-  // live buffer or the cache is the whole safety argument here: a bad deploy
-  // must cost nothing.
   if ((size_t)len > GEO_MAX_BLOB_BYTES) {
-    setStatus("refusing %d bytes (cap %u)", len,
-              (unsigned)GEO_MAX_BLOB_BYTES);
+    setStatus("refusing %d bytes (cap %u)", len, (unsigned)GEO_MAX_BLOB_BYTES);
     http.end();
     return s_map.valid();
   }
-  uint8_t *scratch = (uint8_t *)malloc((size_t)len);
-  if (!scratch) {
-    setStatus("malloc %d failed, %u heap free", len,
-              (unsigned)ESP.getFreeHeap());
+  if (!s_fsReady) {
+    setStatus("no filesystem to stage the download in");
     http.end();
     return s_map.valid();
   }
-  size_t got = http.getStream().readBytes(scratch, (size_t)len);
+
+  // Streamed to a file, 512 bytes at a time, and validated on the way past.
+  // Nothing is allocated: magic, version, CRC and home are all checkable
+  // against the bytes as they arrive, which is what removes the second full
+  // copy this used to need. See lib/radarcore/geostream.h.
+  LittleFS.remove(TMP_PATH);
+  File tmp = LittleFS.open(TMP_PATH, "w");
+  if (!tmp) {
+    setStatus("could not open %s to stage the download", TMP_PATH);
+    http.end();
+    return s_map.valid();
+  }
+
+  radar::GeoStreamCheck check;
+  check.begin(HOME_LAT, HOME_LON);
+  uint8_t chunk[CHUNK];
+  size_t got = 0;
+  WiFiClient *stream = http.getStreamPtr();
+  while (got < (size_t)len) {
+    size_t want = (size_t)len - got;
+    if (want > CHUNK) want = CHUNK;
+    int n = stream->readBytes(chunk, want);
+    if (n <= 0) break;
+    if (tmp.write(chunk, (size_t)n) != (size_t)n) {
+      setStatus("short write staging the download");
+      tmp.close();
+      LittleFS.remove(TMP_PATH);
+      http.end();
+      return s_map.valid();
+    }
+    check.feed(chunk, (size_t)n);
+    got += (size_t)n;
+  }
+  tmp.close();
   String newEtag = http.header("ETag");
   http.end();
 
-  if (got != (size_t)len) {
-    setStatus("short body %u of %d", (unsigned)got, len);
-    free(scratch);
+  radar::GeoStatus st = check.finish(got);
+  if (st != radar::GEO_OK) {
+    // Nothing has been touched: the live map, its buffer and the cache are all
+    // exactly as they were. This is the safety property the old code got by
+    // validating a scratch buffer, kept without paying for the scratch buffer.
+    setStatus("fetched blob rejected: %s", radar::geoStatusName(st));
+    LittleFS.remove(TMP_PATH);
     return s_map.valid();
   }
 
-  // Validate with a GeoBlob, NOT a GeoMap: GeoMap carries a 3KB coast-box
-  // array, and this runs on the net task's 12KB stack alongside HTTPClient.
-  // Magic, version, CRC and home are all this needs to check anyway.
-  radar::GeoBlob probe;
-  GeoStatus st = probe.open(scratch, (size_t)len, HOME_LAT, HOME_LON);
-  if (st != radar::GEO_OK) {
-    setStatus("fetched blob rejected: %s", radar::geoStatusName(st));
-    free(scratch);
-    return s_map.valid();  // the cache, if any, is untouched
+  // Only now is the old blob released — and only now, so that the allocation
+  // below is asking for a block the same size as the one just freed rather
+  // than for a second one alongside it.
+  releaseBuffer();
+  if (loadFile(TMP_PATH, "fetch")) {
+    promoteTmp(newEtag);
+    return true;
   }
 
-  // Only now is it safe to swap. Reset the live map off the old buffer before
-  // freeing it.
-  s_map = radar::GeoMap();
-  if (s_buf) free(s_buf);
-  s_buf = scratch;
-  s_bufLen = (size_t)len;
-  bool ok = openBuffer("fetch");
-  if (ok) saveToCache(newEtag);
-  return ok;
+  // The download is good but could not be brought in. Put the previous map
+  // back rather than leaving the panel with no geography until a reboot.
+  LittleFS.remove(TMP_PATH);
+  Serial.println("geo: could not load the new blob, restoring the cache");
+  loadFromCache();
+  return s_map.valid();
 #endif
 }
 

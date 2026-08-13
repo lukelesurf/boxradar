@@ -10,6 +10,7 @@
 #include "ui/palette.h"
 #include "shared_state.h"
 #include "ui/layout.h"
+#include "geo_store.h"
 #include "ui/scope.h"
 #include "ui/status_bar.h"
 #include "ui/touch_input.h"
@@ -212,7 +213,14 @@ static void uiTaskLoop(void *) {
 #ifdef BOXRADAR_FRAME_TIME
     uint32_t t0 = micros();
 #endif
+    // Held for the frame that reads the map. geoblob is zero-copy, so every
+    // airspace outline and town label drawn below is a pointer into the blob
+    // buffer that the net task may be about to free — see geoStoreLock().
+    // The store only ever holds this for pointer assignments, so the wait is
+    // microseconds even when a swap lands mid-frame.
+    geoStoreLock();
     drawScope(s_scope, s_snap, s_metar, s_ui, vp); // fills sx/sy for this frame
+    geoStoreUnlock();
     // Any interaction during night hours extends the wake window, so poking
     // around at 3am doesn't have the screen die under your finger. Hit-tested
     // against the viewport the frame above was drawn with, which is the one
