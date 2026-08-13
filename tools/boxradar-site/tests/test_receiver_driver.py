@@ -50,7 +50,7 @@ class DriverCase(unittest.TestCase):
         path.write_text(f"#!/usr/bin/env bash\nset -euo pipefail\n{body}\n")
         path.chmod(0o755)
 
-    def run_driver(self, *args):
+    def run_driver(self, *args, stdin=None):
         env = dict(os.environ)
         env.update({
             "BOXRADAR_STAGE_DIR": str(self.stages),
@@ -60,7 +60,8 @@ class DriverCase(unittest.TestCase):
             "BOXRADAR_SKIP_ROOT_CHECK": "1",
         })
         return subprocess.run(["bash", str(INSTALL), *args],
-                              env=env, capture_output=True, text=True)
+                              env=env, capture_output=True, text=True,
+                              input=stdin)
 
 
 class TestStageRunning(DriverCase):
@@ -160,6 +161,59 @@ class TestLogging(DriverCase):
         log = (self.root / "install.log").read_text()
         self.assertNotIn("supersecret123", log)
         self.assertNotIn("uuid-secret-456", log)
+        # Positive assertions, not just absence: a stage that never ran, or
+        # a redact() that discarded the whole stream, would also make the
+        # two assertNotIn calls above pass vacuously. Prove the secret was
+        # actually replaced by its placeholder, and that the stage's own
+        # output genuinely reached the log.
+        self.assertIn("<FR24_KEY>", log)
+        self.assertIn("key is", log)
+
+
+class TestWizard(DriverCase):
+    # Matches run_wizard's actual prompt order in install.sh exactly:
+    # HOSTNAME, LAT, LON, ALT_FT, GAIN, PPM, STATIC_IP, METAR_STATION,
+    # CALM_KT, ADSBX_USER, ADSBX_UUID, FR24_KEY.
+    ANSWERS = "\n".join([
+        "boxradar",         # HOSTNAME
+        "51.8849826",       # LAT
+        "0.2349914",        # LON
+        "348",              # ALT_FT
+        "auto",             # GAIN
+        "0",                # PPM
+        "",                 # STATIC_IP (blank = DHCP)
+        "EGSS",             # METAR_STATION
+        "7",                # CALM_KT
+        "example-feeder",      # ADSBX_USER
+        "",                 # ADSBX_UUID (blank on a new box)
+        "typedsecret999",   # FR24_KEY
+    ]) + "\n"
+
+    def test_a_key_typed_at_the_wizard_prompt_never_reaches_the_log(self):
+        # read -r echoes what is typed. If logging started before the
+        # wizard, the FR24 key would be written to the log before redact()
+        # knew the value to mask. This is the ordering the driver must
+        # preserve.
+        (self.root / "receiver.conf").unlink(missing_ok=True)
+        self.stage("10-first.sh", "echo ran-10")
+        result = self.run_driver(stdin=self.ANSWERS)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.root / "install.log").read_text()
+        self.assertNotIn("typedsecret999", log)
+        self.assertIn("ran-10", log)
+
+    def test_the_wizard_writes_a_conf_the_next_run_reuses(self):
+        # Proves conf_write is actually wired up — it had no caller before
+        # this task.
+        (self.root / "receiver.conf").unlink(missing_ok=True)
+        self.run_driver(stdin=self.ANSWERS)
+        conf_path = self.root / "receiver.conf"
+        conf = conf_path.read_text()
+        self.assertIn("METAR_STATION=", conf)
+        # The conf is 0600 and is meant to carry the credential — contrast
+        # with the log assertion above, which must never see it.
+        self.assertIn("typedsecret999", conf)
+        self.assertEqual(oct(conf_path.stat().st_mode & 0o777), "0o600")
 
 
 class TestCheckMode(DriverCase):
