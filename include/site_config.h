@@ -80,3 +80,6 @@ const char *siteConfigSummary();
 #define NIGHT_WAKE_S (siteConfig().nightWakeS)
 #define NIGHT_FADE_MS (siteConfig().nightFadeMs)
 #define NIGHT_CLOCK_DUTY (siteConfig().nightClockDuty)
+#define COMMON_TYPES_CSV (siteConfig().commonTypes)
+#define METAR_ON (siteConfig().metarEnabled)
+#define GEO_ON (siteConfig().geoEnabled)

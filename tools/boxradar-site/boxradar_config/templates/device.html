@@ -109,9 +109,22 @@
                 {# Prefilled, unlike the board's setup portal, and safe to be:
                    saving re-reads the board and sends only what differs, so
                    pressing Save unchanged writes nothing to NVS at all. #}
-                <input type="text" id="{{ f.key }}" name="{{ f.key }}"
-                       value="{{ entry.get('value', '') }}"
-                       {% if f.kind == 'u' %}inputmode="numeric"{% endif %}>
+                {% if f.choices %}
+                  <select id="{{ f.key }}" name="{{ f.key }}">
+                    {% for value, label in f.choices %}
+                      <option value="{{ value }}"
+                        {{ 'selected' if entry.get('value')|string == value|string }}>
+                        {{ label }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif f.wide %}
+                  <textarea id="{{ f.key }}" name="{{ f.key }}" rows="4"
+                            >{{ entry.get('value', '') }}</textarea>
+                {% else %}
+                  <input type="text" id="{{ f.key }}" name="{{ f.key }}"
+                         value="{{ entry.get('value', '') }}"
+                         {% if f.kind == 'u' %}inputmode="numeric"{% endif %}>
+                {% endif %}
               </td>
               <td class="n why">{{ f.range_text }}</td>
               <td>

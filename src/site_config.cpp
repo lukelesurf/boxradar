@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include "config.h"
+#include "classify.h"
 
 using radar::SiteConfig;
 
@@ -32,6 +33,9 @@ const char *K_NEND = "nend";
 const char *K_NWAKE = "nwake";
 const char *K_NFADE = "nfade";
 const char *K_NDUTY = "nduty";
+const char *K_TYPES = "types";
+const char *K_METARON = "metaron";
+const char *K_GEOON = "geoon";
 
 SiteConfig s_cfg;
 bool s_fromNvs = false;
@@ -48,6 +52,8 @@ void loadDefaults(SiteConfig &c) {
   radar::cfgSetStr(c.otaPassword, radar::CFG_HOST_LEN, DEFAULT_OTA_PASSWORD);
   radar::cfgSetStr(c.ntpServer, radar::CFG_HOST_LEN, DEFAULT_NTP_SERVER);
   radar::cfgSetStr(c.nightTz, radar::CFG_TZ_LEN, DEFAULT_NIGHT_TZ);
+  radar::cfgSetStr(c.commonTypes, radar::CFG_TYPES_LEN,
+                   radar::classifyDefaultCommonTypes());
   c.homeLat = DEFAULT_HOME_LAT;
   c.homeLon = DEFAULT_HOME_LON;
   c.pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
@@ -56,13 +62,19 @@ void loadDefaults(SiteConfig &c) {
   c.nightWakeS = DEFAULT_NIGHT_WAKE_S;
   c.nightFadeMs = DEFAULT_NIGHT_FADE_MS;
   c.nightClockDuty = DEFAULT_NIGHT_CLOCK_DUTY;
+  // Default to on wherever the feature is compiled in; the flag exists to let
+  // it be turned off without a reflash, not to make it off by default.
+  c.metarEnabled = 0;
+  c.geoEnabled = 0;
 #ifdef METAR_ENABLED
+  c.metarEnabled = 1;
   radar::cfgSetStr(c.metarUrl, radar::CFG_URL_LEN, DEFAULT_METAR_URL);
   radar::cfgSetStr(c.metarStation, radar::CFG_STATION_LEN,
                    DEFAULT_METAR_STATION);
   c.metarPollIntervalMs = DEFAULT_METAR_POLL_INTERVAL_MS;
 #endif
 #ifdef GEO_ENABLED
+  c.geoEnabled = 1;
   radar::cfgSetStr(c.geoUrl, radar::CFG_URL_LEN, DEFAULT_GEO_URL);
   c.geoPollIntervalMs = DEFAULT_GEO_POLL_INTERVAL_MS;
 #endif
@@ -73,7 +85,7 @@ void loadDefaults(SiteConfig &c) {
 // silently shorten.
 bool overlayStr(Preferences &p, const char *key, char *dst, size_t cap) {
   if (!p.isKey(key)) return false;
-  char buf[radar::CFG_URL_LEN];
+  char buf[radar::CFG_TYPES_LEN];  // the longest field
   size_t n = p.getString(key, buf, sizeof(buf));
   if (n == 0) return false;
   if (!radar::cfgSetStr(dst, cap, buf)) {
@@ -106,6 +118,8 @@ void siteConfigBegin() {
                           radar::CFG_HOST_LEN);
     applied += overlayStr(p, K_NTP, s_cfg.ntpServer, radar::CFG_HOST_LEN);
     applied += overlayStr(p, K_TZ, s_cfg.nightTz, radar::CFG_TZ_LEN);
+    applied += overlayStr(p, K_TYPES, s_cfg.commonTypes,
+                          radar::CFG_TYPES_LEN);
     if (p.isKey(K_LAT)) { s_cfg.homeLat = p.getFloat(K_LAT); applied++; }
     if (p.isKey(K_LON)) { s_cfg.homeLon = p.getFloat(K_LON); applied++; }
     if (p.isKey(K_POLL)) { s_cfg.pollIntervalMs = p.getUInt(K_POLL); applied++; }
@@ -122,6 +136,8 @@ void siteConfigBegin() {
     if (p.isKey(K_NWAKE)) { s_cfg.nightWakeS = (uint16_t)p.getUInt(K_NWAKE); applied++; }
     if (p.isKey(K_NFADE)) { s_cfg.nightFadeMs = (uint16_t)p.getUInt(K_NFADE); applied++; }
     if (p.isKey(K_NDUTY)) { s_cfg.nightClockDuty = (uint8_t)p.getUInt(K_NDUTY); applied++; }
+    if (p.isKey(K_METARON)) { s_cfg.metarEnabled = p.getUInt(K_METARON) ? 1 : 0; applied++; }
+    if (p.isKey(K_GEOON)) { s_cfg.geoEnabled = p.getUInt(K_GEOON) ? 1 : 0; applied++; }
     p.end();
   }
   s_fromNvs = applied > 0;
@@ -137,6 +153,10 @@ void siteConfigBegin() {
     s_fromNvs = false;
   }
 
+  // The classifier borrows this pointer, and s_cfg is static, so it stays
+  // valid for the life of the board.
+  radar::classifySetCommonTypes(s_cfg.commonTypes);
+
   snprintf(s_summary, sizeof(s_summary),
            "%s, ssid %s, home %.4f,%.4f, recv %s, metar %s, geo %s",
            s_fromNvs ? "NVS overlay" : "compiled defaults",
@@ -151,7 +171,9 @@ const radar::SiteConfig &siteConfig() { return s_cfg; }
 
 bool siteConfigSetString(const char *key, const char *value) {
   if (!key || !value) return false;
-  if (strlen(value) >= radar::CFG_URL_LEN) return false;
+  // The widest field, as a backstop. Per-field limits are enforced earlier by
+  // radar::deviceFieldProblem, which can name the field in its complaint.
+  if (strlen(value) >= radar::CFG_TYPES_LEN) return false;
   Preferences p;
   if (!p.begin(NS, false)) return false;
   bool ok = p.putString(key, value) > 0;
@@ -217,6 +239,8 @@ bool siteConfigReadU32(const char *key, uint32_t *out) {
   if (strcmp(key, K_NWAKE) == 0) { *out = s_cfg.nightWakeS; return true; }
   if (strcmp(key, K_NFADE) == 0) { *out = s_cfg.nightFadeMs; return true; }
   if (strcmp(key, K_NDUTY) == 0) { *out = s_cfg.nightClockDuty; return true; }
+  if (strcmp(key, K_METARON) == 0) { *out = s_cfg.metarEnabled; return true; }
+  if (strcmp(key, K_GEOON) == 0) { *out = s_cfg.geoEnabled; return true; }
   return false;
 }
 
@@ -224,6 +248,7 @@ const char *siteConfigReadStr(const char *key) {
   if (!key) return nullptr;
   if (strcmp(key, K_NTP) == 0) return s_cfg.ntpServer;
   if (strcmp(key, K_TZ) == 0) return s_cfg.nightTz;
+  if (strcmp(key, K_TYPES) == 0) return s_cfg.commonTypes;
   return nullptr;
 }
 

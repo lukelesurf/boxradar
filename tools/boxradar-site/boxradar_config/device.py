@@ -49,6 +49,13 @@ class Group:
 
 
 GROUPS = [
+    Group("feeds", "Optional feeds",
+          "Weather and the map are extras. Turning one off stops the board "
+          "asking for it at all — useful for telling a display problem from "
+          "a feed problem without a reflash."),
+    Group("traffic", "Traffic",
+          "Which aircraft are worth a second look. The list is what the "
+          "board considers ORDINARY, so anything not on it is highlighted."),
     Group("night", "Night blanking",
           "Set start and end to the same hour to turn night mode off "
           "entirely — that is how night_mode.cpp reads it."),
@@ -63,7 +70,7 @@ GROUPS = [
 
 class Field:
     def __init__(self, key, label, kind, group, low=None, high=None,
-                 unit="", help=""):
+                 unit="", help="", wide=False, choices=None):
         self.key = key
         self.label = label
         self.kind = kind          # 'u' unsigned int, 's' string
@@ -72,9 +79,13 @@ class Field:
         self.high = high
         self.unit = unit
         self.help = help
+        self.wide = wide        # render a textarea rather than a one-line box
+        self.choices = choices  # [(value, label)] for a select
 
     @property
     def range_text(self):
+        if self.choices:
+            return ""
         if self.kind == "s":
             return f"up to {self.high} characters"
         return f"{self.low}–{self.high}{(' ' + self.unit) if self.unit else ''}"
@@ -104,6 +115,22 @@ FIELDS = [
                "re-serves the same observation."),
     Field("gpoll", "Geography", "u", "poll", 60000, 86400000, unit="ms",
           help="The map changes when you publish, not on its own."),
+    Field("metaron", "Weather", "u", "feeds", 0, 1,
+          choices=[(1, "on"), (0, "off")],
+          help="Stops the board polling the METAR proxy."),
+    Field("geoon", "Map", "u", "feeds", 0, 1,
+          choices=[(1, "on"), (0, "off")],
+          help="Stops the board fetching geography. It keeps drawing "
+               "whatever it already had."),
+    # 255 is CFG_TYPES_LEN - 1. The built-in list is 134 characters, so there
+    # is room to grow one without a reflash.
+    Field("types", "Ordinary types", "s", "traffic", high=255, wide=True,
+          help="Comma-separated ICAO designators the board should treat as "
+               "everyday. Anything NOT listed is highlighted, so this is a "
+               "list of what to ignore. The built-in one is the short-haul "
+               "fleet that saturates a London feed — a box somewhere else "
+               "wants a different list, and at a GA field it wants an "
+               "entirely different kind of list."),
     # 33 and 48 are CFG_HOST_LEN and CFG_TZ_LEN from site_config_data.h, less
     # the terminator. cfgSetStr refuses an oversized value rather than
     # truncating it, so a longer string would be rejected on the board — this

@@ -267,9 +267,25 @@ raise.
 
 ### Device settings
 
-Ten settings that used to need an edit to `include/config.h` and a reflash: the
-night-blanking block (`nstart`, `nend`, `nwake`, `nfade`, `nduty`), the three
-poll intervals (`poll`, `mpoll`, `gpoll`) and the clock (`ntp`, `tz`).
+Thirteen settings that used to need an edit to `include/config.h` and a
+reflash: the night-blanking block (`nstart`, `nend`, `nwake`, `nfade`,
+`nduty`), the three poll intervals (`poll`, `mpoll`, `gpoll`), the clock
+(`ntp`, `tz`), runtime on/off for the two optional feeds (`metaron`, `geoon`)
+and the ordinary-aircraft-type list (`types`).
+
+`types` is the one worth explaining. It is a whitelist of **boring** — anything
+not on it gets highlighted — and the built-in list is the short-haul fleet that
+saturates a London feed. Both the list and its polarity are regional: at a GA
+field the everyday traffic is light singles, none of which are on it, so
+everything would read as interesting. That is why it is configurable rather
+than merely long. Clearing it restores the built-in one; an empty setting is
+never read as "nothing is boring", since a cleared box is far likelier than a
+deliberate choice to light up every aircraft at once.
+
+`metaron` and `geoon` cannot turn on a feature that was compiled out — the
+`#ifdef` still decides whether the code exists. They decide whether it runs,
+which is what makes "is this a display problem or a feed problem?" answerable
+without a reflash.
 
 **WiFi, the receiver URL and the OTA credentials are deliberately not here.**
 They stay behind the board's own setup access point (`src/portal.cpp`), where a

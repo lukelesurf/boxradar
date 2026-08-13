@@ -26,6 +26,9 @@ enum {
   CFG_STATION_LEN = 5,
   CFG_HOST_LEN = 33,
   CFG_TZ_LEN = 48,
+  // Roughly forty ICAO designators at five characters each. The built-in list
+  // is 134 characters, so this leaves room to grow one without a reflash.
+  CFG_TYPES_LEN = 256,
 };
 
 struct SiteConfig {
@@ -39,6 +42,7 @@ struct SiteConfig {
   char otaPassword[CFG_HOST_LEN];
   char ntpServer[CFG_HOST_LEN];
   char nightTz[CFG_TZ_LEN];
+  char commonTypes[CFG_TYPES_LEN];
   float homeLat;
   float homeLon;
   uint32_t pollIntervalMs;
@@ -49,6 +53,11 @@ struct SiteConfig {
   uint8_t nightClockDuty;
   uint16_t nightWakeS;
   uint16_t nightFadeMs;
+  // Runtime on/off for the two optional feeds. The compile-time #ifdefs still
+  // decide whether the code exists at all; these decide whether it runs, so
+  // trying without weather no longer costs a reflash.
+  uint8_t metarEnabled;
+  uint8_t geoEnabled;
 };
 
 // Copies src into a fixed field, refusing rather than truncating when it will

@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <string.h>
 #include "classify.h"
 
 using namespace radar;
@@ -63,8 +64,91 @@ static void test_ordinary_squawks_are_not_alerts() {
   TEST_ASSERT_FALSE(isAlertSquawk(nullptr));
 }
 
+// ------------------------------------------------- a configured list
+
+static void test_an_override_replaces_the_built_in_list() {
+  // The built-in list is explicitly "types that saturate a LONDON-area feed".
+  // A box somewhere else wants a different one, and that should not be a
+  // reflash.
+  classifySetCommonTypes("C172,PA28");
+  TEST_ASSERT_TRUE(isCommonType("C172"));
+  TEST_ASSERT_TRUE(isCommonType("PA28"));
+  TEST_ASSERT_FALSE(isCommonType("A320"));  // no longer boring here
+  classifySetCommonTypes(nullptr);
+  TEST_ASSERT_TRUE(isCommonType("A320"));   // built-in restored
+}
+
+static void test_an_empty_override_falls_back_to_the_built_in() {
+  // Distinct from "everything is interesting": an empty setting is far more
+  // likely to be a cleared box than a deliberate choice, and silently making
+  // every aircraft light up would be a poor reading of it.
+  classifySetCommonTypes("");
+  TEST_ASSERT_TRUE(isCommonType("A320"));
+  classifySetCommonTypes(nullptr);
+}
+
+static void test_a_list_is_read_case_insensitively() {
+  // Feeds send uppercase, but a list is typed by a person.
+  classifySetCommonTypes("a320,b738");
+  TEST_ASSERT_TRUE(isCommonType("A320"));
+  TEST_ASSERT_TRUE(isCommonType("B738"));
+  classifySetCommonTypes(nullptr);
+}
+
+static void test_spaces_around_entries_are_tolerated() {
+  classifySetCommonTypes(" A320 , B738 ");
+  TEST_ASSERT_TRUE(isCommonType("A320"));
+  TEST_ASSERT_TRUE(isCommonType("B738"));
+  classifySetCommonTypes(nullptr);
+}
+
+static void test_a_prefix_does_not_match() {
+  // "A32" must not match "A320": entries are whole designators.
+  classifySetCommonTypes("A320");
+  TEST_ASSERT_FALSE(isCommonType("A32"));
+  TEST_ASSERT_FALSE(isCommonType("A3200"));
+  classifySetCommonTypes(nullptr);
+}
+
+static void test_empty_entries_are_skipped() {
+  // Trailing commas and doubled separators are what hand-edited lists look
+  // like, and an empty entry must not match an empty type.
+  classifySetCommonTypes("A320,,B738,");
+  TEST_ASSERT_TRUE(isCommonType("A320"));
+  TEST_ASSERT_TRUE(isCommonType("B738"));
+  TEST_ASSERT_FALSE(isCommonType("C172"));
+  classifySetCommonTypes(nullptr);
+}
+
+static void test_the_built_in_list_is_readable() {
+  // The UI seeds its box with this, so it has to be reachable and non-empty.
+  const char *csv = classifyDefaultCommonTypes();
+  TEST_ASSERT_NOT_NULL(csv);
+  TEST_ASSERT_TRUE(strlen(csv) > 0);
+  TEST_ASSERT_TRUE(isCommonTypeIn("A320", csv));
+  TEST_ASSERT_FALSE(isCommonTypeIn("B788", csv));
+}
+
+static void test_an_unknown_type_is_still_boring_under_an_override() {
+  // The reason is unchanged: the type only exists if readsb was started with
+  // a --db-file, and that database has gaps. Treating a lookup miss as rare
+  // would fire the highlight on noise.
+  classifySetCommonTypes("C172");
+  TEST_ASSERT_TRUE(isCommonType(""));
+  TEST_ASSERT_TRUE(isCommonType(nullptr));
+  classifySetCommonTypes(nullptr);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
+  RUN_TEST(test_an_override_replaces_the_built_in_list);
+  RUN_TEST(test_an_empty_override_falls_back_to_the_built_in);
+  RUN_TEST(test_a_list_is_read_case_insensitively);
+  RUN_TEST(test_spaces_around_entries_are_tolerated);
+  RUN_TEST(test_a_prefix_does_not_match);
+  RUN_TEST(test_empty_entries_are_skipped);
+  RUN_TEST(test_the_built_in_list_is_readable);
+  RUN_TEST(test_an_unknown_type_is_still_boring_under_an_override);
   RUN_TEST(test_a320_family_is_common);
   RUN_TEST(test_737_family_is_common);
   RUN_TEST(test_ejets_and_turboprops_are_common);

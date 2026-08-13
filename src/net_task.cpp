@@ -255,7 +255,7 @@ static void netTaskLoop(void *) {
     // discipline as the weather below — its own cadence and its own `if`, so a
     // slow fetch can never delay traffic or the OTA handler.
     static uint32_t lastGeo = 0;
-    if (!g_otaActive && netReady() &&
+    if (GEO_ON && !g_otaActive && netReady() &&
         (lastGeo == 0 || s_geoDue || millis() - lastGeo >= GEO_POLL_INTERVAL_MS)) {
       lastGeo = millis();
       s_geoDue = false;
@@ -267,7 +267,7 @@ static void netTaskLoop(void *) {
     // the aircraft poll: a slow or hanging weather fetch must never delay
     // traffic, which is the thing the display exists to show.
     static uint32_t lastMetar = 0;
-    if (!g_otaActive && netReady() &&
+    if (METAR_ON && !g_otaActive && netReady() &&
         (lastMetar == 0 || millis() - lastMetar >= METAR_POLL_INTERVAL_MS)) {
       lastMetar = millis();
       pollMetar();

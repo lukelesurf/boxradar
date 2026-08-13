@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <string.h>
+#include "classify.h"
 #include "device_config.h"
 #include "site_config_data.h"
 
@@ -18,8 +19,9 @@ static void test_only_safe_keys_are_offered() {
 }
 
 static void test_the_expected_keys_are_present() {
-  const char *expected[] = {"nstart", "nend", "nwake", "nfade", "nduty",
-                            "poll",   "mpoll", "gpoll", "ntp",   "tz"};
+  const char *expected[] = {"nstart",  "nend",  "nwake", "nfade", "nduty",
+                            "poll",    "mpoll", "gpoll", "metaron",
+                            "geoon",   "ntp",   "tz",    "types"};
   size_t n = sizeof(expected) / sizeof(expected[0]);
   TEST_ASSERT_EQUAL_size_t(n, DEVICE_FIELD_COUNT);
   for (size_t i = 0; i < n; i++)
@@ -110,6 +112,30 @@ static void test_a_failed_parse_does_not_write_out() {
   TEST_ASSERT_EQUAL_UINT32(12345, out);  // untouched
 }
 
+static void test_the_feed_switches_are_boolean() {
+  // Stored and read as UInt32 like every other numeric key — the type
+  // mismatch that made the night clock invisible is not worth repeating for
+  // the sake of a narrower field.
+  const char *problem = "unset";
+  parsed("metaron", "0", &problem);
+  TEST_ASSERT_NULL(problem);
+  parsed("geoon", "1", &problem);
+  TEST_ASSERT_NULL(problem);
+  parsed("metaron", "2", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+}
+
+static void test_the_type_list_field_is_wide_enough_for_the_built_in_one() {
+  // The default list is 134 characters. A field that could not hold what the
+  // board already uses would make the UI unable to show its own default.
+  const DeviceField *f = deviceFieldByKey("types");
+  TEST_ASSERT_NOT_NULL(f);
+  TEST_ASSERT_EQUAL_UINT32(CFG_TYPES_LEN - 1, f->high);
+  TEST_ASSERT_TRUE(strlen(classifyDefaultCommonTypes()) < f->high);
+  TEST_ASSERT_NULL(deviceFieldProblem(*f, classifyDefaultCommonTypes(),
+                                      nullptr));
+}
+
 static void test_poll_floor_protects_the_receiver() {
   const char *problem = "unset";
   parsed("poll", "10", &problem);
@@ -167,6 +193,8 @@ int main(int, char **) {
   RUN_TEST(test_overflow_is_refused_rather_than_wrapped);
   RUN_TEST(test_empty_is_refused);
   RUN_TEST(test_a_failed_parse_does_not_write_out);
+  RUN_TEST(test_the_feed_switches_are_boolean);
+  RUN_TEST(test_the_type_list_field_is_wide_enough_for_the_built_in_one);
   RUN_TEST(test_poll_floor_protects_the_receiver);
   RUN_TEST(test_a_string_within_its_field_is_accepted);
   RUN_TEST(test_string_limits_match_the_struct_they_land_in);

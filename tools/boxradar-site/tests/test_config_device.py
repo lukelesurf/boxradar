@@ -76,7 +76,19 @@ class TestFieldTable(unittest.TestCase):
         self.assertEqual(
             sorted(f.key for f in device.FIELDS),
             sorted(["nstart", "nend", "nwake", "nfade", "nduty",
-                    "poll", "mpoll", "gpoll", "ntp", "tz"]))
+                    "poll", "mpoll", "gpoll", "metaron", "geoon",
+                    "ntp", "tz", "types"]))
+
+    def test_the_type_list_holds_the_built_in_one(self):
+        # The UI seeds this box from the board, and the board's default is 134
+        # characters. A narrower field could not show its own default.
+        field = device.BY_KEY["types"]
+        self.assertGreater(field.high, 200)
+        self.assertTrue(field.wide, "a 134-char list needs a textarea")
+
+    def test_the_feed_switches_offer_a_choice_not_a_number(self):
+        for key in ("metaron", "geoon"):
+            self.assertTrue(device.BY_KEY[key].choices, key)
 
     def test_no_credential_or_ota_field_is_offered(self):
         # WiFi and OTA stay portal-only. A typo pushed from here into otapass

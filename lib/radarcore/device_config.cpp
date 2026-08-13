@@ -13,6 +13,10 @@ namespace radar {
 //                  re-serves the same observation
 //   gpoll  60s     the map changes when you publish, not on its own
 //
+// metaron/geoon are runtime switches for the two optional feeds, so trying the
+// panel without weather stops costing a reflash. They cannot turn a feature ON
+// that was compiled out — the #ifdef still decides whether the code exists.
+//
 // nstart == nend is ALLOWED: night_mode.cpp reads it as "disabled", so it is
 // the off switch rather than a 24-hour blank.
 //
@@ -29,8 +33,11 @@ const DeviceField DEVICE_FIELDS[] = {
     {"poll", DEV_U32, 500, 60000},
     {"mpoll", DEV_U32, 10000, 3600000},
     {"gpoll", DEV_U32, 60000, 86400000},
+    {"metaron", DEV_U32, 0, 1},
+    {"geoon", DEV_U32, 0, 1},
     {"ntp", DEV_STR, 0, CFG_HOST_LEN - 1},
     {"tz", DEV_STR, 0, CFG_TZ_LEN - 1},
+    {"types", DEV_STR, 0, CFG_TYPES_LEN - 1},
 };
 
 const size_t DEVICE_FIELD_COUNT =
