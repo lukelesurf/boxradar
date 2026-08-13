@@ -12,8 +12,10 @@ Runs on the **receiver Pi**. Not the display, not a server.
   (2GB recommended — the first coastline build for a new area peaks at
   367MB), **≥8GB free disk**
 - An RTL-SDR dongle, connected
-- Internet access — preflight checks that `deb.debian.org`, `github.com`
-  and `overpass-api.de` all resolve
+- Internet access — preflight checks that `deb.debian.org`, `github.com`,
+  `overpass-api.de`, `www.adsbexchange.com`, `repo-feed.flightradar24.com`,
+  `davidmegginson.github.io`, `download.geonames.org` and
+  `aviationweather.gov` all resolve
 - Wifi already configured and SSH reachable — use Raspberry Pi Imager's
   advanced options to pre-seed both before first boot
 - A Flightradar24 sharing key

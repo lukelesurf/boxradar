@@ -50,7 +50,7 @@ class DriverCase(unittest.TestCase):
         path.write_text(f"#!/usr/bin/env bash\nset -euo pipefail\n{body}\n")
         path.chmod(0o755)
 
-    def run_driver(self, *args, stdin=None):
+    def run_driver(self, *args, stdin=None, timeout=None, extra_env=None):
         env = dict(os.environ)
         env.update({
             "BOXRADAR_STAGE_DIR": str(self.stages),
@@ -59,9 +59,10 @@ class DriverCase(unittest.TestCase):
             "BOXRADAR_CONF": str(self.root / "receiver.conf"),
             "BOXRADAR_SKIP_ROOT_CHECK": "1",
         })
+        env.update(extra_env or {})
         return subprocess.run(["bash", str(INSTALL), *args],
                               env=env, capture_output=True, text=True,
-                              input=stdin)
+                              input=stdin, timeout=timeout)
 
 
 class TestStageRunning(DriverCase):
@@ -96,6 +97,27 @@ class TestStageRunning(DriverCase):
         out = self.run_driver("--no-wizard", "--from", "20").stdout
         self.assertNotIn("ran-10", out)
         self.assertIn("ran-20", out)
+
+    def test_an_empty_stage_dir_fails_rather_than_reporting_success(self):
+        # `shopt -s nullglob` makes the *.sh glob vanish when self.stages is
+        # empty (DriverCase.setUp creates the directory but adds no stages),
+        # so the for loop simply never runs. Same class of bug as
+        # `bash -c "$(curl ...)"` degrading to `bash -c ""` on a failed
+        # fetch: an incomplete copy of the installer should not "succeed" at
+        # doing nothing.
+        result = self.run_driver("--no-wizard")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("all stages complete", result.stdout)
+
+    def test_from_needs_an_argument(self):
+        # Under `set -u`, a bare `FROM="$2"` with nothing left in $@ already
+        # dies non-zero on "unbound variable" — that alone doesn't prove
+        # this fix (an explicit, named check) is what's firing. Assert the
+        # specific message the fix adds, not just a non-zero exit.
+        result = self.run_driver("--no-wizard", "--from")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--from needs a stage number",
+                      result.stdout + result.stderr)
 
 
 class TestFailureHandling(DriverCase):
@@ -156,17 +178,24 @@ class TestLogging(DriverCase):
             self.VALID_CONF.replace("FR24_KEY=testkey9876",
                                      "FR24_KEY=supersecret123")
                            .replace("ADSBX_UUID=", "ADSBX_UUID=uuid-secret-456"))
-        self.stage("10-first.sh", 'echo "key is ${FR24_KEY:-unset}"')
+        # Both secrets are echoed, not just FR24_KEY: an earlier version of
+        # this test only echoed the key, which meant its ADSBX_UUID
+        # assertNotIn passed vacuously — nothing had ever emitted the uuid,
+        # so redact() being wired up for it at all was unverified.
+        self.stage("10-first.sh",
+                   'echo "key is ${FR24_KEY:-unset}"; '
+                   'echo "uuid is ${ADSBX_UUID:-unset}"')
         self.run_driver("--no-wizard")
         log = (self.root / "install.log").read_text()
         self.assertNotIn("supersecret123", log)
         self.assertNotIn("uuid-secret-456", log)
         # Positive assertions, not just absence: a stage that never ran, or
         # a redact() that discarded the whole stream, would also make the
-        # two assertNotIn calls above pass vacuously. Prove the secret was
+        # two assertNotIn calls above pass vacuously. Prove each secret was
         # actually replaced by its placeholder, and that the stage's own
         # output genuinely reached the log.
         self.assertIn("<FR24_KEY>", log)
+        self.assertIn("<ADSBX_UUID>", log)
         self.assertIn("key is", log)
 
 
@@ -222,6 +251,54 @@ class TestWizard(DriverCase):
         self.assertLess(wizard, logging_starts,
                         "run_wizard must precede the tee redirection")
 
+    def test_eof_on_a_required_prompt_exits_instead_of_spinning(self):
+        # Regression test for a real infinite loop: `read -r -p ... || true`
+        # on a *required* prompt (one with no stored default — LAT is the
+        # first such prompt the wizard hits) swallowed EOF, leaving `reply`
+        # empty forever, so `while :; do ...; done` never terminated.
+        # Measured at 433,418 iterations in 5 seconds before the fix.
+        # Closed stdin (`ssh box 'sudo ./install.sh'`, or plain Ctrl-D) must
+        # fail fast instead. `timeout=5` bounds this test to a clear
+        # failure rather than hanging the suite if this ever regresses.
+        (self.root / "receiver.conf").unlink(missing_ok=True)
+        result = self.run_driver(stdin="", timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no input available", result.stdout + result.stderr)
+
+    def test_pressing_enter_takes_the_default_hostname(self):
+        # Bash pre-sets $HOSTNAME at shell startup — from the environment if
+        # inherited (confirmed: `HOSTNAME=x bash -c 'echo $HOSTNAME'` prints
+        # x, it is not overwritten), otherwise the machine's real hostname.
+        # Without an `unset HOSTNAME` ahead of the conditional `conf_load`
+        # on a fresh box (no receiver.conf to load one from), `ask
+        # HOSTNAME` would see that inherited/machine name as its "current"
+        # value and offer it as the default instead of "boxradar-rx" —
+        # pressing enter would then silently keep whatever the box was
+        # already called. HOSTNAME is set explicitly here, to a value that
+        # is deterministically wrong, rather than relying on this test
+        # machine's ambient hostname (or lack of an inherited HOSTNAME)
+        # happening not to already be "boxradar-rx".
+        (self.root / "receiver.conf").unlink(missing_ok=True)
+        self.stage("10-first.sh", "echo ran-10")
+        answers = "\n" + "\n".join([
+            "51.8849826",       # LAT
+            "0.2349914",        # LON
+            "348",              # ALT_FT
+            "auto",             # GAIN
+            "0",                # PPM
+            "",                 # STATIC_IP (blank = DHCP)
+            "EGSS",             # METAR_STATION
+            "7",                # CALM_KT
+            "example-feeder",      # ADSBX_USER
+            "",                 # ADSBX_UUID (blank on a new box)
+            "typedsecret999",   # FR24_KEY
+        ]) + "\n"
+        result = self.run_driver(
+            stdin=answers, extra_env={"HOSTNAME": "some-inherited-machine-name"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('HOSTNAME="boxradar-rx"',
+                      (self.root / "receiver.conf").read_text())
+
     def test_the_wizard_writes_a_conf_the_next_run_reuses(self):
         # Proves conf_write is actually wired up — it had no caller before
         # this task.
@@ -246,7 +323,7 @@ class TestCheckMode(DriverCase):
         (self.root / "receiver.conf").write_text(
             "HOSTNAME=boxradar\nLAT=51.8849826\nLON=0.2349914\nALT_FT=348\n"
             "GAIN=auto\nPPM=0\nSTATIC_IP=\nMETAR_STATION=EGSS\nCALM_KT=7\n"
-            "ADSBX_USER=test\nADSBX_UUID=u\nFR24_KEY=k\n")
+            "ADSBX_USER=test\nADSBX_UUID=uuid12345\nFR24_KEY=key123456\n")
         out = self.run_driver("--no-wizard", "--check").stdout
         self.assertIn("--net-bi-port 30004,30104", out)
         self.assertIn('LATITUDE="51.8849826"', out)

@@ -64,8 +64,15 @@ fi
 # already owns the port. Skipped when our own service is what holds it, which
 # is the normal case when re-running this to upgrade.
 check_port() {
-  local port=$1 unit=$2
-  ss -ltn "sport = :$port" | grep -q LISTEN || return 0
+  local port=$1 unit=$2 listening
+  # Captured first, then matched, not piped straight into grep -q: under
+  # this script's `set -euo pipefail`, grep -q closing the pipe the instant
+  # it matches can SIGPIPE a still-writing `ss`, which reports as exit 141.
+  # `|| return 0` on a piped form would then read "port is free" from a
+  # 141 exactly when the port *is* occupied — skipping the abort this
+  # function exists to make, unattended, on someone else's hardware.
+  listening="$(ss -ltn "sport = :$port" 2>/dev/null || true)"
+  grep -q LISTEN <<<"$listening" || return 0
   if systemctl is-active --quiet "$unit"; then
     echo "note: $unit already running on $port, will restart it"
     return 0
@@ -180,4 +187,11 @@ if [[ $WANT_CONFIG_UI -eq 1 ]]; then
   echo "  open http://$HOST_IP:$CONFIG_PORT/"
 fi
 echo
-systemctl --no-pager status boxradar-site.service | head -n 12
+# Captured first, then trimmed with a herestring, not piped straight into
+# head: this is the script's last command, so under `set -euo pipefail` a
+# `head -n 12` that hits its line limit before `systemctl status` is done
+# writing can SIGPIPE it — the resulting 141 becomes *this script's* exit
+# status, and 50-boxradar.sh (which runs this as a stage) reports that as a
+# stage failure after everything actually succeeded.
+status_output="$(systemctl --no-pager status boxradar-site.service || true)"
+head -n 12 <<<"$status_output"

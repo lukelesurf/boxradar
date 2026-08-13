@@ -53,12 +53,26 @@ conf_validate() {
   # being assigned — restricting the character set is not cosmetic here.
   [[ ${ADSBX_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
     _bad "ADSBX_USER may only contain letters, digits, dot, underscore and hyphen"
-  [[ ${FR24_KEY:-} =~ ^[A-Za-z0-9]+$ ]] || \
+  # An 8-character floor, not just the character class: redact() builds its
+  # sed patterns straight from these values (s|$FR24_KEY|<FR24_KEY>|g), so a
+  # one-character key doesn't just under-validate — it turns every matching
+  # character anywhere in the log into a placeholder, e.g. FR24_KEY=k
+  # shredding every "k" in the install log.
+  if [[ ! ${FR24_KEY:-} =~ ^[A-Za-z0-9]+$ ]]; then
     _bad "FR24_KEY may only contain letters and digits"
+  elif (( ${#FR24_KEY} < 8 )); then
+    _bad "FR24_KEY must be at least 8 characters"
+  fi
   # Blank on a new box — the ADSBExchange installer generates it — so it is
-  # only constrained when present.
-  [[ -z ${ADSBX_UUID:-} || ${ADSBX_UUID:-} =~ ^[A-Za-z0-9-]+$ ]] || \
-    _bad "ADSBX_UUID may only contain letters, digits and hyphen"
+  # only constrained when present. Same 8-character floor as FR24_KEY, and
+  # for the same redact() reason.
+  if [[ -n ${ADSBX_UUID:-} ]]; then
+    if [[ ! ${ADSBX_UUID} =~ ^[A-Za-z0-9-]+$ ]]; then
+      _bad "ADSBX_UUID may only contain letters, digits and hyphen"
+    elif (( ${#ADSBX_UUID} < 8 )); then
+      _bad "ADSBX_UUID must be at least 8 characters"
+    fi
+  fi
 
   return $problems
 }

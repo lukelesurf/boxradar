@@ -40,7 +40,10 @@ usb_devices="$(lsusb 2>/dev/null || true)"
 grep -qiE 'RTL2838|RTL2832|Realtek.*DVB-T' <<<"$usb_devices" || fail \
   "no RTL-SDR found in lsusb. Plug the dongle in and re-run."
 
-for host in deb.debian.org github.com overpass-api.de; do
+for host in deb.debian.org github.com overpass-api.de \
+            www.adsbexchange.com repo-feed.flightradar24.com \
+            davidmegginson.github.io download.geonames.org \
+            aviationweather.gov; do
   getent hosts "$host" >/dev/null || fail "cannot resolve $host — no internet?"
 done
 

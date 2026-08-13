@@ -19,7 +19,7 @@ GOOD = {"HOSTNAME": "boxradar", "LAT": "51.8849826", "LON": "0.2349914",
         "ALT_FT": "348", "GAIN": "auto", "PPM": "0", "STATIC_IP": "",
         "METAR_STATION": "EGSS", "CALM_KT": "7",
         "ADSBX_USER": "example-feeder", "ADSBX_UUID": "uuid-1234",
-        "FR24_KEY": "key9876"}
+        "FR24_KEY": "key98765"}
 
 
 def run(snippet, **overrides):
@@ -74,6 +74,14 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("FR24_KEY", result.stderr)
 
+    def test_a_one_character_fr24_key_is_rejected(self):
+        # redact() builds its sed pattern straight from FR24_KEY
+        # (s|$FR24_KEY|<FR24_KEY>|g) — a one-character value doesn't just
+        # under-validate, it shreds every matching character in the log.
+        result = run("conf_validate", FR24_KEY="k")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("FR24_KEY", result.stderr)
+
     def test_empty_static_ip_is_allowed(self):
         self.assertEqual(run("conf_validate", STATIC_IP="").returncode, 0)
 
@@ -123,6 +131,12 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(run("conf_validate",
                              ADSBX_UUID="c1f4e0a2-9b3d-4c8e-11aa-7f2b6d5e0c93").returncode, 0)
 
+    def test_a_one_character_adsbx_uuid_is_rejected(self):
+        # Same redact()-shredding hazard as FR24_KEY above, when present.
+        result = run("conf_validate", ADSBX_UUID="u")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ADSBX_UUID", result.stderr)
+
 
 class TestRoundTrip(unittest.TestCase):
     def test_conf_write_refuses_a_breakout_character(self):
@@ -141,7 +155,7 @@ class TestRoundTrip(unittest.TestCase):
                          f'echo "$LAT|$METAR_STATION|$FR24_KEY|$ALT_FT"',
                          LAT="0", METAR_STATION="ZZZZ", FR24_KEY="", ALT_FT="0")
             self.assertEqual(result.stdout.strip(),
-                             "51.8849826|EGSS|key9876|348")
+                             "51.8849826|EGSS|key98765|348")
 
     def test_written_file_is_owner_read_write_only(self):
         with tempfile.TemporaryDirectory() as d:
