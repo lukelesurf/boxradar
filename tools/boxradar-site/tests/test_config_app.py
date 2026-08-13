@@ -134,6 +134,37 @@ class TestPicker(AppCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"LONDON STANSTED CTR", r.data)
 
+    def test_filtering_by_one_kind_narrows_the_list(self):
+        self.write_selection()
+        r = self.client.get("/airspace?kind=CTR")
+        self.assertIn(b"LONDON STANSTED CTR", r.data)
+        self.assertNotIn(b"LONDON STANSTED CTA", r.data)
+
+    def test_every_kind_shows_everything(self):
+        # The "every kind" option has an empty value, but the select still
+        # submits its name — so this arrives as ?kind= and getlist() returns
+        # [""], a NON-EMPTY list. `not show` therefore reads it as a filter
+        # and matches candidates whose kind is the empty string, of which
+        # there are none. Pressing Filter on the default option emptied the
+        # whole table.
+        self.write_selection()
+        r = self.client.get("/airspace?kind=")
+        self.assertIn(b"LONDON STANSTED CTR", r.data)
+        self.assertIn(b"LONDON STANSTED CTA", r.data)
+
+    def test_no_kind_parameter_at_all_shows_everything(self):
+        self.write_selection()
+        r = self.client.get("/airspace")
+        self.assertIn(b"LONDON STANSTED CTR", r.data)
+        self.assertIn(b"LONDON STANSTED CTA", r.data)
+
+    def test_a_blank_among_real_kinds_does_not_widen_the_filter(self):
+        # Defensive: a hand-built query mixing the two must still filter.
+        self.write_selection()
+        r = self.client.get("/airspace?kind=&kind=CTR")
+        self.assertIn(b"LONDON STANSTED CTR", r.data)
+        self.assertNotIn(b"LONDON STANSTED CTA", r.data)
+
     def test_suggest_does_not_save(self):
         self.write_selection()
         self.client.get("/airspace?suggest=1")

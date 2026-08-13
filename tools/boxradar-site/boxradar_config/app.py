@@ -200,7 +200,15 @@ def create_app(settings=None, board=None):
                   f"Nothing is saved until you press Save.", "ok")
 
         kinds = sorted({c.kind for c in cands})
-        show = request.args.getlist("kind")
+        # Blank values dropped, not just a missing key. The "every kind"
+        # option has an empty value but the select still submits its name, so
+        # choosing it arrives as `?kind=` and getlist() returns [""] — a
+        # NON-EMPTY list. `not show` then reads that as an active filter and
+        # matches candidates whose kind is the empty string, of which there
+        # are none, so pressing Filter on the default option emptied the whole
+        # table. Same rule the rest of this file already uses for `q` and
+        # `small`: an empty value means absent.
+        show = [k for k in request.args.getlist("kind") if k]
         visible = [c for c in cands if not show or c.kind in show]
 
         missing = selection.missing_features(sel, features)
