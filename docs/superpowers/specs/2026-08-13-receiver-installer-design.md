@@ -110,9 +110,9 @@ Mode 0600, root-owned, never in git. Only `receiver.conf.example` is tracked.
 
 ```bash
 # Identity
-HOSTNAME=boxradar-rx            # -> boxradar-rx.local via avahi. NOT "boxradar":
-                                # the ESP32 display registers boxradar.local for
-                                # OTA, and both on one LAN collide.
+HOSTNAME=adsb                   # -> adsb.local via avahi. NOT "boxradar":
+                                # BOXRADAR is the ESP32 display, and it already
+                                # registers boxradar.local for OTA.
 # Position — ONE source, fanned out to readsb, ADSBX, MLAT and selection.json
 LAT=51.8849826
 LON=0.2349914
@@ -176,8 +176,8 @@ in `lsusb`. Debian, GitHub and Overpass reachable. ≥ 8 GB free. And
 `vcgencmd get_throttled`, warning on under-voltage — a check that exists
 because it would have caught the existing box's `0x50005` on day one.
 
-**20-os** sets hostname and mDNS so `boxradar-rx.local` resolves and nobody
-hunts a DHCP table; `journald` to `Storage=persistent`; `ufw` allowing
+**20-os** sets hostname and mDNS so `adsb.local` resolves and nobody hunts a
+DHCP table; `journald` to `Storage=persistent`; `ufw` allowing
 22/80/8081/8082/8754, plus 8504 only if tar1090's second instance is
 configured; `unattended-upgrades` restricted to the security pocket; optional
 static IP. Wifi power-save is disabled by a

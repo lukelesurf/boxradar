@@ -61,7 +61,7 @@ Setting up a BOXRADAR receiver. Existing answers are shown in brackets —
 press enter to keep one, or type a new value.
 
 EOF
-  ask HOSTNAME     "Hostname (reachable as <name>.local)" "boxradar-rx"
+  ask HOSTNAME     "Hostname (reachable as <name>.local)" "adsb"
   ask LAT          "Aerial latitude, decimal degrees"
   ask LON          "Aerial longitude, decimal degrees"
   ask ALT_FT       "Aerial height above sea level, whole feet"
@@ -188,12 +188,14 @@ scrub_log() {
 # runs when $CONF already exists — on a fresh box there is none, so without
 # this, `ask HOSTNAME` below would see the machine's current name (e.g.
 # "raspberrypi" straight off the Pi OS image) as its "current" value and
-# offer that as the default instead of the wizard's own "boxradar-rx".
+# offer that as the default instead of the wizard's own "adsb".
 # Pressing enter would then "succeed" leaving the box named whatever the
-# wizard exists to change. (The receiver's default is boxradar-rx, not
-# boxradar: the ESP32 display board already owns boxradar.local via mDNS —
-# see include/config.example.h and src/net_task.cpp — and this box installs
-# avahi too, so the two would otherwise race for the same name on the LAN.)
+# wizard exists to change. (The default is "adsb", not "boxradar": BOXRADAR
+# is the ESP32 display project — the radar-in-a-box — while this machine is
+# just the receiver feeding it. The naming also avoids a collision the
+# display would notice: it owns boxradar.local via mDNS, see
+# include/config.example.h and src/net_task.cpp, and this box installs avahi
+# too, so two "boxradar"s would race for the same name on the LAN.)
 unset HOSTNAME
 [[ -r $CONF ]] && conf_load "$CONF"
 

@@ -272,12 +272,12 @@ class TestWizard(DriverCase):
         # Without an `unset HOSTNAME` ahead of the conditional `conf_load`
         # on a fresh box (no receiver.conf to load one from), `ask
         # HOSTNAME` would see that inherited/machine name as its "current"
-        # value and offer it as the default instead of "boxradar-rx" —
-        # pressing enter would then silently keep whatever the box was
-        # already called. HOSTNAME is set explicitly here, to a value that
-        # is deterministically wrong, rather than relying on this test
+        # value and offer it as the default instead of "adsb" — pressing
+        # enter would then silently keep whatever the box was already
+        # called. HOSTNAME is set explicitly here, to a value that is
+        # deterministically wrong, rather than relying on this test
         # machine's ambient hostname (or lack of an inherited HOSTNAME)
-        # happening not to already be "boxradar-rx".
+        # happening not to already be "adsb".
         (self.root / "receiver.conf").unlink(missing_ok=True)
         self.stage("10-first.sh", "echo ran-10")
         answers = "\n" + "\n".join([
@@ -296,7 +296,7 @@ class TestWizard(DriverCase):
         result = self.run_driver(
             stdin=answers, extra_env={"HOSTNAME": "some-inherited-machine-name"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn('HOSTNAME="boxradar-rx"',
+        self.assertIn('HOSTNAME="adsb"',
                       (self.root / "receiver.conf").read_text())
 
     def test_the_wizard_writes_a_conf_the_next_run_reuses(self):

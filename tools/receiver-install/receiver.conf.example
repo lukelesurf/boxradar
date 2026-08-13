@@ -4,10 +4,11 @@
 # for these and write it for you. The real file is 0600 and must never be
 # committed: it carries feeder credentials.
 
-# boxradar-rx, not boxradar: the ESP32 display board already answers to
-# boxradar.local via mDNS, and this box installs avahi too — a receiver
-# named "boxradar" would race it for the same name on the LAN.
-HOSTNAME="boxradar-rx"
+# "adsb", not "boxradar": BOXRADAR is the ESP32 display — the radar in a box
+# — and this machine is just the receiver feeding it. It also keeps the two
+# apart on the network: the display answers to boxradar.local via mDNS and
+# this box installs avahi too, so a receiver called "boxradar" would race it.
+HOSTNAME="adsb"
 
 # Receiver position, decimal degrees. Used by readsb, both feeders and the
 # map. Get it from the aerial's location, not the house's postcode.
