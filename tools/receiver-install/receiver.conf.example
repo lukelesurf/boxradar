@@ -1,0 +1,34 @@
+# BOXRADAR receiver configuration — example.
+#
+# Copy to /etc/boxradar/receiver.conf and fill in, or let install.sh prompt
+# for these and write it for you. The real file is 0600 and must never be
+# committed: it carries feeder credentials.
+
+HOSTNAME=boxradar
+
+# Receiver position, decimal degrees. Used by readsb, both feeders and the
+# map. Get it from the aerial's location, not the house's postcode.
+LAT=51.8849826
+LON=0.2349914
+# Aerial height above mean sea level, whole feet. MLAT needs this.
+ALT_FT=348
+
+# 'auto', or a number from `rtl_test` if you have tuned it by hand.
+GAIN=auto
+PPM=0
+
+# Blank for DHCP.
+STATIC_IP=
+
+# Nearest airport with a METAR, 4-letter ICAO. Runway headings for the active
+# runway readout are derived from this automatically.
+METAR_STATION=EGSS
+# Below this windspeed, no runway is recommended.
+CALM_KT=7
+
+# Feeder credentials. Leave ADSBX_UUID blank on a new box — the ADSBExchange
+# installer generates one. On a rebuild, restore the old value here to keep
+# your existing statistics.
+ADSBX_USER=
+ADSBX_UUID=
+FR24_KEY=
