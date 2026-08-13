@@ -31,6 +31,26 @@ bool siteConfigSetU32(const char *key, uint32_t value);
 // Forget every stored override, so the next boot uses the compiled defaults.
 void siteConfigClear();
 
+// Forget ONE stored override. Returns false if there was nothing to remove.
+//
+// This exists because the overlay is otherwise a one-way door: writing a key
+// shadows its compiled default permanently and silently, so changing a
+// DEFAULT_ in config.h and reflashing appears to do nothing at all. Without a
+// per-key erase the only escape is siteConfigClear(), which also throws away
+// the WiFi credentials.
+bool siteConfigClearKey(const char *key);
+
+// True when NVS currently holds this key, i.e. the live value is an override
+// rather than the compiled default. Reads NVS rather than a cached flag, so it
+// stays right after a write without a reboot.
+bool siteConfigHasOverride(const char *key);
+
+// The live value for one of the keys in radar::DEVICE_FIELDS, for the config
+// server's read-back. Returns false for an unknown key; nothing else in the
+// firmware needs a by-name read, which is why this is narrow.
+bool siteConfigReadU32(const char *key, uint32_t *out);
+const char *siteConfigReadStr(const char *key);
+
 // True when any NVS override was applied at boot.
 bool siteConfigFromNvs();
 

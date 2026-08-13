@@ -183,6 +183,50 @@ void siteConfigClear() {
   Serial.println("cfg: cleared all NVS overrides");
 }
 
+bool siteConfigClearKey(const char *key) {
+  if (!key || !key[0]) return false;
+  Preferences p;
+  if (!p.begin(NS, false)) return false;
+  bool had = p.isKey(key);
+  if (had) p.remove(key);
+  p.end();
+  if (had) Serial.printf("cfg: cleared override for %s\n", key);
+  return had;
+}
+
+bool siteConfigHasOverride(const char *key) {
+  if (!key || !key[0]) return false;
+  Preferences p;
+  if (!p.begin(NS, true)) return false;  // no namespace yet: nothing stored
+  bool has = p.isKey(key);
+  p.end();
+  return has;
+}
+
+// The two by-name readers below exist only for the config server's read-back.
+// Deliberately a switch over the same keys rather than a generic map: the key
+// list is a wire format (see the note at the top of this file) and a table
+// that drifted from the struct would report one field while writing another.
+bool siteConfigReadU32(const char *key, uint32_t *out) {
+  if (!key || !out) return false;
+  if (strcmp(key, K_POLL) == 0) { *out = s_cfg.pollIntervalMs; return true; }
+  if (strcmp(key, K_MPOLL) == 0) { *out = s_cfg.metarPollIntervalMs; return true; }
+  if (strcmp(key, K_GPOLL) == 0) { *out = s_cfg.geoPollIntervalMs; return true; }
+  if (strcmp(key, K_NSTART) == 0) { *out = s_cfg.nightStartHour; return true; }
+  if (strcmp(key, K_NEND) == 0) { *out = s_cfg.nightEndHour; return true; }
+  if (strcmp(key, K_NWAKE) == 0) { *out = s_cfg.nightWakeS; return true; }
+  if (strcmp(key, K_NFADE) == 0) { *out = s_cfg.nightFadeMs; return true; }
+  if (strcmp(key, K_NDUTY) == 0) { *out = s_cfg.nightClockDuty; return true; }
+  return false;
+}
+
+const char *siteConfigReadStr(const char *key) {
+  if (!key) return nullptr;
+  if (strcmp(key, K_NTP) == 0) return s_cfg.ntpServer;
+  if (strcmp(key, K_TZ) == 0) return s_cfg.nightTz;
+  return nullptr;
+}
+
 bool siteConfigFromNvs() { return s_fromNvs; }
 
 const char *siteConfigSummary() { return s_summary; }

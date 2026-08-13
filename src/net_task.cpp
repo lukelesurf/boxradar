@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include <string.h>
 #include "config.h"
+#include "config_server.h"
 #include "contact_feed.h"
 #include "geo_store.h"
 #include "metar.h"
@@ -107,7 +108,22 @@ static void poll() {
   // and the body can be read in one go against a known size.
   http.useHTTP10(true);
   http.begin(url);
+  // The Pi asks for the settings server on a RESPONSE HEADER of this poll,
+  // never in the payload. The contact format is fixed-size with no reserved
+  // field, so a flag byte would have meant bumping CONTACT_VERSION — and
+  // loadContacts() rejects an unknown version outright, which would blank the
+  // scope on any board not reflashed in step with the Pi. An unrecognised
+  // header costs old firmware nothing at all.
+  //
+  // Static, because collectHeaders() keeps the pointer rather than copying.
+  static const char *WANTED[] = {"X-Boxradar-Config"};
+  http.collectHeaders(WANTED, 1);
   int code = http.GET();
+  // Checked BEFORE the status check, deliberately. The Pi answers 503 when
+  // the receiver is unreachable, and a broken readsb must not also cost you
+  // the ability to configure the board — it is still polling and still on the
+  // network, which is everything this needs.
+  if (http.header("X-Boxradar-Config").length() > 0) configServerOpen();
   if (code != HTTP_CODE_OK) {
     pollFailed("http error", code);
     http.end();
@@ -210,6 +226,10 @@ static void netTaskLoop(void *) {
       otaStarted = true;
     }
     if (otaStarted) ArduinoOTA.handle();
+    // Cheap when closed (one null check), and outside the OTA guard on
+    // purpose: if a flash is in progress the window should expire rather than
+    // sit open behind it.
+    configServerHandle();
     if (!g_otaActive && netReady() &&
         millis() - lastPoll >= POLL_INTERVAL_MS) {
       lastPoll = millis();
