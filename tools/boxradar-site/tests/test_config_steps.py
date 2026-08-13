@@ -103,6 +103,14 @@ class TestDataStep(RailCase):
         self.assertEqual(step.state, steps.TODO)
         self.assertIn(f"1 of {len(steps.datasets.SOURCES) + 1}", step.detail)
 
+    def test_the_age_is_rounded(self):
+        # age_days() returns a float. Unformatted, the live strip read
+        # "oldest 4.337401080090139d" — caught on the Pi, not in a test.
+        self.write_all_datasets()
+        self.write_source()
+        detail = self.rail(make_selection())["data"].detail
+        self.assertNotIn(".", detail)
+
     def test_done_needs_the_airspace_source_too(self):
         # The YAIXM source is a prerequisite in exactly the way the four
         # downloads are, and treating it as a separate hidden concept is why

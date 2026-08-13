@@ -100,8 +100,10 @@ def _data_step(settings, sel):
     have = len(present) + (1 if have_source(settings) else 0)
     if have < total:
         return TODO, f"{have} of {total} downloaded"
+    # age_days() returns a float, so this needs a format or the strip reads
+    # "oldest 4.337401080090139d".
     oldest = max(present) if present else 0
-    return DONE, f"{total} sets · oldest {oldest}d"
+    return DONE, f"{total} sets · oldest {oldest:.0f}d"
 
 
 def _airspace_step(settings, sel):

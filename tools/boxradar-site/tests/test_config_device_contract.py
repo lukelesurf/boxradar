@@ -25,6 +25,14 @@ from boxradar_config import device
 REPO = pathlib.Path(__file__).resolve().parents[3]
 CPP = REPO / "lib" / "radarcore" / "device_config.cpp"
 STRUCT_HEADER = REPO / "lib" / "radarcore" / "site_config_data.h"
+NET_TASK = REPO / "src" / "net_task.cpp"
+
+# This one needs the firmware source beside it, which is true in the repo and
+# false on the receiver Pi — install.sh copies the two Python packages, not the
+# C++. Skipped rather than failed there: a suite that reports failures for
+# environmental reasons teaches you to skim past failures, which is the one
+# habit a contract test like this cannot afford.
+HAVE_FIRMWARE = CPP.is_file() and STRUCT_HEADER.is_file() and NET_TASK.is_file()
 
 _ROW = re.compile(
     r'\{\s*"(?P<key>\w+)"\s*,\s*(?P<kind>DEV_U32|DEV_STR)\s*,'
@@ -70,6 +78,8 @@ def firmware_fields():
     return out
 
 
+@unittest.skipUnless(HAVE_FIRMWARE,
+                     "needs the firmware source (repo checkout only)")
 class ContractTest(unittest.TestCase):
     def setUp(self):
         self.firmware = firmware_fields()
@@ -109,7 +119,7 @@ class ContractTest(unittest.TestCase):
         # the board never opens its config server and nothing anywhere logs a
         # reason.
         from boxradar_site.server import CONFIG_HEADER
-        net_task = (REPO / "src" / "net_task.cpp").read_text()
+        net_task = NET_TASK.read_text()
         self.assertIn(f'"{CONFIG_HEADER}"', net_task)
 
 
