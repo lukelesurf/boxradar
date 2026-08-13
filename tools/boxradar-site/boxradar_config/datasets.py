@@ -27,6 +27,7 @@ import csv
 import io
 import pathlib
 import time
+import shutil
 import urllib.request
 import zipfile
 from collections import namedtuple
@@ -79,25 +80,82 @@ def age_days(name, cache_dir):
     return (time.time() - path.stat().st_mtime) / 86400.0
 
 
-def fetch(name, cache_dir, opener=None):
-    """Download one dataset into the cache. Returns its path."""
+# 64KB. Small enough that progress moves visibly on a slow wifi link, large
+# enough that the per-chunk overhead is nothing against a 14MB file.
+CHUNK = 65536
+
+
+def _content_length(response):
+    """Total bytes if the response says, else None.
+
+    None means "count up, no percentage". Reporting a total that is not known
+    would render as a bar that jumps or sticks, which is worse than a bare
+    byte count. Test fakes are plain BytesIO objects and have no headers at
+    all, which is exactly the unknown-length case.
+    """
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    try:
+        total = int(headers.get("Content-Length"))
+    except (TypeError, ValueError):
+        return None
+    return total if total > 0 else None
+
+
+def fetch(name, cache_dir, opener=None, progress=None):
+    """Download one dataset into the cache. Returns its path.
+
+    Streamed to disk in chunks rather than read whole. The set is about 32MB
+    and GB.zip is the biggest of it, so reading a payload into memory cost a
+    Pi with 906MB — a third of it already gone to the desktop — a 14MB spike
+    per dataset. Chunking is also what makes `progress(done, total)` possible
+    at all.
+    """
     url, filename, member = SOURCES[name]
     target = dataset_dir(cache_dir) / filename
     target.parent.mkdir(parents=True, exist_ok=True)
     opener = opener or (lambda u: urllib.request.urlopen(u, timeout=180))
 
-    with opener(url) as response:
-        payload = response.read()
-    if member:
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            payload = archive.read(member)
-
     # Same directory so the rename is atomic: a half-downloaded 14MB file left
     # where the parser looks would be read as a truncated dataset rather than
     # as a failure.
     tmp = target.with_suffix(target.suffix + ".part")
-    tmp.write_bytes(payload)
-    tmp.replace(target)
+    try:
+        with opener(url) as response:
+            total = _content_length(response)
+            done = 0
+            with tmp.open("wb") as out:
+                while True:
+                    chunk = response.read(CHUNK)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    done += len(chunk)
+                    if progress:
+                        progress(done, total)
+
+        if member:
+            # Extracted from the file on disk rather than from memory, so a
+            # 14MB archive never becomes 28MB of resident payload.
+            extracted = target.with_suffix(target.suffix + ".zip-part")
+            try:
+                with zipfile.ZipFile(tmp) as archive:
+                    with archive.open(member) as src, \
+                            extracted.open("wb") as out:
+                        shutil.copyfileobj(src, out, CHUNK)
+                extracted.replace(target)
+            finally:
+                extracted.unlink(missing_ok=True)
+            tmp.unlink(missing_ok=True)
+        else:
+            tmp.replace(target)
+    except BaseException:
+        # Nothing half-written may be left where the parser looks, and a
+        # stray .part beside the real file would be picked up by anything
+        # globbing the directory.
+        tmp.unlink(missing_ok=True)
+        raise
     return target
 
 

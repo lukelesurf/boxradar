@@ -208,8 +208,8 @@ Six steps in dependency order, shown as a progress strip on every page:
 |---|---|---|
 | | `/` | names the single next action |
 | 1 | `/site` | home latitude/longitude and the search reach |
-| 2 | `/data` | what is downloaded and how old it is |
-| 3 | `/airspace` | the catalog as a table, tick to select, Suggest |
+| 2 | `/data` | all five sources: what is downloaded and how old it is |
+| 3 | `/airspace` | the catalog as a table, tick to select, filter as you type, Suggest |
 | 4 | `/points/airfields` | search by ICAO, name or town; centrelines per runway |
 | 4 | `/points/fixes` | navaids and enroute fixes in one list, plus eAIP import |
 | 4 | `/points/towns` | a map to click, ranked by population, with editable labels |
@@ -286,6 +286,38 @@ The two field tables — `DEVICE_FIELDS` in `lib/radarcore/device_config.cpp` an
 `tests/test_config_device_contract.py`. Drift between them fails nowhere else:
 a key spelled differently on the two sides is not a compile error and not an
 exception, just a setting that silently never applies.
+
+### Downloading
+
+Five sources, not four: the airspace dataset is a git checkout and the other
+four are HTTP downloads, but they are the same thing from the UI's point of
+view — something that has to be on disk before a page works. `sources.py` joins
+them so the Data page and the progress strip both ask one list. The two fetch
+mechanisms stay separate underneath, because a git URL does not fit
+`datasets.SOURCES`' `(url, filename, member)` shape.
+
+"Update source" used to live on the Airspace page, which meant the progress
+strip counted the airspace source as a dataset while the UI did not. There is
+also no longer a separate `source.html` interstitial: a missing airspace source
+lands on the Data page with that row ticked, exactly as a missing `towns` does.
+
+**Downloads are streamed, and so is the page that reports them.** About 32MB
+over a Pi's wifi is long enough that a plain POST-and-redirect looked
+indistinguishable from a hang. The response is generated as the work happens —
+no polling, no background job to supervise, no second request — with a
+`<progress>` per source fed by script fragments flushed as bytes land. Without
+JavaScript a line still appears per completed source.
+
+`datasets.fetch` streams to its `.part` file in 64KB chunks rather than
+`response.read()`. That is what makes progress possible, and it also stops a
+14MB payload sitting in RAM on a box with 906MB where a third is already gone
+to the desktop; the zip member is extracted from disk for the same reason.
+
+`tests/test_config_fetch_stream.py` holds a fake fetch open and insists a
+fragment has already reached the client. That test exists because the obvious
+implementation — collect the fragments, yield them when the fetch returns —
+produces exactly the right bytes in exactly the right order and defeats the
+entire feature, so nothing else catches it.
 
 ### Where the point references come from
 

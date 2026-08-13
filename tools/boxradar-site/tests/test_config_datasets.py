@@ -231,6 +231,84 @@ class TestCache(unittest.TestCase):
         names = {p.name for p in datasets.dataset_dir(self.cache).iterdir()}
         self.assertEqual(names, {"airports.csv"})
 
+    def test_no_partial_file_is_left_after_a_zip_extraction_either(self):
+        datasets.fetch("towns", self.cache, opener=lambda url: io.BytesIO(
+            self.zipped()))
+        names = {p.name for p in datasets.dataset_dir(self.cache).iterdir()}
+        self.assertEqual(names, {"GB.txt"})
+
+    def zipped(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("GB.txt", TOWNS)
+        return buffer.getvalue()
+
+
+class TestFetchProgress(unittest.TestCase):
+    """Downloads are the slowest thing this UI does, and on a Pi over wifi the
+    whole set is ~32MB. Reporting bytes as they land is what turns a page that
+    looks hung into one that is visibly working.
+
+    An empty cache, like TestCache — DatasetCase pre-populates the files these
+    tests are trying to create.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.cache = pathlib.Path(self.dir.name)
+
+    class Sized(io.BytesIO):
+        """A response that knows its length, as a real HTTP one does."""
+
+        def __init__(self, payload):
+            super().__init__(payload)
+            self.headers = {"Content-Length": str(len(payload))}
+
+    def test_progress_reports_bytes_against_a_total(self):
+        payload = (AIRPORTS * 400).encode()
+        seen = []
+        datasets.fetch("airports", self.cache,
+                       opener=lambda url: self.Sized(payload),
+                       progress=lambda done, total: seen.append((done, total)))
+        self.assertTrue(seen)
+        self.assertTrue(all(total == len(payload) for _, total in seen))
+        self.assertEqual(seen[-1][0], len(payload))
+
+    def test_it_reads_in_chunks_rather_than_all_at_once(self):
+        # Not a micro-optimisation: read() on the whole response held a 14MB
+        # payload in memory, on a Pi with 906MB where a third is already gone
+        # to the desktop. Chunking is also what makes progress possible at all.
+        payload = (AIRPORTS * 400).encode()
+        seen = []
+        datasets.fetch("airports", self.cache,
+                       opener=lambda url: self.Sized(payload),
+                       progress=lambda done, total: seen.append(done))
+        self.assertGreater(len(seen), 1,
+                           "one progress call means it read the lot in one go")
+
+    def test_a_response_without_a_length_reports_no_total(self):
+        # Reporting a total it does not know would render as a bar that jumps
+        # or sticks. None means "count up, no percentage".
+        seen = []
+        datasets.fetch("airports", self.cache,
+                       opener=lambda url: io.BytesIO(AIRPORTS.encode()),
+                       progress=lambda done, total: seen.append(total))
+        self.assertTrue(all(total is None for total in seen), seen)
+
+    def test_the_file_is_still_correct_with_progress_on(self):
+        datasets.fetch("airports", self.cache,
+                       opener=lambda url: io.BytesIO(AIRPORTS.encode()),
+                       progress=lambda done, total: None)
+        self.assertEqual(datasets.path_for("airports", self.cache).read_text(),
+                         AIRPORTS)
+
+    def test_fetching_without_a_progress_callback_still_works(self):
+        datasets.fetch("airports", self.cache,
+                       opener=lambda url: io.BytesIO(AIRPORTS.encode()))
+        self.assertEqual(datasets.path_for("airports", self.cache).read_text(),
+                         AIRPORTS)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,74 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Downloading — BOXRADAR</title>
+{% include '_style.html' %}
+<style>
+  .job { display: grid; grid-template-columns: 9rem 1fr 9rem;
+         gap: .8rem; align-items: center; margin: .5rem 0;
+         font-size: .92rem; }
+  .job progress { width: 100%; height: .7rem; }
+  .job .n { font-family: ui-monospace, monospace; font-size: .8rem;
+            color: var(--dim); text-align: right; }
+  .job.done .n { color: var(--ok); }
+  .job.failed .n { color: var(--err); }
+</style>
+
+<header>
+  <b>BOXRADAR</b>
+  <span class="where">downloading reference data</span>
+</header>
+
+<main>
+  <h1>Downloading</h1>
+  <p class="note">
+    About 32MB in total over this Pi's wifi, so the big ones take a while.
+    Leave this page open — it is the download; closing it stops what is still
+    in flight. Anything already finished stays finished.
+  </p>
+
+  {# One row per source, all rendered up front so you can see what is coming
+     rather than watching them appear one at a time. #}
+  {% for name in wanted %}
+    <div class="job" id="job-{{ name }}">
+      <span>{{ name }}</span>
+      <progress id="bar-{{ name }}" max="100" value="0"></progress>
+      <span class="n" id="n-{{ name }}">waiting</span>
+    </div>
+  {% endfor %}
+
+  <script>
+  // Fed by <script> fragments the server flushes as the download runs. No
+  // polling and no second request: this page IS the job, streamed.
+  function fmt(n) {
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    if (n >= 1024) return (n / 1024).toFixed(0) + ' KB';
+    return n + ' B';
+  }
+  function u(name, done, total) {
+    var bar = document.getElementById('bar-' + name);
+    var lbl = document.getElementById('n-' + name);
+    if (!bar) return;
+    if (total) {
+      bar.value = Math.round(done * 100 / total);
+      lbl.textContent = fmt(done) + ' of ' + fmt(total);
+    } else {
+      // No Content-Length, or a git checkout with nothing to count. An
+      // indeterminate bar is honest; a 0% one that never moves reads as a hang.
+      bar.removeAttribute('value');
+      lbl.textContent = done ? fmt(done) : 'working';
+    }
+  }
+  function done(name, note, ok) {
+    var row = document.getElementById('job-' + name);
+    var bar = document.getElementById('bar-' + name);
+    if (!row) return;
+    row.className = 'job ' + (ok ? 'done' : 'failed');
+    if (bar) { bar.max = 100; bar.value = ok ? 100 : 0; }
+    document.getElementById('n-' + name).textContent = note;
+  }
+  </script>
+
+  {# Without JavaScript none of the above runs, so the server also appends a
+     plain line per source as it finishes. The list stays open until the tail. #}
+  <noscript><p class="note">Progress appears as each source finishes.</p></noscript>
+  <ul id="log">

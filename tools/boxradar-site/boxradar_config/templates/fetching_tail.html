@@ -1,0 +1,13 @@
+  </ul>
+
+  {% if failed %}
+    <p class="flash error">
+      {{ failed|length }} source(s) failed. Everything else was downloaded and
+      is usable; try the failures again when the network is happier.
+    </p>
+  {% else %}
+    <p class="flash ok">Downloaded {{ done|length }} source(s) in {{ elapsed }}.</p>
+  {% endif %}
+
+  <p><a href="{{ next_page }}"><button type="button">Continue</button></a></p>
+</main>

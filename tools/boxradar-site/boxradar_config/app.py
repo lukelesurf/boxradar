@@ -10,15 +10,19 @@ Suggest button, and `generate` builds the blob. This is presentation plus a
 file to write, which is what the phase 4 scoping note said it should be.
 """
 
+import html
+import queue
 import secrets
+import threading
+import time
 
-from flask import (Flask, flash, g, redirect, render_template, request,
-                   url_for)
+from flask import (Flask, Response, flash, g, redirect, render_template,
+                   request, stream_with_context, url_for)
 
 from boxradar_site.geo import catalog, generate, rules, selection
 
 from . import (VERSION, datasets, device, fixes as fixesmod, picks, preview,
-               steps, store)
+               sources, steps, store)
 from .settings import Settings
 
 # Which step of the wizard each endpoint belongs to. The progress strip is
@@ -30,7 +34,7 @@ STEP_FOR_ENDPOINT = {
     "site": "site",
     "dataset_status": "data", "fetch_datasets": "data",
     "airspace": "airspace", "save_airspace": "airspace",
-    "fetch_source": "airspace", "publish": "airspace",
+    "publish": "airspace",
     "airfields": "points", "save_airfields": "points",
     "fixes": "points", "save_fixes": "points", "import_fixes": "points",
     "towns": "points", "save_towns": "points",
@@ -41,6 +45,11 @@ STEP_FOR_ENDPOINT = {
 # The town map, in CSS pixels. Not the panel's 240x320 — this is a picker, and
 # a map you choose from wants to be bigger than the one you end up with.
 MAP_W, MAP_H = 640, 640
+
+# End-of-stream marker for the download queue. A distinct object rather than
+# None, because None is what a throttled progress update returns and the two
+# must never be confused — see the note in _fetch_reporting.
+_STREAM_END = object()
 
 
 def create_app(settings=None, board=None):
@@ -184,7 +193,7 @@ def create_app(settings=None, board=None):
             return redirect(url_for("site"))
         features = load_features()
         if features is None:
-            return render_template("source.html", cache=settings.source_cache)
+            return need_datasets(sources.AIRSPACE)
 
         cands = load_catalog(sel, features)
         selected = set(sel.feature_names())
@@ -239,17 +248,6 @@ def create_app(settings=None, board=None):
               f"Publish to rebuild the map.", "ok")
         return redirect(url_for("airspace"))
 
-    @app.route("/source/fetch", methods=["POST"])
-    def fetch_source():
-        try:
-            generate.fetch_source(cache_dir=settings.source_cache)
-        except Exception as e:  # subprocess, network, disk — all the same here
-            flash(f"Could not fetch the airspace source: {e}", "error")
-            return redirect(url_for("airspace"))
-        source_memo.clear()  # mtime would catch it, but do not rely on that
-        flash("Airspace source updated.", "ok")
-        return redirect(url_for("airspace"))
-
     @app.route("/publish", methods=["POST"])
     def publish():
         sel = load_selection()
@@ -257,7 +255,7 @@ def create_app(settings=None, board=None):
             return redirect(url_for("site"))
         features = load_features()
         if features is None:
-            return render_template("source.html", cache=settings.source_cache)
+            return need_datasets(sources.AIRSPACE)
 
         want_coast = bool(request.form.get("coastline"))
         loader = publish_coast_loader(sel) if want_coast else None
@@ -290,46 +288,156 @@ def create_app(settings=None, board=None):
 
     # ------------------------------------------------------------- datasets
 
+    def source_rows():
+        return [(name, sources.age_days(name, settings),
+                 sources.PURPOSE[name], sources.ORIGIN[name])
+                for name in sources.ALL]
+
     # /datasets kept as an alias: it is in the README, in the systemd notes and
     # probably in a browser history or two. Same endpoint, so url_for() emits
     # the new path everywhere.
     @app.route("/data", methods=["GET"])
     @app.route("/datasets", methods=["GET"])
     def dataset_status():
-        return render_template(
-            "datasets.html",
-            rows=[(name, datasets.age_days(name, settings.cache_dir))
-                  for name in datasets.SOURCES])
+        return render_template("datasets.html", rows=source_rows())
 
+    @app.route("/data/fetch", methods=["POST"])
     @app.route("/datasets/fetch", methods=["POST"])
     def fetch_datasets():
-        wanted = request.form.getlist("dataset") or list(datasets.SOURCES)
-        done, failed = [], []
-        for name in wanted:
-            if name not in datasets.SOURCES:
-                continue
-            try:
-                datasets.fetch(name, settings.cache_dir)
+        """Downloads, streamed, so the page reports progress as it goes.
+
+        A plain POST-and-redirect left the browser spinning for however long
+        32MB takes over the Pi's wifi, with nothing to distinguish "working"
+        from "hung". Streaming the response means the work IS the page: no
+        polling, no background job to supervise, no second request.
+
+        The cost is that the response cannot end in a redirect, so this
+        renders its own page with a Continue link rather than flashing.
+        """
+        wanted = [n for n in request.form.getlist("source") if n in sources.ALL]
+        wanted = wanted or list(sources.ALL)
+        next_page = request.form.get("next") or url_for("dataset_status")
+
+        def run():
+            yield render_template("fetching_head.html", wanted=wanted)
+            done, failed = [], []
+            started = time.monotonic()
+            for name in wanted:
+                # Throttled to roughly every 256KB. Flushing a fragment per
+                # 64KB chunk would put hundreds of script tags on the wire for
+                # a 14MB file and buy no visible smoothness.
+                state = {"last": -1}
+
+                def progress(got, total, name=name, state=state):
+                    step = got // (4 * datasets.CHUNK)
+                    if step == state["last"]:
+                        return
+                    state["last"] = step
+                    self_total = total if total else "null"
+                    return f'<script>u("{name}",{got},{self_total})</script>'
+
+                at = time.monotonic()
+                try:
+                    for fragment in _fetch_reporting(name, progress):
+                        yield fragment
+                except Exception as e:
+                    failed.append(name)
+                    note = html.escape(str(e))[:120]
+                    yield (f'<script>done("{name}",'
+                           f'"failed",false)</script>'
+                           f'<li class="why">{html.escape(name)} failed: {note}</li>')
+                    continue
                 done.append(name)
-            except Exception as e:
-                failed.append(f"{name}: {e}")
-        dataset_memo.clear()
-        if done:
-            flash(f"Downloaded {', '.join(done)}.", "ok")
-        for problem in failed:
-            flash(f"Could not download {problem}", "error")
-        return redirect(request.form.get("next") or url_for("dataset_status"))
+                took = time.monotonic() - at
+                size = _readable_size(name)
+                yield (f'<script>done("{name}","{size} in {took:.0f}s",true)'
+                       f'</script>'
+                       f'<li>{html.escape(name)} — {size} in {took:.0f}s</li>')
+
+            # Both memos key on mtime and would notice anyway, but a fetch is
+            # exactly when they are wrong and clearing is free.
+            dataset_memo.clear()
+            source_memo.clear()
+            yield render_template(
+                "fetching_tail.html", done=done, failed=failed,
+                next_page=next_page,
+                elapsed=f"{time.monotonic() - started:.0f}s")
+
+        return Response(stream_with_context(run()), mimetype="text/html")
+
+    def _fetch_reporting(name, progress):
+        """Runs one fetch, yielding fragments WHILE it runs.
+
+        The fetchers are ordinary blocking functions, so the work goes on a
+        thread and its progress callback pushes onto a queue this generator
+        drains. Collecting the fragments in a list and yielding them after the
+        fetch returned would compile and pass a shape test while defeating the
+        entire feature — every bar would jump from 0 to 100 the instant the
+        file had already landed.
+
+        The thread is joined before returning and its exception re-raised on
+        this one, so a failure is still the caller's to report.
+        """
+        pending = queue.Queue()
+        outcome = {}
+
+        def report(got, total):
+            """Queue a fragment, if this update was not throttled away.
+
+            The `if fragment` matters: `progress` returns None between
+            throttle steps, and queueing that would be indistinguishable from
+            the end-of-stream marker below. That cost a live 14MB download all
+            but its first update — everything after the first skipped step was
+            read as "finished" and dropped.
+            """
+            fragment = progress(got, total)
+            if fragment:
+                pending.put(fragment)
+
+        def work():
+            try:
+                sources.fetch(name, settings, progress=report)
+            except BaseException as e:
+                outcome["error"] = e
+            finally:
+                pending.put(_STREAM_END)
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        while True:
+            fragment = pending.get()
+            if fragment is _STREAM_END:
+                break
+            yield fragment
+        worker.join()
+        if "error" in outcome:
+            raise outcome["error"]
+
+    def _readable_size(name):
+        try:
+            if name == sources.AIRSPACE:
+                path = generate.yaml_path(settings.source_cache)
+            else:
+                path = datasets.path_for(name, settings.cache_dir)
+            n = path.stat().st_size
+        except OSError:
+            return "done"
+        if n >= 1048576:
+            return f"{n / 1048576:.1f} MB"
+        return f"{n / 1024:.0f} KB"
 
     def need_datasets(*names):
-        """A page to render instead, when a dataset is not downloaded yet."""
-        absent = [n for n in names
-                  if datasets.age_days(n, settings.cache_dir) is None]
+        """A page to render instead, when a source is not downloaded yet.
+
+        The airspace source goes through here too, which is why source.html no
+        longer exists: "you need data before this page works" was the same
+        situation in both cases and had two different pages saying it.
+        """
+        absent = [n for n in names if sources.age_days(n, settings) is None]
         if not absent:
             return None
-        return render_template(
-            "datasets.html", needed=absent, next_page=request.path,
-            rows=[(name, datasets.age_days(name, settings.cache_dir))
-                  for name in datasets.SOURCES])
+        return render_template("datasets.html", needed=absent,
+                               next_page=request.path, rows=source_rows())
 
     # ------------------------------------------------------------ airfields
     # Airfields, fixes and towns are three panels of one step. They are the
@@ -674,7 +782,7 @@ def create_app(settings=None, board=None):
             return redirect(url_for("site"))
         features = load_features()
         if features is None:
-            return render_template("source.html", cache=settings.source_cache)
+            return need_datasets(sources.AIRSPACE)
 
         result = preview_build(sel, features)
         if not result.ok:

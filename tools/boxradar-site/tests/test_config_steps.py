@@ -18,7 +18,7 @@ import pathlib
 import tempfile
 import unittest
 
-from boxradar_config import steps
+from boxradar_config import datasets, sources, steps
 from boxradar_config.settings import Settings
 
 HOME_LAT, HOME_LON = 51.8850, 0.2350
@@ -40,12 +40,12 @@ class RailCase(unittest.TestCase):
                                  self.root / "www" / "site.bin", 8082)
 
     def write_dataset(self, name):
-        path = steps.datasets.path_for(name, self.settings.cache_dir)
+        path = datasets.path_for(name, self.settings.cache_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("stub")
 
     def write_all_datasets(self):
-        for name in steps.datasets.SOURCES:
+        for name in datasets.SOURCES:
             self.write_dataset(name)
 
     def write_source(self):
@@ -98,10 +98,10 @@ class TestDataStep(RailCase):
         self.assertEqual(self.rail(make_selection())["data"].state, steps.TODO)
 
     def test_counts_what_is_present(self):
-        self.write_dataset(next(iter(steps.datasets.SOURCES)))
+        self.write_dataset(next(iter(datasets.SOURCES)))
         step = self.rail(make_selection())["data"]
         self.assertEqual(step.state, steps.TODO)
-        self.assertIn(f"1 of {len(steps.datasets.SOURCES) + 1}", step.detail)
+        self.assertIn(f"1 of {len(sources.ALL)}", step.detail)
 
     def test_the_age_is_rounded(self):
         # age_days() returns a float. Unformatted, the live strip read
@@ -222,10 +222,10 @@ class TestCost(RailCase):
         for module, name in ((generate, "load_features"),
                              (generate, "load_coastline"),
                              (catalog, "catalog"),
-                             (steps.datasets, "airfields"),
-                             (steps.datasets, "towns"),
-                             (steps.datasets, "navaids"),
-                             (steps.datasets, "runways")):
+                             (datasets, "airfields"),
+                             (datasets, "towns"),
+                             (datasets, "navaids"),
+                             (datasets, "runways")):
             original = getattr(module, name)
             setattr(module, name, explode)
             self.addCleanup(setattr, module, name, original)

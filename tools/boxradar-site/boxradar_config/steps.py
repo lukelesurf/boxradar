@@ -24,9 +24,7 @@ STALE     Publish only. The blob is older than the selection, so what the board
 
 import time
 
-from boxradar_site.geo import generate
-
-from . import datasets
+from . import sources
 
 TODO = "todo"
 DONE = "done"
@@ -77,7 +75,7 @@ def _mtime(path):
 
 
 def have_source(settings):
-    return generate.yaml_path(settings.source_cache).exists()
+    return sources.age_days(sources.AIRSPACE, settings) is not None
 
 
 def _site_step(settings, sel):
@@ -87,23 +85,20 @@ def _site_step(settings, sel):
 
 
 def _data_step(settings, sel):
-    """The airspace source counts as a dataset here, deliberately.
+    """One list, five sources — sources.py owns the git/download split.
 
-    It is a prerequisite in exactly the way the four downloads are. Keeping it
-    as a separate hidden concept is what produced source.html as a surprise
-    interstitial on the Airspace tab.
+    This used to add the airspace source on with a hardcoded +1 while the
+    button that fetched it lived on the Airspace page: the strip counted it as
+    a dataset and the UI did not. Now both ask sources.ALL.
     """
-    names = list(datasets.SOURCES)
-    ages = [datasets.age_days(n, settings.cache_dir) for n in names]
+    ages = [sources.age_days(name, settings) for name in sources.ALL]
     present = [a for a in ages if a is not None]
-    total = len(names) + 1
-    have = len(present) + (1 if have_source(settings) else 0)
-    if have < total:
-        return TODO, f"{have} of {total} downloaded"
+    total = len(sources.ALL)
+    if len(present) < total:
+        return TODO, f"{len(present)} of {total} downloaded"
     # age_days() returns a float, so this needs a format or the strip reads
     # "oldest 4.337401080090139d".
-    oldest = max(present) if present else 0
-    return DONE, f"{total} sets · oldest {oldest:.0f}d"
+    return DONE, f"{total} sets · oldest {max(present):.0f}d"
 
 
 def _airspace_step(settings, sel):
@@ -117,7 +112,7 @@ def _airspace_step(settings, sel):
 
 def _points_step(settings, sel):
     absent = [n for n in ("airports", "runways", "towns")
-              if datasets.age_days(n, settings.cache_dir) is None]
+              if sources.age_days(n, settings) is None]
     if absent:
         return BLOCKED, f"needs {', '.join(absent)}"
     counts = [

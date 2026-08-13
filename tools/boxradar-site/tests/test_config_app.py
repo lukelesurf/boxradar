@@ -116,11 +116,28 @@ class TestFirstRun(AppCase):
         self.assertEqual(r.status_code, 400)
         self.assertFalse(self.selection_path.exists())
 
-    def test_missing_source_offers_to_fetch_it(self):
+    def test_missing_source_sends_you_to_the_data_page(self):
+        # It used to render a bespoke source.html. "You need data before this
+        # page works" is the same situation the pickers already had, and it
+        # had two different pages saying it — now the airspace source is just
+        # the first row on the Data page.
         self.write_selection()
         r = self.client.get("/airspace")
         self.assertEqual(r.status_code, 200)
-        self.assertIn(b"No airspace source yet", r.data)
+        self.assertIn(b"Reference data", r.data)
+        self.assertIn(b'value="airspace"', r.data)
+
+    def test_only_the_missing_source_is_pre_ticked(self):
+        # Being sent here by a page missing one file should not default to
+        # re-downloading 32MB over the Pi's wifi.
+        self.write_selection()
+        body = self.client.get("/airspace").data.decode()
+        # Split on the tag rather than on lines: the attributes wrap.
+        inputs = [chunk.split(">")[0] for chunk in body.split("<input ")[1:]
+                  if 'name="source"' in chunk.split(">")[0]]
+        ticked = [i for i in inputs if "checked" in i]
+        self.assertEqual(len(ticked), 1, inputs)
+        self.assertIn("airspace", ticked[0])
 
 
 class TestPicker(AppCase):

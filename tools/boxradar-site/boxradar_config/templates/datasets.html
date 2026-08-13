@@ -6,41 +6,54 @@
 
 {% if needed %}
   <p class="flash error">
-    This page needs {{ needed|join(', ') }}, which {{ 'has' if needed|length == 1 else 'have' }}
-    not been downloaded yet.
+    The page you asked for needs {{ needed|join(', ') }}, which
+    {{ 'has' if needed|length == 1 else 'have' }} not been downloaded yet.
+    {{ 'It is' if needed|length == 1 else 'They are' }} ticked below.
   </p>
 {% endif %}
 
 <p class="note">
-  About 32MB in total, cached on disk and re-filtered per site — so changing
-  the search reach never needs a re-download. Airfields, runways and navaids
-  come from
-  <a href="https://ourairports.com/data/">OurAirports</a>; towns from
+  Five sources, about 32MB in total, cached on disk and re-filtered per site —
+  so changing the search reach never needs a re-download. Airspace is a git
+  checkout of <a href="https://github.com/ahsparrow/airspace">ahsparrow/airspace</a>,
+  worth pulling again when an AIRAC cycle moves something; the other four come
+  from <a href="https://ourairports.com/data/">OurAirports</a> and
   <a href="https://www.geonames.org/">GeoNames</a>.
 </p>
 
-<table>
-  <tr><th>dataset</th><th class="n">age</th><th>used for</th></tr>
-  {% set purpose = {'airports': 'airfield markers, by ICAO',
-                    'runways': 'extended centrelines — both thresholds',
-                    'navaids': 'VOR/NDB idents on the Fixes page',
-                    'towns': 'ground references, ranked by population'} %}
-  {% for name, age in rows %}
-    <tr>
-      <td>{{ name }}</td>
-      <td class="n">
-        {% if age is none %}<b>not downloaded</b>
-        {% elif age < 1 %}today
-        {% else %}{{ '%.0f'|format(age) }} days{% endif %}
-      </td>
-      <td class="why">{{ purpose[name] }}</td>
-    </tr>
-  {% endfor %}
-</table>
-
 <form method="post" action="{{ url_for('fetch_datasets') }}">
   {% if next_page %}<input type="hidden" name="next" value="{{ next_page }}">{% endif %}
-  <p><button type="submit">Download everything</button></p>
+  <div class="scroll">
+    <table>
+      <tr>
+        <th></th><th>source</th><th class="n">age</th>
+        <th>from</th><th>used for</th>
+      </tr>
+      {% for name, age, purpose, origin in rows %}
+        <tr class="{{ 'picked' if needed and name in needed }}">
+          {# Ticked by default, so the first run is one button. When you have
+             been sent here BY a page that is missing something, only the
+             missing ones are ticked — re-downloading 32MB to get one file
+             would be a poor default on a Pi's wifi. #}
+          <td><input type="checkbox" name="source" value="{{ name }}"
+                     {{ 'checked' if not needed or name in needed }}></td>
+          <td>{{ name }}</td>
+          <td class="n">
+            {% if age is none %}<b>not downloaded</b>
+            {% elif age < 1 %}today
+            {% else %}{{ '%.0f'|format(age) }} days{% endif %}
+          </td>
+          <td class="why">{{ origin }}</td>
+          <td class="why">{{ purpose }}</td>
+        </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <p>
+    <button type="submit">Download ticked</button>
+    <span class="why">Untick anything already current to skip re-fetching it.</span>
+  </p>
 </form>
 
 <p class="note">
