@@ -313,6 +313,20 @@ agree — the URL's last path segment names the station the firmware then picks
 out of the response. Both are optional: comment out `METAR_URL` and the whole
 feature compiles out, and the status strip simply omits the weather segments.
 
+### Provisioning a receiver from scratch
+
+`tools/receiver-install/` builds a complete receiver — readsb, tar1090, both
+feeders, `boxradar-site` above and the airspace/config UI it shares a Pi
+with — from a bare Raspberry Pi OS Lite install:
+
+```bash
+cd tools/receiver-install && sudo ./install.sh
+```
+
+See [tools/receiver-install/README.md](tools/receiver-install/README.md).
+An as-built inventory of the current receiver is in
+[docs/receiver-pi.md](docs/receiver-pi.md).
+
 ## Relocating
 
 Five files carry location data. Nothing else needs touching.
@@ -432,7 +446,8 @@ lib/radarcore/  portable domain logic: parse, projection, formatting,
                 blob reader (geoblob.h/.cpp — not yet used on device)
 test/           native Unity tests for radarcore
 tools/          airspace and coastline codegen, boxradar-site (receiver-side
-                METAR proxy; grows into the site config app)
+                METAR proxy; grows into the site config app), receiver-install
+                (provisions a receiver Pi from bare OS)
 docs/           design notes for work not yet done
 case.scad       parametric OpenSCAD enclosure (see Case, above)
 ```

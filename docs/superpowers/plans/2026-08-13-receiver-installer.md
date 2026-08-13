@@ -1071,10 +1071,12 @@ redact() {
 
 [[ -r $CONF ]] && conf_load "$CONF"
 
-# The wizard runs BEFORE logging starts, and the order matters. `read -r`
-# echoes what is typed, and the FR24 key is typed at a prompt — if the log
-# were already capturing this stream, the key would be written to it before
-# redact() had any way of knowing the value to redact.
+# The wizard runs before logging starts. Not because read echoes input —
+# the tty does that, and it never reaches this process's stdout — but
+# because `ask` renders existing values as prompt defaults. On a re-run
+# the FR24 prompt reads "... [<the stored key>]: ", and read -p writes
+# prompts to stderr, which tee would capture. Logging starts once the
+# wizard is done.
 if [[ $WIZARD -eq 1 ]]; then
   run_wizard
   conf_load "$CONF"
