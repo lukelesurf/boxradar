@@ -77,6 +77,19 @@ class TestValidate(unittest.TestCase):
     def test_empty_static_ip_is_allowed(self):
         self.assertEqual(run("conf_validate", STATIC_IP="").returncode, 0)
 
+    def test_static_ip_with_a_quote_is_rejected(self):
+        # conf_write wraps values in quotes, so a value carrying its own
+        # closing quote escapes into command context when the file is sourced.
+        result = run("conf_validate", STATIC_IP='x"; touch /tmp/poc; y="')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("STATIC_IP", result.stderr)
+
+    def test_a_plain_static_ip_is_accepted(self):
+        self.assertEqual(run("conf_validate", STATIC_IP="192.0.2.10").returncode, 0)
+
+    def test_a_static_ip_with_a_prefix_is_accepted(self):
+        self.assertEqual(run("conf_validate", STATIC_IP="192.0.2.10/24").returncode, 0)
+
     def test_all_problems_are_reported_not_just_the_first(self):
         result = run("conf_validate", LAT="999", METAR_STATION="X")
         self.assertIn("LAT", result.stderr)
@@ -112,6 +125,14 @@ class TestValidate(unittest.TestCase):
 
 
 class TestRoundTrip(unittest.TestCase):
+    def test_conf_write_refuses_a_breakout_character(self):
+        # The write-side guard, independent of conf_validate — proves a field
+        # that slipped past validation still cannot produce a dangerous file.
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "receiver.conf"
+            result = run(f'conf_write "{path}"', METAR_STATION='EG"X')
+            self.assertEqual(result.returncode, 1)
+
     def test_write_then_load_recovers_every_value(self):
         with tempfile.TemporaryDirectory() as d:
             path = pathlib.Path(d) / "receiver.conf"

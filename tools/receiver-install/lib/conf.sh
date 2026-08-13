@@ -39,6 +39,14 @@ conf_validate() {
     _bad "METAR_STATION must be a 4-letter ICAO code: '${METAR_STATION:-}'"
   conf_integer "${CALM_KT:-}" || _bad "CALM_KT must be a whole number"
 
+  # Blank means DHCP. Otherwise 20-os.sh hands this straight to
+  # `nmcli connection modify ... ipv4.addresses`, which takes an address
+  # optionally followed by a /prefix — anchoring it here also keeps anything
+  # else (in particular a stray quote) out of a value that conf_write quotes
+  # when writing the file.
+  [[ -z ${STATIC_IP:-} || ${STATIC_IP:-} =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/[0-9]{1,2})?$ ]] || \
+    _bad "STATIC_IP must be blank (DHCP) or an address like 192.0.2.10/24"
+
   # These three are interpolated into receiver.conf, which is later sourced
   # (by root, during install). A value containing $(...), a backtick, quotes
   # or whitespace would corrupt the file or execute as shell rather than
@@ -56,7 +64,23 @@ conf_validate() {
 }
 
 conf_write() {
-  local path=$1
+  local path=$1 key value
+  # conf_validate character-checks the fields it knows about, but this file
+  # is sourced — by root — so writing is the last place to catch a value
+  # that could break out of its own quoting. A field added later without a
+  # matching validation rule fails here rather than silently becoming
+  # shell. (This is what caught STATIC_IP: quoted by conf_write but, at the
+  # time, only checked for emptiness by conf_validate — a value carrying
+  # its own closing quote escaped into command context on source.)
+  for key in HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION \
+             CALM_KT ADSBX_USER ADSBX_UUID FR24_KEY; do
+    value="${!key:-}"
+    if [[ $value == *'"'* || $value == *'`'* || $value == *'$'* || \
+          $value == *\\* || $value == *$'\n'* ]]; then
+      echo "receiver.conf: $key contains a character that cannot be written safely" >&2
+      return 1
+    fi
+  done
   mkdir -p "$(dirname "$path")"
   # Created 0600 before anything is written to it: the file carries the FR24
   # key and the ADSBExchange uuid, and a default-umask window is still a
