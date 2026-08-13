@@ -96,6 +96,13 @@
   th { position: sticky; top: 0; background: Canvas; }
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
   tr.picked { background: #2d865915; }
+  /* The airspace filter hides rows with the `hidden` property. That already
+     works — [hidden] is an attribute selector and outranks the UA sheet's
+     `tr { display: table-row }` — but the margin is one point of specificity
+     in a stylesheet we do not own, and a row that failed to hide would look
+     like the filter was broken. Stated outright so it does not depend on
+     that. */
+  tr[hidden] { display: none; }
   .why { color: var(--dim); font-size: .82rem; }
   .bar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap;
          margin: 0 0 .8rem; }

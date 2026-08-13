@@ -200,16 +200,21 @@ def create_app(settings=None, board=None):
                   f"Nothing is saved until you press Save.", "ok")
 
         kinds = sorted({c.kind for c in cands})
-        # Blank values dropped, not just a missing key. The "every kind"
-        # option has an empty value but the select still submits its name, so
-        # choosing it arrives as `?kind=` and getlist() returns [""] — a
-        # NON-EMPTY list. `not show` then reads that as an active filter and
-        # matches candidates whose kind is the empty string, of which there
-        # are none, so pressing Filter on the default option emptied the whole
-        # table. Same rule the rest of this file already uses for `q` and
-        # `small`: an empty value means absent.
+        # EVERY candidate is rendered, always. Filtering by kind or by name is
+        # done in the browser, and that is a correctness decision rather than
+        # a performance one.
+        #
+        # apply_airspace() sets the selection to exactly the ticked names, so
+        # while this filtered server-side, ticking what was visible under
+        # ?kind=CTR and pressing Save silently deleted every CTA group — the
+        # hidden features were simply not in the form. Hiding rows in the
+        # browser leaves their checkboxes submitting, so the form is always
+        # complete and the whole class of bug goes away rather than being
+        # patched.
+        #
+        # ?kind= is still read, by the script on load, so existing bookmarks
+        # keep working.
         show = [k for k in request.args.getlist("kind") if k]
-        visible = [c for c in cands if not show or c.kind in show]
 
         missing = selection.missing_features(sel, features)
         if missing:
@@ -218,7 +223,7 @@ def create_app(settings=None, board=None):
                   f"{', '.join(missing)}", "error")
 
         return render_template(
-            "airspace.html", sel=sel, candidates=visible, selected=selected,
+            "airspace.html", sel=sel, candidates=cands, selected=selected,
             reasons=reasons, kinds=kinds, show=show, total=len(cands),
             px_per_nm=catalog.PX_PER_NM_OVERVIEW, missing=missing)
 

@@ -134,36 +134,44 @@ class TestPicker(AppCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn(b"LONDON STANSTED CTR", r.data)
 
-    def test_filtering_by_one_kind_narrows_the_list(self):
+    def test_every_candidate_is_rendered_whatever_the_query_says(self):
+        # Filtering is a VIEW concern now, done in the browser. The server
+        # always sends every candidate, and that is the whole reason a Save
+        # under an active filter can no longer drop what was hidden.
         self.write_selection()
-        r = self.client.get("/airspace?kind=CTR")
-        self.assertIn(b"LONDON STANSTED CTR", r.data)
-        self.assertNotIn(b"LONDON STANSTED CTA", r.data)
+        for query in ("", "?kind=CTR", "?kind=", "?kind=CTA&kind=CTR"):
+            r = self.client.get("/airspace" + query)
+            self.assertIn(b"LONDON STANSTED CTR", r.data, query)
+            self.assertIn(b"LONDON STANSTED CTA", r.data, query)
 
-    def test_every_kind_shows_everything(self):
-        # The "every kind" option has an empty value, but the select still
-        # submits its name — so this arrives as ?kind= and getlist() returns
-        # [""], a NON-EMPTY list. `not show` therefore reads it as a filter
-        # and matches candidates whose kind is the empty string, of which
-        # there are none. Pressing Filter on the default option emptied the
-        # whole table.
+    def test_rows_carry_the_text_the_filter_matches_on(self):
+        # Name and kind together, uppercased, so typing either "stansted" or
+        # "ctr" finds it without the script needing to read the cells.
         self.write_selection()
-        r = self.client.get("/airspace?kind=")
-        self.assertIn(b"LONDON STANSTED CTR", r.data)
-        self.assertIn(b"LONDON STANSTED CTA", r.data)
+        body = self.client.get("/airspace").data.decode()
+        self.assertIn('data-search="LONDON STANSTED CTR CTR"', body)
 
-    def test_no_kind_parameter_at_all_shows_everything(self):
-        self.write_selection()
-        r = self.client.get("/airspace")
-        self.assertIn(b"LONDON STANSTED CTR", r.data)
-        self.assertIn(b"LONDON STANSTED CTA", r.data)
-
-    def test_a_blank_among_real_kinds_does_not_widen_the_filter(self):
-        # Defensive: a hand-built query mixing the two must still filter.
-        self.write_selection()
-        r = self.client.get("/airspace?kind=&kind=CTR")
-        self.assertIn(b"LONDON STANSTED CTR", r.data)
-        self.assertNotIn(b"LONDON STANSTED CTA", r.data)
+    def test_a_save_under_a_filter_cannot_drop_a_hidden_group(self):
+        # The regression this design removes. apply_airspace() sets the
+        # selection to EXACTLY the ticked names, so while the server filtered,
+        # ticking what was visible under ?kind=CTR and pressing Save silently
+        # deleted every CTA group. Replicates the click path: render the
+        # filtered page, submit what it contains, check nothing was lost.
+        from boxradar_site.geo import selection
+        self.write_selection(groups=[
+            selection.Group("STANSTED_CTR", "LONDON STANSTED CTR"),
+            selection.Group("STANSTED_CTA", "LONDON STANSTED CTA"),
+        ])
+        body = self.client.get("/airspace?kind=CTR").data.decode()
+        submitted = [line.split('value="')[1].split('"')[0]
+                     for line in body.splitlines() if 'name="feature"' in line]
+        self.assertIn("LONDON STANSTED CTA", submitted,
+                      "the hidden feature must still be in the form")
+        self.client.post("/airspace", data={"feature": submitted})
+        kept = {g["primary"] for g in
+                json.loads(self.selection_path.read_text())["airspace"]}
+        self.assertEqual(kept,
+                         {"LONDON STANSTED CTR", "LONDON STANSTED CTA"})
 
     def test_suggest_does_not_save(self):
         self.write_selection()
