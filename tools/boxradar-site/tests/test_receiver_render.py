@@ -58,32 +58,61 @@ class TestRenderReadsb(unittest.TestCase):
         out = render("render_readsb")
         subprocess.run(["bash", "-n"], input=out, text=True, check=True)
 
+    def test_multi_word_values_are_quoted(self):
+        # /etc/default/readsb is sourced by systemd's EnvironmentFile=.
+        # Unquoted, NET_OPTIONS would take only its first word and the shell
+        # would try to execute the second as a command.
+        out = render("render_readsb")
+        for key in ("RECEIVER_OPTIONS", "DECODER_OPTIONS", "NET_OPTIONS",
+                    "JSON_OPTIONS"):
+            line = next(l for l in out.splitlines() if l.startswith(f"{key}="))
+            value = line.split("=", 1)[1]
+            self.assertTrue(value.startswith('"') and value.endswith('"'),
+                             f"{key} must be quoted, got: {line}")
+
 
 class TestRenderAdsbexchange(unittest.TestCase):
     def test_position_matches_readsb_exactly(self):
         readsb, adsbx = render("render_readsb"), render("render_adsbexchange")
         self.assertIn("--lat 51.8849826", readsb)
-        self.assertIn("LATITUDE=51.8849826", adsbx)
-        self.assertIn("LONGITUDE=0.2349914", adsbx)
+        self.assertIn('LATITUDE="51.8849826"', adsbx)
+        self.assertIn('LONGITUDE="0.2349914"', adsbx)
 
     def test_altitude_is_carried_in_feet(self):
-        self.assertIn("ALTITUDE=348ft", render("render_adsbexchange"))
+        self.assertIn('ALTITUDE="348ft"', render("render_adsbexchange"))
 
     def test_user_comes_from_the_conf(self):
-        self.assertIn("USER=example-feeder", render("render_adsbexchange"))
+        self.assertIn('USER="example-feeder"', render("render_adsbexchange"))
+
+    def test_multi_word_values_are_quoted(self):
+        # /etc/default/adsbexchange is sourced by the feeder's shell script.
+        # Unquoted, NET_OPTIONS would take only its first word and the shell
+        # would try to execute the second as a command.
+        out = render("render_adsbexchange")
+        for key in ("RESULTS", "TARGET", "NET_OPTIONS", "JSON_OPTIONS"):
+            line = next(l for l in out.splitlines() if l.startswith(f"{key}="))
+            value = line.split("=", 1)[1]
+            self.assertTrue(value.startswith('"') and value.endswith('"'),
+                             f"{key} must be quoted, got: {line}")
+
+    def test_output_is_valid_shell(self):
+        # /etc/default/adsbexchange is sourced by the feeder's own shell
+        # script, exactly like readsb's EnvironmentFile.
+        out = render("render_adsbexchange")
+        subprocess.run(["bash", "-n"], input=out, text=True, check=True)
 
 
 class TestRenderFr24(unittest.TestCase):
     def test_key_is_written(self):
-        self.assertIn("fr24key=testkey9876", render("render_fr24"))
+        self.assertIn('fr24key="testkey9876"', render("render_fr24"))
 
     def test_receiver_is_beast_on_localhost(self):
         out = render("render_fr24")
-        self.assertIn("receiver=", out)
-        self.assertIn("host=127.0.0.1:30005", out)
+        self.assertIn('receiver="beast-tcp"', out)
+        self.assertIn('host="127.0.0.1:30005"', out)
 
     def test_mlat_is_enabled(self):
-        self.assertIn("mlat=yes", render("render_fr24"))
+        self.assertIn('mlat="yes"', render("render_fr24"))
 
 
 class TestSecretsAreNotEchoed(unittest.TestCase):
