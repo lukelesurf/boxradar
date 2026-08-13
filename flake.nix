@@ -28,6 +28,10 @@
             # Pi", not "installable at all" — python3-flask is in bookworm,
             # which is why it is allowed where pip is not.
             (python3.withPackages (ps: [ ps.pyyaml ps.shapely ps.flask ]))
+            # tools/receiver-install is bash, and the receiver provisions a Pi
+            # from a bare image — a shell bug there strands a box in someone
+            # else's house, so every stage script is linted.
+            shellcheck
           ];
         };
       });
