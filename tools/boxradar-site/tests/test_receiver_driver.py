@@ -16,6 +16,26 @@ INSTALL = (pathlib.Path(__file__).resolve().parents[2]
 
 
 class DriverCase(unittest.TestCase):
+    # conf_validate is unconditional on every driver run, including
+    # --no-wizard — that's the hand-edited-file path, exactly where a
+    # transposed coordinate appears, and a bad position degrades MLAT
+    # silently. Tests that don't care about config content still need one
+    # that passes validation; tests that do care overwrite this.
+    VALID_CONF = (
+        "HOSTNAME=boxradar\n"
+        "LAT=51.8849826\n"
+        "LON=0.2349914\n"
+        "ALT_FT=348\n"
+        "GAIN=auto\n"
+        "PPM=0\n"
+        "STATIC_IP=\n"
+        "METAR_STATION=EGSS\n"
+        "CALM_KT=7\n"
+        "ADSBX_USER=example-feeder\n"
+        "ADSBX_UUID=\n"
+        "FR24_KEY=testkey9876\n"
+    )
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -23,6 +43,7 @@ class DriverCase(unittest.TestCase):
         self.stages = self.root / "stages"
         self.stages.mkdir()
         self.stamps = self.root / "stamps"
+        (self.root / "receiver.conf").write_text(self.VALID_CONF)
 
     def stage(self, name, body="exit 0"):
         path = self.stages / name
@@ -103,6 +124,24 @@ class TestFailureHandling(DriverCase):
         self.assertIn("10-bad", text)
         self.assertIn("re-run", text.lower())
 
+    def test_a_failing_stage_propagates_a_nonzero_exit(self):
+        # `if ! bash "$stage"; then status=$?` zeroes $? — the installer
+        # would exit 0 on a failed stage and report success.
+        self.stage("10-bad.sh", 'exit 3')
+        self.assertNotEqual(self.run_driver("--no-wizard").returncode, 0)
+
+    def test_an_invalid_config_stops_a_no_wizard_run(self):
+        # --no-wizard is the hand-edited-file path, which is exactly where a
+        # transposed coordinate appears. A bad position has no visible
+        # symptom; it silently degrades MLAT.
+        (self.root / "receiver.conf").write_text(
+            self.VALID_CONF.replace("LAT=51.8849826", "LAT=951.9"))
+        self.stage("10-first.sh", 'echo ran-10')
+        result = self.run_driver("--no-wizard")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("ran-10", result.stdout)
+        self.assertIn("LAT", result.stdout + result.stderr)
+
 
 class TestLogging(DriverCase):
     def test_output_is_written_to_the_log(self):
@@ -113,7 +152,9 @@ class TestLogging(DriverCase):
 
     def test_secrets_are_redacted_from_the_log(self):
         (self.root / "receiver.conf").write_text(
-            "FR24_KEY=supersecret123\nADSBX_UUID=uuid-secret-456\n")
+            self.VALID_CONF.replace("FR24_KEY=testkey9876",
+                                     "FR24_KEY=supersecret123")
+                           .replace("ADSBX_UUID=", "ADSBX_UUID=uuid-secret-456"))
         self.stage("10-first.sh", 'echo "key is ${FR24_KEY:-unset}"')
         self.run_driver("--no-wizard")
         log = (self.root / "install.log").read_text()

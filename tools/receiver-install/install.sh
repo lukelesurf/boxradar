@@ -132,26 +132,26 @@ redact() {
 # echoes what is typed, and the FR24 key is typed at a prompt — if the log
 # were already capturing this stream, the key would be written to it before
 # redact() had any way of knowing the value to redact.
-#
-# Validation also happens here, scoped to what the wizard just collected —
-# not unconditionally on every run. That matches conf_validate's own
-# rationale (catching a transposed coordinate the operator typed) rather than
-# re-litigating a receiver.conf that --no-wizard says to trust as-is; a
-# --no-wizard run against a stale or partial config is expected to surface
-# as a failure in whichever stage actually needs the missing value.
 if [[ $WIZARD -eq 1 ]]; then
   run_wizard
   conf_load "$CONF"
-  if ! conf_validate; then
-    echo "error: fix $CONF and re-run" >&2
-    exit 1
-  fi
 fi
 
 mkdir -p "$(dirname "$LOG")" "$STAMP_DIR"
 exec > >(redact | tee -a "$LOG") 2>&1
 
 echo "=== boxradar receiver install: $(date -Is) ==="
+
+# Unconditional, on every path — including --no-wizard, which is the
+# hand-edited-file path and exactly where a transposed coordinate or a
+# typo'd ICAO code appears. A bad receiver position has no visible symptom
+# on the display; it silently degrades MLAT (which solves aircraft
+# positions by multilateration from receiver locations), so this cannot be
+# skipped just because the wizard didn't run.
+if ! conf_validate; then
+  echo "error: fix $CONF and re-run" >&2
+  exit 1
+fi
 
 export HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION CALM_KT
 export ADSBX_USER ADSBX_UUID FR24_KEY
