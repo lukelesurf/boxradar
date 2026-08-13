@@ -101,6 +101,19 @@ class TestRenderAdsbexchange(unittest.TestCase):
         out = render("render_adsbexchange")
         subprocess.run(["bash", "-n"], input=out, text=True, check=True)
 
+    def test_max_range_is_carried_into_json_options(self):
+        # Without it feed-adsbx falls back to a lower default range and
+        # silently drops distant positions from what it feeds upstream.
+        out = render("render_adsbexchange")
+        line = next(l for l in out.splitlines() if l.startswith("JSON_OPTIONS="))
+        self.assertIn("--max-range 450", line)
+
+    def test_net_options_match_the_working_receiver(self):
+        out = render("render_adsbexchange")
+        line = next(l for l in out.splitlines() if l.startswith("NET_OPTIONS="))
+        self.assertNotIn("--net ", line)          # the feeder script adds --net itself
+        self.assertIn("--write-json-every 1", line)
+
 
 class TestRenderFr24(unittest.TestCase):
     def test_key_is_written(self):
