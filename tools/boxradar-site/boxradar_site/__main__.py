@@ -10,6 +10,7 @@ import argparse
 import sys
 
 from . import VERSION
+from .aircraft_types import load as load_types
 from .cache import DEFAULT_ERROR_BACKOFF_S, DEFAULT_TTL_S, MetarCache
 from .config import DEFAULT_PATH, load
 from .server import make_server
@@ -28,15 +29,22 @@ def main(argv=None):
                    help="seconds before a cached observation is refetched")
     p.add_argument("--backoff", type=int, default=DEFAULT_ERROR_BACKOFF_S,
                    help="seconds to wait after an upstream failure")
+    p.add_argument("--types-db", default=None,
+                   help="ICAO type designator database "
+                        "(default: tar1090-db's icao_aircraft_types2.js)")
     p.add_argument("--version", action="version", version=VERSION)
     args = p.parse_args(argv)
 
     cfg = load(args.config)
     cache = MetarCache(fetch, ttl_s=args.ttl, error_backoff_s=args.backoff)
-    httpd = make_server((args.host, args.port), cache, cfg)
+    # Read once at startup, not per request: 112KB of JSON is cheap to hold and
+    # expensive to parse on a Pi that is also running readsb.
+    types = load_types(args.types_db)
+    httpd = make_server((args.host, args.port), cache, cfg, types=types)
     stations = ", ".join(sorted(cfg.runways)) or "none"
     print(f"boxradar-site {VERSION} on {args.host}:{args.port} "
-          f"(ttl {args.ttl}s, runway tables: {stations})", flush=True)
+          f"(ttl {args.ttl}s, runway tables: {stations}, "
+          f"{len(types)} aircraft types)", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

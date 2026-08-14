@@ -2,6 +2,8 @@
 
     GET  /metar/EGSS         one station
     GET  /metar/EGSS,EGGW    several, in one upstream call
+    GET  /type/PC12          full name for an ICAO type designator
+    GET  /type/PC12,A320     several, same cap as /metar
     GET  /contacts?lat=&lon=&n=   the binary traffic feed
     GET  /board              where the board is and when it last polled
     POST /board/wake         ask it to open its config server
@@ -30,7 +32,7 @@ import re
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import VERSION, contacts, feed, presence
+from . import VERSION, aircraft_types, contacts, feed, presence
 from .metar import envelope, normalise
 
 # Set on a /contacts response when the configuration UI has asked the board to
@@ -62,6 +64,34 @@ BOARD_HTTP_VERSION = "HTTP/1.0"
 # steps. The cap bounds a single upstream request.
 MAX_IDS = 8
 _ICAO_RE = re.compile(r"^[A-Z]{4}$")
+
+# Type designators are NOT four letters: `A1`, `PC12`, `B738`, `A002`, `EV97`.
+# One to four alphanumerics, which is ICAO Doc 8643's rule. Validated for the
+# same reason as the ICAO codes above — unauthenticated LAN service — though
+# this one is only a dict key, never an outbound URL.
+_TYPE_RE = re.compile(r"^[A-Z0-9]{1,4}$")
+
+
+def parse_types(segment):
+    """Uppercased designator list, or None if the segment is not acceptable.
+
+    Same two-step as parse_ids, and the ordering matters for the same reason:
+    the cap is applied to the RAW list, before dedup, so `PC12,PC12,...` five
+    hundred times is refused rather than collapsing to one and sailing past it.
+    """
+    if not segment:
+        return None
+    parts = segment.upper().split(",")
+    if len(parts) > MAX_IDS:
+        return None
+    seen, out = set(), []
+    for part in parts:
+        if not _TYPE_RE.match(part):
+            return None
+        if part not in seen:
+            seen.add(part)
+            out.append(part)
+    return out or None
 
 
 def parse_ids(segment):
@@ -114,7 +144,7 @@ def parse_site(query):
     return lat, lon, n
 
 
-def _make_handler(cache, cfg, fetch_feed, board):
+def _make_handler(cache, cfg, fetch_feed, board, types):
     class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 for the sake of curl and the future web UI. The firmware is
         # NOT a beneficiary: net_task.cpp calls http.useHTTP10(true), so the
@@ -131,6 +161,9 @@ def _make_handler(cache, cfg, fetch_feed, board):
                 return
             if path.startswith("/metar/"):
                 self._metar(path[len("/metar/"):])
+                return
+            if path.startswith("/type/"):
+                self._types(path[len("/type/"):])
                 return
             if path == "/contacts":
                 self._contacts(query)
@@ -210,6 +243,32 @@ def _make_handler(cache, cfg, fetch_feed, board):
             ]
             self._json(200, envelope(stations, fetched_at, stale))
 
+        def _types(self, segment):
+            wanted = parse_types(segment)
+            if wanted is None:
+                self._json(400, {"error": "expected one to "
+                                          f"{MAX_IDS} ICAO type designators"})
+                return
+            if not len(types):
+                # No database at all — a service fault, and a 503 leaves the
+                # board free to ask again later. An unknown designator is the
+                # opposite case and must NOT come back as an error: see below.
+                self._json(503, {"error": "no aircraft type database"})
+                return
+            # Every requested id is echoed, and `name` is present only when
+            # there is one. That distinction is the whole contract: an id with
+            # no name is a definitive answer the board can cache and stop
+            # asking about, where a 404 or a 503 would have it retry forever
+            # for a designator that is never going to resolve.
+            out = []
+            for designator in wanted:
+                name = types.name_for(designator)
+                entry = {"id": designator}
+                if name:
+                    entry["name"] = name
+                out.append(entry)
+            self._json(200, {"types": out})
+
         def _binary(self, status, body, config_wanted=False,
                     geo_wanted=False):
             self.send_response(status)
@@ -247,16 +306,24 @@ def _make_handler(cache, cfg, fetch_feed, board):
     return Handler
 
 
-def make_server(addr, cache, cfg, fetch_feed=None, board=None):
+def make_server(addr, cache, cfg, fetch_feed=None, board=None, types=None):
     """Threading so a slow upstream fetch cannot block an unrelated request.
 
     Threading matters more now than it did for weather alone: /contacts is on
     the display's 1Hz path and must not queue behind a stalled METAR refresh.
     It is also why Presence takes a lock.
 
-    Pass port 0 to let the OS choose, and `board` a Presence with a fake clock
-    — both used by the tests.
+    Pass port 0 to let the OS choose, `board` a Presence with a fake clock, and
+    `types` a TypeNames built from a literal dict — all used by the tests.
+
+    `types` defaults to an EMPTY table rather than loading from disk. Reading a
+    112KB database is a caller's decision, not a side effect of constructing a
+    server: __main__ loads it once at startup, and a test that never mentions
+    type names gets a server that cannot be slowed down or made
+    environment-dependent by one.
     """
     return ThreadingHTTPServer(
         addr, _make_handler(cache, cfg, fetch_feed or feed.fetch,
-                            board or presence.Presence()))
+                            board or presence.Presence(),
+                            types if types is not None
+                            else aircraft_types.TypeNames()))
