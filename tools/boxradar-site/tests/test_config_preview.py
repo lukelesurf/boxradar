@@ -19,6 +19,9 @@ from boxradar_site.geo import selection
 REPO = pathlib.Path(__file__).resolve().parents[3]
 LAYOUT_H = REPO / "src" / "ui" / "layout.h"
 SCOPE_CPP = REPO / "src" / "ui" / "scope.cpp"
+# The ranges left layout.h when they became runtime settings; the compiled
+# defaults, which are what this preview draws, now live here.
+VIEW_RANGES_CPP = REPO / "lib" / "radarcore" / "view_ranges.cpp"
 
 HOME_LAT, HOME_LON = 51.8850, 0.2350
 
@@ -47,7 +50,29 @@ def constexpr_floats(text):
     return out
 
 
-@unittest.skipUnless(LAYOUT_H.exists(), "needs the firmware source")
+def default_ranges():
+    """(overview, (detail...)) out of the ViewRanges DEFAULTS initialiser.
+
+    Parsed rather than imported for the same reason as everything else here:
+    it is C++ compiled into flash, and the point is to notice when the two
+    copies disagree.
+    """
+    body = VIEW_RANGES_CPP.read_text()
+    m = re.search(r"ViewRanges\s+DEFAULTS\s*=\s*\{(.*?)\}\s*;", body, re.S)
+    assert m, "no ViewRanges DEFAULTS initialiser in view_ranges.cpp"
+    # Guarded like the search above. Flat aggregate init — {50.0f, 10.0f, 5.0f,
+    # 10.0f} — is legal C++ and a plausible edit, and without this the test
+    # would die on AttributeError instead of saying what drifted.
+    inner = re.match(r"\s*(-?[\d.]+)f?\s*,\s*\{([^}]*)\}", m.group(1))
+    assert inner, ("ViewRanges DEFAULTS is no longer {overview, {detail...}, "
+                   "twoLine} — update this parser")
+    overview, detail = inner.groups()
+    return float(overview), tuple(
+        float(v) for v in re.findall(r"-?[\d.]+", detail))
+
+
+@unittest.skipUnless(LAYOUT_H.exists() and VIEW_RANGES_CPP.exists(),
+                     "needs the firmware source")
 class TestMirroredConstantsMatchTheFirmware(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -71,8 +96,13 @@ class TestMirroredConstantsMatchTheFirmware(unittest.TestCase):
         # the wrong aspect ratio.
         self.assertGreater(preview.SCOPE_W, preview.SCOPE_H)
 
-    def test_overview_range(self):
-        self.assertEqual(self.floats.get("OVERVIEW_NM"), preview.OVERVIEW_NM)
+    def test_the_shipped_ranges(self):
+        # Guards the detail ranges as well as the overview, which the layout.h
+        # version of this could not: they were a constexpr array rather than a
+        # scalar, so only the overview was ever checked.
+        overview, detail = default_ranges()
+        self.assertEqual(overview, preview.OVERVIEW_NM)
+        self.assertEqual(detail, preview.DETAIL_RANGES_NM)
 
     def test_status_strip_position_is_derived_the_same_way(self):
         self.assertEqual(preview.STATUS_Y,

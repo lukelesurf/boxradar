@@ -77,7 +77,22 @@ class TestFieldTable(unittest.TestCase):
             sorted(f.key for f in device.FIELDS),
             sorted(["nstart", "nend", "nwake", "nfade", "nduty",
                     "poll", "mpoll", "gpoll", "metaron", "geoon",
+                    "ovnm", "d1nm", "d2nm", "tlnm",
                     "ntp", "tz", "types"]))
+
+    def test_no_scope_range_can_be_saved_as_zero(self):
+        # scopePxPerNm() divides by the range. The board refuses it too, but
+        # the message is only useful while it can still name the field.
+        for key in ("ovnm", "d1nm", "d2nm"):
+            _, _, problems = device.parse_form({key: "0"})
+            self.assertTrue(problems, f"{key} accepted 0")
+
+    def test_the_two_line_range_may_be_zero(self):
+        # 0 there means "never give a datablock a second line", which is a
+        # setting rather than a fault — nothing divides by it.
+        values, _, problems = device.parse_form({"tlnm": "0"})
+        self.assertEqual(problems, [])
+        self.assertEqual(values["tlnm"], 0)
 
     def test_the_type_list_holds_the_built_in_one(self):
         # The UI seeds this box from the board, and the board's default is 134

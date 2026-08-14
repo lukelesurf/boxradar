@@ -20,6 +20,19 @@ namespace radar {
 // nstart == nend is ALLOWED: night_mode.cpp reads it as "disabled", so it is
 // the off switch rather than a 24-hour blank.
 //
+// The ranges are whole nautical miles. 200 is the ceiling on all of them
+// because the usable radius is 110px: at 200nm a nautical mile is half a
+// pixel, so two aircraft a mile apart draw on the same one and the picture
+// stops being a picture. The floors are 5 for the overview — below that it is
+// no longer a chooser, it is just a third detail level — and 1 for a detail
+// range, where a single blip and its datablock already fill the panel. tlnm
+// alone may be 0, meaning no datablock ever gets a second line.
+//
+// Nothing here can express "the overview must be wider than the detail": each
+// field is validated on its own, and the config server writes them one at a
+// time, so a cross-field rule would make some orders of the same edit fail.
+// Getting it wrong costs a strange-looking scope, not a broken board.
+//
 // String maxima are CFG_HOST_LEN and CFG_TZ_LEN less the terminator, so a
 // value that passes here is one cfgSetStr() will also accept. Deriving them
 // from the same constants rather than writing 32 and 47 is what keeps that
@@ -35,6 +48,10 @@ const DeviceField DEVICE_FIELDS[] = {
     {"gpoll", DEV_U32, 60000, 86400000},
     {"metaron", DEV_U32, 0, 1},
     {"geoon", DEV_U32, 0, 1},
+    {"ovnm", DEV_U32, 5, 200},
+    {"d1nm", DEV_U32, 1, 200},
+    {"d2nm", DEV_U32, 1, 200},
+    {"tlnm", DEV_U32, 0, 200},
     {"ntp", DEV_STR, 0, CFG_HOST_LEN - 1},
     {"tz", DEV_STR, 0, CFG_TZ_LEN - 1},
     {"types", DEV_STR, 0, CFG_TYPES_LEN - 1},

@@ -26,6 +26,14 @@ const char *siteConfigProblem(const SiteConfig &cfg) {
   if (cfg.homeLon < -180.0f || cfg.homeLon > 180.0f) return "home longitude out of range";
   if (cfg.pollIntervalMs < 250) return "aircraft poll interval under 250ms";
   if (cfg.nightStartHour > 23 || cfg.nightEndHour > 23) return "night hour out of range";
+  // scopePxPerNm() divides by the range. A stored 0 is not a strange-looking
+  // scope, it is a division by zero on every frame, so it is worth the
+  // wholesale fallback that a "certainly broken" answer here triggers.
+  // twoLineMaxNm is exempt: 0 there means "never two lines", which is a
+  // setting rather than a mistake.
+  if (cfg.overviewNm == 0) return "overview range is 0nm";
+  for (int i = 0; i < VIEW_DETAIL_RANGES; i++)
+    if (cfg.detailNm[i] == 0) return "detail range is 0nm";
   return "";
 }
 

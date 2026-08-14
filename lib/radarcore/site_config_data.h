@@ -1,6 +1,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "view_ranges.h"
 
 // The site's runtime configuration, as plain data.
 //
@@ -58,6 +59,12 @@ struct SiteConfig {
   // trying without weather no longer costs a reflash.
   uint8_t metarEnabled;
   uint8_t geoEnabled;
+  // Scope ranges, whole nautical miles. Held as integers here because that is
+  // what NVS and the config form carry; radar::ViewRanges holds them as the
+  // floats the projection wants. See view_ranges.h.
+  uint16_t overviewNm;
+  uint16_t detailNm[VIEW_DETAIL_RANGES];
+  uint16_t twoLineMaxNm;
 };
 
 // Copies src into a fixed field, refusing rather than truncating when it will

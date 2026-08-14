@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "projection.h"
+#include "view_ranges.h"
 
 // Full-screen scope: the whole 320x240 panel is the radar. Home sits at the
 // true centre and the usable radius is HEIGHT-bound, so widening the scope
@@ -25,20 +26,17 @@ constexpr int SCOPE_CY = 116; // ring spans y 6..226, strip starts at 230
 // Two view states rather than a cycle of ranges centred on home: an OVERVIEW
 // you choose from and a DETAIL level you look at. See docs/viewport-design.md.
 //
-// 50nm shows every airfield and approach that matters here; it is unreadable
-// as a working view, which is precisely why it is only ever the chooser.
-constexpr float OVERVIEW_NM = 50.0f;
+// The ranges themselves are runtime settings now — see view_ranges.h for why
+// they live in radarcore and what each one means. These macros keep the old
+// spellings so every draw site reads as it always did, the same trick
+// site_config.h plays for HOME_LAT and friends. They are macros rather than
+// references because a reference initialised at namespace scope in a header
+// would be a separate copy per translation unit under gnu++11.
+#define OVERVIEW_NM (radar::viewRanges().overviewNm)
+#define DETAIL_RANGES_NM (radar::viewRanges().detailNm)
+#define TWO_LINE_MAX_NM (radar::viewRanges().twoLineMaxNm)
 
-// Detail scales, in the order the status-strip zoom toggle steps through them.
-// Index 0 is what a tap out of the overview lands on.
-constexpr float DETAIL_RANGES_NM[] = {10.0f, 5.0f};
-constexpr int N_DETAIL_RANGES = 2;
-
-// Two-line datablocks are only legible while the scope is sparse. Beyond this
-// range they degrade to callsign only — see datablock.cpp. Every detail range
-// is inside it and the overview is outside it, so in practice this now reads
-// as "detail gets two lines, overview does not".
-constexpr float TWO_LINE_MAX_NM = 10.0f;
+constexpr int N_DETAIL_RANGES = radar::VIEW_DETAIL_RANGES;
 
 // Scale is height-bound: SCOPE_CX is larger but the ring must fit vertically.
 inline float scopePxPerNm(float rangeNm) {

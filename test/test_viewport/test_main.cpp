@@ -1,6 +1,14 @@
 #include <unity.h>
 #include "ui/viewport.h"
 
+// The live ranges are process-wide, and the tests below set them. Restoring
+// here rather than at the end of each test is what makes it unconditional: a
+// failing TEST_ASSERT longjmps straight out of the test body, so a trailing
+// restore is exactly the line that does not run when it matters, and one real
+// failure would retune every test after it.
+void setUp(void) { radar::viewRangesSet(radar::viewRangesDefaults()); }
+void tearDown(void) {}
+
 // The transform is the one part of the viewport work that fails silently: a
 // sign or centre-offset error draws a plausible-looking scope of the wrong
 // place, and there is no way to tell by looking at the panel.
@@ -117,11 +125,73 @@ static void test_trail_spacing_tightens_as_range_shrinks() {
 }
 
 // The overview is outside the two-line threshold and every detail range is
-// inside it — the property the datablock degradation now leans on.
+// inside it — the property the datablock degradation leans on. A property of
+// the SHIPPED ranges, not an invariant: they are configurable now, and a site
+// that sets them otherwise gets callsign-only datablocks rather than a fault.
 static void test_detail_gets_two_lines_overview_does_not() {
   TEST_ASSERT_TRUE(OVERVIEW_NM > TWO_LINE_MAX_NM);
   for (int i = 0; i < N_DETAIL_RANGES; i++)
     TEST_ASSERT_TRUE(DETAIL_RANGES_NM[i] <= TWO_LINE_MAX_NM);
+}
+
+// ------------------------------------------------- configurable ranges
+
+static void test_a_configured_overview_sets_the_scale() {
+  radar::ViewRanges r = radar::viewRangesDefaults();
+  r.overviewNm = 20.0f;
+  radar::viewRangesSet(r);
+
+  UiState ui;
+  ui.view = ViewState::OVERVIEW;
+  radar::AircraftStore s;
+  Viewport vp = viewportFor(ui, s);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 20.0f, vp.rangeNm);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, scopePxPerNm(20.0f), vp.pxPerNm);
+}
+
+static void test_the_zoom_toggle_walks_the_configured_detail_levels() {
+  radar::ViewRanges r = radar::viewRangesDefaults();
+  r.detailNm[0] = 8.0f;
+  r.detailNm[1] = 3.0f;
+  radar::viewRangesSet(r);
+
+  UiState ui; // defaults to detail, index 0
+  radar::AircraftStore s;
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 8.0f, viewportFor(ui, s).rangeNm);
+  ui.detailRangeIdx = 1;
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 3.0f, viewportFor(ui, s).rangeNm);
+}
+
+// The last line of defence for scopePxPerNm(), which divides by the range.
+// DEVICE_FIELDS and siteConfigProblem() should both have refused a 0 first.
+static void test_a_zero_range_is_ignored_rather_than_stored() {
+  radar::ViewRanges r = radar::viewRangesDefaults();
+  r.overviewNm = 0.0f;
+  r.detailNm[0] = 0.0f;
+  radar::viewRangesSet(r);
+
+  TEST_ASSERT_TRUE(radar::viewRanges().overviewNm > 0.0f);
+  TEST_ASSERT_TRUE(radar::viewRanges().detailNm[0] > 0.0f);
+}
+
+// Unlike the ranges, nothing divides by this one, so 0 has to survive — it is
+// how you say "never give a datablock a second line".
+static void test_a_zero_two_line_threshold_is_kept() {
+  radar::ViewRanges r = radar::viewRangesDefaults();
+  r.twoLineMaxNm = 0.0f;
+  radar::viewRangesSet(r);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, TWO_LINE_MAX_NM);
+}
+
+// Runs last, straight after the test that sets the two-line threshold to 0.
+// It fails if setUp() ever stops being called — which is not hypothetical: no
+// other test in this file would notice, since each one sets what it reads.
+static void test_each_test_starts_from_the_shipped_ranges() {
+  const radar::ViewRanges &d = radar::viewRangesDefaults();
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, d.overviewNm, OVERVIEW_NM);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, d.twoLineMaxNm, TWO_LINE_MAX_NM);
+  for (int i = 0; i < N_DETAIL_RANGES; i++)
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, d.detailNm[i], DETAIL_RANGES_NM[i]);
 }
 
 int main() {
@@ -136,5 +206,10 @@ int main() {
   RUN_TEST(test_scale_is_height_bound);
   RUN_TEST(test_trail_spacing_tightens_as_range_shrinks);
   RUN_TEST(test_detail_gets_two_lines_overview_does_not);
+  RUN_TEST(test_a_configured_overview_sets_the_scale);
+  RUN_TEST(test_the_zoom_toggle_walks_the_configured_detail_levels);
+  RUN_TEST(test_a_zero_range_is_ignored_rather_than_stored);
+  RUN_TEST(test_a_zero_two_line_threshold_is_kept);
+  RUN_TEST(test_each_test_starts_from_the_shipped_ranges);
   return UNITY_END();
 }

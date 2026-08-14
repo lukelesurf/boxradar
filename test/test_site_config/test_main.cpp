@@ -14,6 +14,10 @@ static SiteConfig good() {
   c.pollIntervalMs = 2000;
   c.nightStartHour = 0;
   c.nightEndHour = 7;
+  c.overviewNm = 50;
+  c.detailNm[0] = 10;
+  c.detailNm[1] = 5;
+  c.twoLineMaxNm = 10;
   return c;
 }
 
@@ -107,6 +111,27 @@ static void test_empty_optional_fields_are_fine() {
   TEST_ASSERT_TRUE(siteConfigValid(c));
 }
 
+// A zero range would be a division by zero in scopePxPerNm() on every frame,
+// so it has to be caught here where the answer is "fall back to the compiled
+// defaults" rather than on the panel.
+static void test_a_zero_scope_range_is_rejected() {
+  SiteConfig c = good();
+  c.overviewNm = 0;
+  TEST_ASSERT_FALSE(siteConfigValid(c));
+
+  c = good();
+  c.detailNm[1] = 0;
+  TEST_ASSERT_FALSE(siteConfigValid(c));
+}
+
+static void test_zero_two_line_range_is_a_setting_not_a_fault() {
+  // 0 means no datablock ever gets a second line, which is a legitimate
+  // choice on a busy scope — unlike the ranges, nothing divides by it.
+  SiteConfig c = good();
+  c.twoLineMaxNm = 0;
+  TEST_ASSERT_TRUE(siteConfigValid(c));
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_a_plausible_config_is_valid);
@@ -122,5 +147,7 @@ int main() {
   RUN_TEST(test_bad_night_hour_is_rejected);
   RUN_TEST(test_a_southern_hemisphere_site_is_fine);
   RUN_TEST(test_empty_optional_fields_are_fine);
+  RUN_TEST(test_a_zero_scope_range_is_rejected);
+  RUN_TEST(test_zero_two_line_range_is_a_setting_not_a_fault);
   return UNITY_END();
 }

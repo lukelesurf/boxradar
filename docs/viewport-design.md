@@ -121,6 +121,12 @@ which may now be off-screen. No special handling.
 `TWO_LINE_MAX_NM` and the range-dependent trail spacing both become
 constants in that state. Overview keeps the degraded single-line form.
 
+> Since this was written the ranges became runtime settings (`ovnm`, `d1nm`,
+> `d2nm`, `tlnm` — see `lib/radarcore/view_ranges.h`). The design above is
+> unchanged; "detail is always 10nm" is now "detail is always one of the two
+> configured levels", and the two-line threshold is only a constant in that
+> state while it is set at or above them both.
+
 ## Three problems that solve themselves
 
 These were real objections to a free-scrolling/edge-pan version and simply

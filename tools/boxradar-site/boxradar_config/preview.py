@@ -20,6 +20,13 @@ it draws, this is faithful; the roughness is in what it leaves out.
 Everything below mirrors constants that live in the firmware. That is a real
 duplication and it is guarded rather than hoped about: test_config_preview.py
 parses src/ui/layout.h and fails if these drift from it.
+
+**The ranges are the board's SHIPPED ones, not necessarily the board's.** They
+became Device-page settings, and the Pi deliberately keeps no copy of the
+board's configuration — device.py explains why — so drawing the configured
+ranges would mean waking the board and asking it, on a page that otherwise
+never leaves the Pi. A board whose ranges have been changed is previewed at the
+defaults, and preview.html says so.
 """
 
 import math
@@ -32,6 +39,9 @@ SCOPE_CX, SCOPE_CY = 160, 116
 SCOPE_MARGIN = 6
 STATUS_H = 10
 STATUS_Y = SCOPE_H - STATUS_H
+
+# lib/radarcore/view_ranges.cpp — the compiled DEFAULTS, which is where these
+# moved when they became runtime settings. See the note above.
 OVERVIEW_NM = 50.0
 DETAIL_RANGES_NM = (10.0, 5.0)
 

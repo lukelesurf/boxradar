@@ -1,8 +1,10 @@
 #include <unity.h>
+#include <stdio.h>
 #include <string.h>
 #include "classify.h"
 #include "device_config.h"
 #include "site_config_data.h"
+#include "view_ranges.h"
 
 using namespace radar;
 
@@ -21,7 +23,8 @@ static void test_only_safe_keys_are_offered() {
 static void test_the_expected_keys_are_present() {
   const char *expected[] = {"nstart",  "nend",  "nwake", "nfade", "nduty",
                             "poll",    "mpoll", "gpoll", "metaron",
-                            "geoon",   "ntp",   "tz",    "types"};
+                            "geoon",   "ovnm",  "d1nm",  "d2nm",   "tlnm",
+                            "ntp",     "tz",    "types"};
   size_t n = sizeof(expected) / sizeof(expected[0]);
   TEST_ASSERT_EQUAL_size_t(n, DEVICE_FIELD_COUNT);
   for (size_t i = 0; i < n; i++)
@@ -136,6 +139,44 @@ static void test_the_type_list_field_is_wide_enough_for_the_built_in_one() {
                                       nullptr));
 }
 
+static void test_a_zero_scope_range_never_reaches_the_projection() {
+  // scopePxPerNm() divides by the range. The floor is the first of three
+  // guards — siteConfigProblem() and viewRangesSet() are the others — because
+  // the failure is a division by zero on every frame, not a bad picture.
+  const char *problem = "unset";
+  parsed("d1nm", "0", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+  parsed("ovnm", "0", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+}
+
+static void test_the_two_line_range_may_be_zero() {
+  // 0 means no datablock ever gets a second line. Nothing divides by it, so
+  // unlike the ranges it is a setting rather than a fault.
+  const char *problem = "unset";
+  parsed("tlnm", "0", &problem);
+  TEST_ASSERT_NULL(problem);
+}
+
+static void test_the_shipped_ranges_are_inside_their_own_bounds() {
+  // A bound that refused the value the board already draws at would make the
+  // Device page unable to save its own defaults back.
+  const ViewRanges &r = viewRangesDefaults();
+  const char *problem = "unset";
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d", (int)r.overviewNm);
+  parsed("ovnm", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+  for (int i = 0; i < VIEW_DETAIL_RANGES; i++) {
+    snprintf(buf, sizeof(buf), "%d", (int)r.detailNm[i]);
+    parsed(i == 0 ? "d1nm" : "d2nm", buf, &problem);
+    TEST_ASSERT_NULL(problem);
+  }
+  snprintf(buf, sizeof(buf), "%d", (int)r.twoLineMaxNm);
+  parsed("tlnm", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+}
+
 static void test_poll_floor_protects_the_receiver() {
   const char *problem = "unset";
   parsed("poll", "10", &problem);
@@ -195,6 +236,9 @@ int main(int, char **) {
   RUN_TEST(test_a_failed_parse_does_not_write_out);
   RUN_TEST(test_the_feed_switches_are_boolean);
   RUN_TEST(test_the_type_list_field_is_wide_enough_for_the_built_in_one);
+  RUN_TEST(test_a_zero_scope_range_never_reaches_the_projection);
+  RUN_TEST(test_the_two_line_range_may_be_zero);
+  RUN_TEST(test_the_shipped_ranges_are_inside_their_own_bounds);
   RUN_TEST(test_poll_floor_protects_the_receiver);
   RUN_TEST(test_a_string_within_its_field_is_accepted);
   RUN_TEST(test_string_limits_match_the_struct_they_land_in);

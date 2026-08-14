@@ -267,11 +267,25 @@ raise.
 
 ### Device settings
 
-Thirteen settings that used to need an edit to `include/config.h` and a
+Seventeen settings that used to need an edit to `include/config.h` and a
 reflash: the night-blanking block (`nstart`, `nend`, `nwake`, `nfade`,
 `nduty`), the three poll intervals (`poll`, `mpoll`, `gpoll`), the clock
-(`ntp`, `tz`), runtime on/off for the two optional feeds (`metaron`, `geoon`)
-and the ordinary-aircraft-type list (`types`).
+(`ntp`, `tz`), runtime on/off for the two optional feeds (`metaron`, `geoon`),
+the ordinary-aircraft-type list (`types`) and the scope's ranges (`ovnm`,
+`d1nm`, `d2nm`, `tlnm`).
+
+The ranges are whole nautical miles: `ovnm` is the overview you tap out of,
+`d1nm` and `d2nm` are the two detail levels the zoom toggle steps between, and
+`tlnm` is where datablocks drop to callsign only. 50/10/5/10 is a London-area
+choice — a quiet GA field wants 20/5/2, and nothing about that was reachable
+without a flash. There are exactly two detail levels because the count sizes an
+array in the firmware; the count is fixed, the values are not. Nothing checks
+them against each other, so an overview narrower than a detail level is allowed
+— it looks strange and works fine.
+
+The Preview page still draws the *shipped* ranges. It never talks to the board
+(nothing on the Pi holds a copy of the board's settings, on purpose), so after
+changing these, read its crowding numbers at the ranges you chose.
 
 `types` is the one worth explaining. It is a whitelist of **boring** — anything
 not on it gets highlighted — and the built-in list is the short-haul fleet that

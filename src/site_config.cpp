@@ -36,6 +36,10 @@ const char *K_NDUTY = "nduty";
 const char *K_TYPES = "types";
 const char *K_METARON = "metaron";
 const char *K_GEOON = "geoon";
+const char *K_OVNM = "ovnm";
+const char *K_D1NM = "d1nm";
+const char *K_D2NM = "d2nm";
+const char *K_TLNM = "tlnm";
 
 SiteConfig s_cfg;
 bool s_fromNvs = false;
@@ -62,6 +66,14 @@ void loadDefaults(SiteConfig &c) {
   c.nightWakeS = DEFAULT_NIGHT_WAKE_S;
   c.nightFadeMs = DEFAULT_NIGHT_FADE_MS;
   c.nightClockDuty = DEFAULT_NIGHT_CLOCK_DUTY;
+  // The scope's own defaults rather than a DEFAULT_ in config.h: these are
+  // layout values with the reasoning for them next to them, and duplicating
+  // them into config.h would give two places to disagree.
+  const radar::ViewRanges &r = radar::viewRangesDefaults();
+  c.overviewNm = (uint16_t)r.overviewNm;
+  for (int i = 0; i < radar::VIEW_DETAIL_RANGES; i++)
+    c.detailNm[i] = (uint16_t)r.detailNm[i];
+  c.twoLineMaxNm = (uint16_t)r.twoLineMaxNm;
   // Default to on wherever the feature is compiled in; the flag exists to let
   // it be turned off without a reflash, not to make it off by default.
   c.metarEnabled = 0;
@@ -138,6 +150,17 @@ void siteConfigBegin() {
     if (p.isKey(K_NDUTY)) { s_cfg.nightClockDuty = (uint8_t)p.getUInt(K_NDUTY); applied++; }
     if (p.isKey(K_METARON)) { s_cfg.metarEnabled = p.getUInt(K_METARON) ? 1 : 0; applied++; }
     if (p.isKey(K_GEOON)) { s_cfg.geoEnabled = p.getUInt(K_GEOON) ? 1 : 0; applied++; }
+    // loadDefaults() and the push to viewRangesSet() both loop to
+    // VIEW_DETAIL_RANGES; these two are spelled out because each detail level
+    // needs its own NVS key. Raising the count without adding a key would
+    // widen the loops and leave the new level silently on its compiled
+    // default — a half-applied config rather than a build failure.
+    static_assert(radar::VIEW_DETAIL_RANGES == 2,
+                  "add an NVS key per detail level");
+    if (p.isKey(K_OVNM)) { s_cfg.overviewNm = (uint16_t)p.getUInt(K_OVNM); applied++; }
+    if (p.isKey(K_D1NM)) { s_cfg.detailNm[0] = (uint16_t)p.getUInt(K_D1NM); applied++; }
+    if (p.isKey(K_D2NM)) { s_cfg.detailNm[1] = (uint16_t)p.getUInt(K_D2NM); applied++; }
+    if (p.isKey(K_TLNM)) { s_cfg.twoLineMaxNm = (uint16_t)p.getUInt(K_TLNM); applied++; }
     p.end();
   }
   s_fromNvs = applied > 0;
@@ -156,6 +179,16 @@ void siteConfigBegin() {
   // The classifier borrows this pointer, and s_cfg is static, so it stays
   // valid for the life of the board.
   radar::classifySetCommonTypes(s_cfg.commonTypes);
+
+  // The scope reads its ranges from radarcore, not from here — layout.h cannot
+  // see this file. Pushed after the fallback above, so a config that was
+  // rejected wholesale draws at the compiled ranges too.
+  radar::ViewRanges ranges;
+  ranges.overviewNm = (float)s_cfg.overviewNm;
+  for (int i = 0; i < radar::VIEW_DETAIL_RANGES; i++)
+    ranges.detailNm[i] = (float)s_cfg.detailNm[i];
+  ranges.twoLineMaxNm = (float)s_cfg.twoLineMaxNm;
+  radar::viewRangesSet(ranges);
 
   snprintf(s_summary, sizeof(s_summary),
            "%s, ssid %s, home %.4f,%.4f, recv %s, metar %s, geo %s",
@@ -241,6 +274,10 @@ bool siteConfigReadU32(const char *key, uint32_t *out) {
   if (strcmp(key, K_NDUTY) == 0) { *out = s_cfg.nightClockDuty; return true; }
   if (strcmp(key, K_METARON) == 0) { *out = s_cfg.metarEnabled; return true; }
   if (strcmp(key, K_GEOON) == 0) { *out = s_cfg.geoEnabled; return true; }
+  if (strcmp(key, K_OVNM) == 0) { *out = s_cfg.overviewNm; return true; }
+  if (strcmp(key, K_D1NM) == 0) { *out = s_cfg.detailNm[0]; return true; }
+  if (strcmp(key, K_D2NM) == 0) { *out = s_cfg.detailNm[1]; return true; }
+  if (strcmp(key, K_TLNM) == 0) { *out = s_cfg.twoLineMaxNm; return true; }
   return false;
 }
 

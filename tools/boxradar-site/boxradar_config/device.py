@@ -1,6 +1,7 @@
 """The board's optional settings, and the two hops needed to reach them.
 
-Ten settings that previously required editing include/config.h and reflashing.
+Seventeen settings that previously required editing include/config.h and
+reflashing.
 The board's own captive portal (src/portal.cpp) covers the other eight keys and
 only appears when WiFi association fails, so these were unreachable in practice.
 
@@ -49,6 +50,11 @@ class Group:
 
 
 GROUPS = [
+    Group("view", "Scope ranges",
+          "How much sky each view covers, in nautical miles. The overview is "
+          "the chooser you tap; the two detail levels are what the zoom "
+          "toggle steps between. Nothing checks these against each other — an "
+          "overview narrower than a detail level is odd, not broken."),
     Group("feeds", "Optional feeds",
           "Weather and the map are extras. Turning one off stops the board "
           "asking for it at all — useful for telling a display problem from "
@@ -122,6 +128,25 @@ FIELDS = [
           choices=[(1, "on"), (0, "off")],
           help="Stops the board fetching geography. It keeps drawing "
                "whatever it already had."),
+    # Whole nautical miles: the field machinery carries unsigned integers, and
+    # a DEV_FLOAT would have to be threaded through validation, the config
+    # server and this table to buy a 2.5nm detail level. 200 is the ceiling
+    # everywhere because the usable radius is 110px — at 200nm a mile is half
+    # a pixel and two aircraft a mile apart draw on the same one.
+    Field("ovnm", "Overview", "u", "view", 5, 200, unit="nm",
+          help="The view a tap drops out of. Unreadable as a working "
+               "picture on purpose — it exists to show every airfield and "
+               "approach at once so you can pick one. 50 is shipped."),
+    Field("d1nm", "Detail", "u", "view", 1, 200, unit="nm",
+          help="Where a tap on the overview lands, so this is the resting "
+               "picture. 10 is shipped."),
+    Field("d2nm", "Detail, zoomed", "u", "view", 1, 200, unit="nm",
+          help="The second step of the zoom toggle. 5 is shipped."),
+    Field("tlnm", "Two-line datablocks", "u", "view", 0, 200, unit="nm",
+          help="Beyond this range datablocks drop to callsign only, because "
+               "two lines are only legible while the scope is sparse. 0 "
+               "means never two lines. 10 is shipped, which is why the "
+               "detail views get them and the overview does not."),
     # 255 is CFG_TYPES_LEN - 1. The built-in list is 134 characters, so there
     # is room to grow one without a reflash.
     Field("types", "Ordinary types", "s", "traffic", high=255, wide=True,

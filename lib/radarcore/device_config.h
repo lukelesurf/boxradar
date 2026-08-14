@@ -4,9 +4,10 @@
 
 // The settings the Pi's configuration UI may change, and the rules for each.
 //
-// These are the ten keys that previously needed an edit to include/config.h
-// and a reflash: the night-blanking block, the three poll intervals, and the
-// clock. The board's own captive portal covers WiFi, the receiver URL and
+// These are the seventeen keys that previously needed an edit to
+// include/config.h and a reflash: the night-blanking block, the three poll
+// intervals, the clock, the two feed switches, the ordinary-type list and the
+// scope ranges. The board's own captive portal covers WiFi, the receiver URL and
 // home position; it deliberately does NOT cover these, and it only appears
 // when association fails, so in practice they were unreachable.
 //

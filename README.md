@@ -415,10 +415,17 @@ Three different datasets, and the gaps between them are the trap:
   `+N` whenever the cap is binding, and `feed=` vs `kept=` on the serial log
   says the same thing. Raising it costs 624 bytes of DRAM a slot across four
   stores, so check `minheap=` before you do.
-- **`OVERVIEW_NM` / `DETAIL_RANGES_NM`** (`src/ui/layout.h`) are `50` and
-  `{10,5}`, which suits a busy TMA. Somewhere rural may want both higher.
-  The overview must stay above `TWO_LINE_MAX_NM` and every detail range at or
-  below it, or the datablock degradation stops matching the two states.
+- **The scope's ranges are Device-page settings**, not compiled constants —
+  `ovnm`, `d1nm`, `d2nm`, `tlnm`, whole nautical miles. The shipped `50` and
+  `{10,5}` suit a busy TMA; somewhere rural wants both higher, a GA field
+  wants both lower. The compiled defaults live in
+  `lib/radarcore/view_ranges.cpp`, not `src/ui/layout.h`, because they have to
+  be settable and `layout.h` cannot reach `siteConfig()`. Keeping the overview
+  above `tlnm` and every detail range at or below it is what makes the
+  datablock degradation match the two view states — nothing enforces it, so a
+  configuration that breaks it gets callsign-only datablocks everywhere.
+  There are exactly **two** detail levels: the count sizes an array and the
+  zoom toggle steps modulo it, so only the values are configurable.
 - **`isCommonType()`** (`lib/radarcore/classify.cpp`) is tuned to a London
   short-haul mix. Somewhere with heavy GA or offshore helicopter traffic will
   want a different "ordinary" list, or the amber highlight loses meaning.
