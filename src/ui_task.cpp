@@ -259,6 +259,15 @@ static void uiTaskLoop(void *) {
       s_ui.selectedHex = 0;
       s_ui.detailOpen = false;
     }
+    // Ask the Pi what the selected aircraft's type designator means. Every
+    // frame, deliberately: requestTypeName() is a no-op for an unchanged
+    // designator, so this is a string compare at 10fps rather than a fetch,
+    // and expressing it as "what is selected right now" avoids having to
+    // detect the several ways a selection can change.
+    if (s_ui.detailOpen && s_ui.selectedHex) {
+      const radar::Aircraft *sel = s_snap.findByHex(s_ui.selectedHex);
+      if (sel && sel->type[0]) requestTypeName(sel->type);
+    }
     // Selection highlight now lags one frame behind a fresh tap (drawScope
     // already ran); the detail panel below reflects the tap immediately.
     drawDetailPanel(s_scope, s_snap, s_ui);

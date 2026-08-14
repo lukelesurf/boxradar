@@ -8,6 +8,7 @@
 #include "viewport.h"
 #include "config.h"
 #include "map_source.h"
+#include "shared_state.h"
 #include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
@@ -424,7 +425,12 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   if (!ui.detailOpen || ui.selectedHex == 0) return;
   const radar::Aircraft *a = s.findByHex(ui.selectedHex);
   if (!a) return;
-  constexpr int W = 150, H = 92, X = 4, Y = SCOPE_H - H - 16;
+  // 200 rather than 150 so the type name has somewhere to go. At font 1's 6px
+  // cells that is 32 characters against 23, which turns truncation from
+  // routine into rare: of the 2,806 names the Pi can return, 526 are longer
+  // than 23 characters and only 51 are longer than 32.
+  constexpr int W = 200, H = 92, X = 4, Y = SCOPE_H - H - 16;
+  constexpr int TEXT_CHARS = (W - 8) / 6;
   spr.fillRect(X, Y, W, H, TFT_BLACK);
   spr.drawRect(X, Y, W, H, TFT_YELLOW);
   spr.setTextColor(TFT_YELLOW, TFT_BLACK);
@@ -434,18 +440,36 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   snprintf(l1, sizeof(l1), "%s  %06lx", cs, (unsigned long)a->hex);
   spr.drawString(l1, X + 4, Y + 4, 2);
   spr.setTextColor(TFT_WHITE, TFT_BLACK);
-  char alt[8], line[26];
+  char alt[8], line[TEXT_CHARS + 1];
   radar::formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
   snprintf(line, sizeof(line), "%-4s  %s  %ukt", a->type[0] ? a->type : "-",
            alt, a->gsKt);
   spr.drawString(line, X + 4, Y + 26, 1);
+
+  // Directly under the designator it explains, which is why the four rows
+  // below shifted down rather than this going in the free row at the bottom.
+  // snprintf truncates to the panel width; TFT_eSPI would happily draw a
+  // 47-character name straight across the scope.
+  //
+  // Empty covers three cases the panel cannot usefully tell apart: not asked
+  // yet, in flight, and answered with no name. All three mean the row stays
+  // blank and the designator above carries on saying what it always said.
+  char typeName[radar::TYPE_NAME_LEN];
+  typeNameFor(a->type, typeName, sizeof(typeName));
+  if (typeName[0]) {
+    spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    snprintf(line, sizeof(line), "%s", typeName);
+    spr.drawString(line, X + 4, Y + 40, 1);
+    spr.setTextColor(TFT_WHITE, TFT_BLACK);
+  }
+
   snprintf(line, sizeof(line), "trk %u  vs %+d%s", a->trackDeg, a->vertRateFpm,
            a->isMlat ? "  MLAT" : "");
-  spr.drawString(line, X + 4, Y + 40, 1);
+  spr.drawString(line, X + 4, Y + 54, 1);
   snprintf(line, sizeof(line), "%.1fnm brg %.0f", (double)a->range,
            (double)radar::bearingDeg(a->pos));
-  spr.drawString(line, X + 4, Y + 54, 1);
+  spr.drawString(line, X + 4, Y + 68, 1);
   snprintf(line, sizeof(line), "rssi %.1f  sqk %s", (double)a->rssi,
            a->squawk[0] ? a->squawk : "----");
-  spr.drawString(line, X + 4, Y + 68, 1);
+  spr.drawString(line, X + 4, Y + 82, 1);
 }

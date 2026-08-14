@@ -231,6 +231,56 @@ static void pollMetar() {
 }
 #endif
 
+// Resolves the selected aircraft's type designator to a name the Pi holds and
+// the board cannot: 2,806 entries, far past what this flash has spare. Strictly
+// decorative, like the weather — a failure leaves the panel showing the
+// designator on its own, which is what it showed before this existed.
+//
+// Event-driven rather than polled: it runs only while something is selected
+// and unanswered. pendingTypeName() owns the retry spacing, so this stays a
+// cheap check on a 50ms loop rather than a request storm.
+static void pollTypeName() {
+  char designator[8];
+  if (!pendingTypeName(designator, sizeof(designator))) return;
+
+  char url[160];
+  if (!radar::typeNameUrl(RECEIVER_URL, designator, url, sizeof(url))) {
+    // Refused rather than failed: a designator that cannot form a URL will
+    // never form one, so retrying it would burn all three attempts on a fact
+    // already known. Answer it as nameless and move on.
+    publishTypeName(designator, "");
+    return;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(1500);
+  http.setTimeout(3000);
+  http.useHTTP10(true);
+  http.begin(url);
+  int code = http.GET();
+  if (code == HTTP_CODE_OK) {
+    JsonDocument doc; // one small object; the response is under 100 bytes
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    char name[radar::TYPE_NAME_LEN];
+    if (!err && radar::loadTypeName(doc, designator, name, sizeof(name))) {
+      // Publishes even when `name` is empty. The Pi echoes every id it was
+      // asked about, so no name means the database has nothing for this
+      // designator — a definitive answer, and asking again would never
+      // produce a different one.
+      publishTypeName(designator, name);
+    } else {
+      Serial.printf("type: unexpected answer for %s\n", designator);
+      failTypeName(designator);
+    }
+  } else {
+    // Includes the 503 a Pi with no database returns, which is the case that
+    // may come good later — hence a retry rather than a nameless answer.
+    Serial.printf("type: http error %d for %s\n", code, designator);
+    failTypeName(designator);
+  }
+  http.end();
+}
+
 static void netTaskLoop(void *) {
   uint32_t lastPoll = 0;
   for (;;) {
@@ -273,6 +323,11 @@ static void netTaskLoop(void *) {
       pollMetar();
     }
 #endif
+    // Its own `if` for the same reason as the two above: a slow name lookup
+    // must not delay traffic. No cadence of its own, though — this one is
+    // driven by what the UI task has selected, and does nothing at all until
+    // somebody taps an aircraft.
+    if (!g_otaActive && netReady()) pollTypeName();
     if (WiFi.status() != WL_CONNECTED)
       statusLedSet(LedStatus::NoWifi);
     else if (!s_prev.fetchOk || millis() - s_prev.lastFetchMs > 10000)
