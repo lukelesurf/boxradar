@@ -242,6 +242,22 @@ class TestParseBand(unittest.TestCase):
                          (40000, 1000))
 
 
+class TestParseMlat(unittest.TestCase):
+    def test_absent_means_include(self):
+        self.assertIs(server.parse_mlat("lat=51.9&lon=0.03&n=32"), True)
+
+    def test_zero_and_one(self):
+        self.assertIs(server.parse_mlat("mlat=0"), False)
+        self.assertIs(server.parse_mlat("mlat=1"), True)
+
+    def test_anything_else_is_refused_rather_than_guessed(self):
+        # The board sends exactly "0" or "1". Accepting "false" or "no" would
+        # be inventing a wire format nothing writes, and accepting any truthy
+        # string would make "mlat=0ff" mean include.
+        for bad in ("mlat=", "mlat=false", "mlat=yes", "mlat=2", "mlat=0ff"):
+            self.assertIsNone(server.parse_mlat(bad), bad)
+
+
 class TestContactsRoute(ServerTest):
     HOME = "lat=51.88501837&lon=0.23502732"
 
@@ -308,6 +324,23 @@ class TestContactsRoute(ServerTest):
     def test_a_nonsense_band_is_400_not_a_silently_unfiltered_feed(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.get_binary(f"/contacts?{self.HOME}&n=32&amin=cloudbase")
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_mlat_can_be_filtered_out_of_the_feed(self):
+        self.feed.aircraft = [
+            {"hex": "400abc", "lat": 52.0, "lon": 0.1, "seen": 1.0,
+             "type": "mlat"},
+            {"hex": "400def", "lat": 52.1, "lon": 0.1, "seen": 1.0,
+             "type": "adsb_icao"},
+        ]
+        _, body, _ = self.get_binary(f"/contacts?{self.HOME}&n=32&mlat=0")
+        got = contacts.read(body)
+        self.assertEqual([c["is_mlat"] for c in got["contacts"]], [False])
+        self.assertEqual(got["total"], 1)
+
+    def test_a_nonsense_mlat_flag_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.get_binary(f"/contacts?{self.HOME}&n=32&mlat=maybe")
         self.assertEqual(caught.exception.code, 400)
 
     def test_a_dead_receiver_is_503_not_an_empty_feed(self):

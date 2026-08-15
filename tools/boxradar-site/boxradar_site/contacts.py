@@ -194,7 +194,8 @@ def in_alt_band(contact, alt_min, alt_max):
     return contact.alt_ft <= alt_max
 
 
-def select(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None):
+def select(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None,
+           include_mlat=True):
     """Filter, range-sort and cap. Returns (contacts, total_before_cap).
 
     `total` is what the board renders as the second half of "32/58". The cap
@@ -214,6 +215,14 @@ def select(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None):
     someone typed. Same principle as viewRangesSet() refusing a zero range —
     the validator should have caught it, and this is the backstop that keeps
     the failure visible instead of silent.
+
+    `include_mlat=False` drops multilaterated positions here for the same
+    reason the band is applied here: they occupy cap slots. Note what it costs.
+    An MLAT target is a few hundred metres less certain than ADS-B, which is
+    the case for dropping it — but in saturated airspace an airframe not
+    sending ADS-B at all is unusual in its own right, and that signal goes with
+    it. The hollow ring exists to say both things at once, so switching this
+    off is a decision to stop asking the question rather than a tidy-up.
     """
     lon_scale = NM_PER_DEG_LAT * math.cos(math.radians(home_lat))
     banded = (alt_min is not None and alt_max is not None
@@ -224,6 +233,8 @@ def select(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None):
             continue
         contact = _to_contact(entry, home_lat, home_lon, lon_scale)
         if contact is None:
+            continue
+        if not include_mlat and contact.is_mlat:
             continue
         if banded and not in_alt_band(contact, alt_min, alt_max):
             continue
@@ -260,9 +271,11 @@ def pack(picked, total):
     return bytes(out)
 
 
-def build(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None):
+def build(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None,
+          include_mlat=True):
     picked, total = select(aircraft, home_lat, home_lon, limit,
-                           alt_min=alt_min, alt_max=alt_max)
+                           alt_min=alt_min, alt_max=alt_max,
+                           include_mlat=include_mlat)
     return pack(picked, total)
 
 

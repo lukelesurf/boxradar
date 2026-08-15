@@ -300,3 +300,55 @@ class TestAltitudeBand(unittest.TestCase):
                               alt_min=1000, alt_max=70000)
         out = contacts.read(data)
         self.assertEqual([c["alt_ft"] for c in out["contacts"]], [9000])
+
+
+class TestMlatFilter(unittest.TestCase):
+    """Dropped on the Pi with the altitude band, and for the same reason.
+
+    MLAT contacts occupy cap slots, so a draw-time filter would spend them and
+    then hide the result. What these pin down is that hiding is a filter on
+    the FEED — the contact never arrives — rather than a styling change, and
+    that the excluded traffic leaves the total with it.
+    """
+
+    def mlat(self, feed, include, limit=32):
+        return contacts.select(feed, HOME_LAT, HOME_LON, limit,
+                               include_mlat=include)
+
+    def test_mlat_is_included_by_default(self):
+        picked, _ = contacts.select([at_range_nm(5, type="mlat")],
+                                    HOME_LAT, HOME_LON, 32)
+        self.assertEqual([c.is_mlat for c in picked], [True])
+
+    def test_hiding_drops_them_from_the_feed_and_the_total(self):
+        feed = [at_range_nm(5, type="mlat"), at_range_nm(9, type="adsb_icao")]
+        picked, total = self.mlat(feed, include=False)
+        self.assertEqual([c.is_mlat for c in picked], [False])
+        self.assertEqual(total, 1)
+
+    def test_hiding_frees_cap_slots_for_transmitted_positions(self):
+        # Three MLAT nearer than the one ADS-B, one slot. This is the whole
+        # argument for filtering ahead of the cap rather than behind it.
+        feed = [at_range_nm(1, type="mlat"), at_range_nm(2, type="mlat"),
+                at_range_nm(3, type="mlat"), at_range_nm(9, type="adsb_icao")]
+        picked, total = self.mlat(feed, include=False, limit=1)
+        self.assertEqual(len(picked), 1)
+        self.assertFalse(picked[0].is_mlat)
+        self.assertEqual(total, 1)
+
+    def test_the_two_filters_compose(self):
+        feed = [at_range_nm(2, type="mlat", alt_baro=9000),
+                at_range_nm(3, type="adsb_icao", alt_baro=500),
+                at_range_nm(4, type="adsb_icao", alt_baro=9000)]
+        picked, _ = contacts.select(feed, HOME_LAT, HOME_LON, 32,
+                                    alt_min=1000, alt_max=70000,
+                                    include_mlat=False)
+        self.assertEqual(len(picked), 1)
+        self.assertEqual(picked[0].alt_ft, 9000)
+        self.assertFalse(picked[0].is_mlat)
+
+    def test_build_passes_the_switch_through(self):
+        feed = [at_range_nm(5, type="mlat"), at_range_nm(9, type="adsb_icao")]
+        out = contacts.read(contacts.build(feed, HOME_LAT, HOME_LON, 32,
+                                           include_mlat=False))
+        self.assertEqual([c["is_mlat"] for c in out["contacts"]], [False])

@@ -52,6 +52,7 @@ const char *K_SDIM = "sdim";
 const char *K_SDROP = "sdrop";
 const char *K_AMIN = "amin";
 const char *K_AMAX = "amax";
+const char *K_MLATON = "mlaton";
 
 SiteConfig s_cfg;
 bool s_fromNvs = false;
@@ -102,6 +103,9 @@ void loadDefaults(SiteConfig &c) {
   // discover you want after watching the scope for a week.
   c.altMinFt = 0;
   c.altMaxFt = radar::CFG_ALT_CEILING_FT;
+  // On, because the feed is the receiver's business and the display should
+  // show what it was given until told otherwise.
+  c.mlatEnabled = 1;
   // Default to on wherever the feature is compiled in; the flag exists to let
   // it be turned off without a reflash, not to make it off by default.
   c.metarEnabled = 0;
@@ -220,6 +224,7 @@ void siteConfigBegin() {
     if (p.isKey(K_SDROP)) { s_cfg.seenDropS = (uint16_t)p.getUInt(K_SDROP); applied++; }
     if (p.isKey(K_AMIN)) { s_cfg.altMinFt = p.getUInt(K_AMIN); applied++; }
     if (p.isKey(K_AMAX)) { s_cfg.altMaxFt = p.getUInt(K_AMAX); applied++; }
+    if (p.isKey(K_MLATON)) { s_cfg.mlatEnabled = p.getUInt(K_MLATON) ? 1 : 0; applied++; }
     p.end();
   }
   s_fromNvs = applied > 0;
@@ -362,6 +367,7 @@ bool siteConfigReadU32(const char *key, uint32_t *out) {
   if (strcmp(key, K_SDROP) == 0) { *out = s_cfg.seenDropS; return true; }
   if (strcmp(key, K_AMIN) == 0) { *out = s_cfg.altMinFt; return true; }
   if (strcmp(key, K_AMAX) == 0) { *out = s_cfg.altMaxFt; return true; }
+  if (strcmp(key, K_MLATON) == 0) { *out = s_cfg.mlatEnabled; return true; }
   return false;
 }
 

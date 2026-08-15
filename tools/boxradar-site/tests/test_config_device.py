@@ -80,7 +80,7 @@ class TestFieldTable(unittest.TestCase):
                     "coaston", "ohon", "nighton", "nclkon",
                     "ovnm", "d1nm", "d2nm", "tlnm",
                     "ohrnm", "ohsec", "ohturn", "sdim", "sdrop",
-                    "amin", "amax",
+                    "amin", "amax", "mlaton",
                     "ntp", "tz", "types"]))
 
     def test_no_scope_range_can_be_saved_as_zero(self):
@@ -141,6 +141,14 @@ class TestFieldTable(unittest.TestCase):
         for key in ("coaston", "ohon", "nighton", "nclkon"):
             self.assertTrue(device.BY_KEY[key].choices, key)
 
+    def test_the_pi_side_filters_are_grouped_together(self):
+        # amin/amax/mlaton are the only settings the board never acts on. They
+        # belong in one group because the thing worth knowing about them is
+        # the same thing: they change what the Pi sends, before the cap.
+        self.assertEqual({f.key for f in device.fields_in("filters")},
+                         {"amin", "amax", "mlaton"})
+        self.assertTrue(device.BY_KEY["mlaton"].choices)
+
     def test_the_pages_open_groups_are_the_ones_worth_scrolling_to(self):
         # The point of collapsing is that the settings someone actually came
         # for are visible without scrolling past twenty timings. If this ever
@@ -152,7 +160,7 @@ class TestFieldTable(unittest.TestCase):
         # not how much is hidden but WHICH things are: everything open changes
         # the picture, everything shut is a timing or a threshold.
         self.assertEqual(collapsed, {"overhead", "night", "poll", "clock"})
-        self.assertEqual(shown, {"view", "alt", "layers", "traffic", "feeds"})
+        self.assertEqual(shown, {"view", "filters", "layers", "traffic", "feeds"})
 
     def test_only_the_overhead_radius_is_carried_in_a_scaled_unit(self):
         # Every other field on the page is a whole number in its natural unit.

@@ -29,7 +29,8 @@ static void test_the_expected_keys_are_present() {
                             "nighton", "nclkon",  "ovnm",    "d1nm",
                             "d2nm",    "tlnm",    "ohrnm",   "ohsec",
                             "ohturn",  "sdim",    "sdrop",   "amin",
-                            "amax",    "ntp",     "tz",      "types"};
+                            "amax",    "mlaton",  "ntp",     "tz",
+                            "types"};
   size_t n = sizeof(expected) / sizeof(expected[0]);
   TEST_ASSERT_EQUAL_size_t(n, DEVICE_FIELD_COUNT);
   for (size_t i = 0; i < n; i++)
@@ -226,10 +227,12 @@ static void test_the_shipped_ageing_is_inside_its_own_bounds() {
   TEST_ASSERT_NULL(problem);
 }
 
-static void test_the_four_former_ifdefs_are_boolean() {
+static void test_the_boolean_switches_are_boolean() {
   // These were compile-time switches, so unlike metaron/geoon they can turn a
   // feature ON as well as off — the code behind them is always compiled.
-  const char *keys[] = {"coaston", "ohon", "nighton", "nclkon"};
+  // mlaton rides along: same 0/1 shape, though it is a feed filter the Pi
+  // applies rather than anything the board draws.
+  const char *keys[] = {"coaston", "ohon", "nighton", "nclkon", "mlaton"};
   for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
     const char *problem = "unset";
     parsed(keys[i], "0", &problem);
@@ -355,7 +358,7 @@ int main(int, char **) {
   RUN_TEST(test_the_shipped_overhead_thresholds_are_inside_their_bounds);
   RUN_TEST(test_the_overhead_radius_is_carried_in_tenths);
   RUN_TEST(test_the_shipped_ageing_is_inside_its_own_bounds);
-  RUN_TEST(test_the_four_former_ifdefs_are_boolean);
+  RUN_TEST(test_the_boolean_switches_are_boolean);
   RUN_TEST(test_a_zero_ageing_never_reaches_the_scope);
   RUN_TEST(test_the_altitude_band_spans_everything_that_transmits);
   RUN_TEST(test_an_inverted_band_is_accepted_here_and_ignored_later);

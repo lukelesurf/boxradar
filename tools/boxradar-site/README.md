@@ -38,6 +38,7 @@ asked for, and the station list stops being configuration on both sides.
 | `GET /metar/EGSS,EGGW` | several, in one upstream call |
 | `GET /contacts?lat=&lon=&n=` | the binary traffic feed |
 | `GET /contacts?...&amin=&amax=` | …restricted to an altitude band, in feet |
+| `GET /contacts?...&mlat=0` | …with multilaterated positions dropped |
 | `GET /type/AS50` | the full aircraft type name for a designator |
 | `GET /board` | the board's address and how long since it last polled |
 | `POST /board/wake` | asks the board to open its settings server |
@@ -274,13 +275,13 @@ raise.
 
 ### Device settings
 
-Twenty-eight settings that used to need an edit to `include/config.h` and a
+Twenty-nine settings that used to need an edit to `include/config.h` and a
 reflash — and, for four of them, a rebuild rather than an edit:
 
 | group | keys | collapsed |
 |---|---|---|
 | Scope ranges | `ovnm`, `d1nm`, `d2nm`, `tlnm` | no |
-| Altitude band | `amin`, `amax` | no |
+| What reaches the scope | `amin`, `amax`, `mlaton` | no |
 | Scope layers | `coaston`, `ohon` | no |
 | Overhead prediction | `ohrnm`, `ohsec`, `ohturn` | yes |
 | Traffic | `types`, `sdim`, `sdrop` | no |
@@ -352,7 +353,7 @@ the field table to buy them.
 it leaves the scope. 30/60 suits a rooftop antenna with a clean horizon; one
 indoors loses the same aircraft every few polls, and raising both is the fix.
 
-`amin` and `amax` are the only two settings the **board never acts on**. They
+`amin`, `amax` and `mlaton` are the only settings the **board never acts on**. They
 ride on the `/contacts` request and the display service filters before it
 sorts and caps. That placement is the whole point: a real feed runs 54-65
 aircraft against 32 slots, so a filter at draw time would spend every slot and
@@ -382,8 +383,23 @@ rule would make some orderings of the same edit fail. `select()` **ignores**
 an inverted band rather than obeying it: obeying it blanks the scope, and a
 blank scope reads as a dead board rather than as a setting someone typed.
 
-A board flashed before this existed sends neither parameter, and absent means
-no band, so it keeps working untouched. Present-but-malformed is a 400.
+`mlaton` is the third of these and the same shape: `&mlat=0` drops
+multilaterated positions before the cap, freeing slots for positions the
+aircraft transmitted itself. Note what it costs, because it is not purely a
+precision question — an MLAT target is a few hundred metres softer than ADS-B,
+but in saturated airspace an airframe not sending ADS-B **at all** is unusual
+in its own right. The hollow ring says both things at once, so switching this
+off is a decision to stop asking rather than a tidy-up. Nothing on the board
+changes: the status strip's `(n)` is already conditional on there being any,
+so it simply stops appearing.
+
+Only `0` and `1` are accepted for `mlat`, not any truthy string — the board
+sends exactly one of those two, and taking `false` or `no` as well would be
+inventing a wire format nothing writes.
+
+A board flashed before any of this existed sends none of the three parameters,
+and absent means no filtering, so it keeps working untouched.
+Present-but-malformed is a 400.
 
 **WiFi, the receiver URL and the OTA credentials are deliberately not here.**
 They stay behind the board's own setup access point (`src/portal.cpp`), where a

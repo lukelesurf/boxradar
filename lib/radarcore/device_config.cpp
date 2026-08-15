@@ -37,7 +37,7 @@ namespace radar {
 // broken feed. Nothing enforces sdrop > sdim, for the same reason nothing
 // enforces the ranges against each other — see below.
 //
-// amin/amax are the only two settings the BOARD never acts on. They ride on
+// amin/amax/mlaton are the only settings the BOARD never acts on. They ride on
 // the /contacts request and the Pi filters before it sorts and caps, because
 // a real feed runs 54-65 aircraft against 32 slots: a filter behind the cap
 // would spend every slot and then hide most of them, leaving the scope
@@ -46,6 +46,10 @@ namespace radar {
 // pressure, so a literal floor of 0 would hide ground traffic at the shipped
 // setting. amin above amax is refused by neither side and IGNORED by the Pi,
 // because obeying it blanks the scope and a blank scope reads as a dead board.
+// mlaton off frees those slots for positions the aircraft transmitted itself,
+// at the price of the signal the hollow ring carries — not sending ADS-B in
+// this airspace is itself worth seeing. Nothing on the board changes: the
+// status strip's "(n)" is already conditional on there being any.
 //
 // nstart == nend is ALLOWED: night_mode.cpp reads it as "disabled", so it is
 // the off switch rather than a 24-hour blank.
@@ -104,6 +108,7 @@ const DeviceField DEVICE_FIELDS[] = {
     // as 70000, so the Pi's ALT_BAND_CEILING_FT and this cannot drift.
     {"amin", DEV_U32, 0, CFG_ALT_CEILING_FT},
     {"amax", DEV_U32, 0, CFG_ALT_CEILING_FT},
+    {"mlaton", DEV_U32, 0, 1},
     {"ntp", DEV_STR, 0, CFG_HOST_LEN - 1},
     {"tz", DEV_STR, 0, CFG_TZ_LEN - 1},
     {"types", DEV_STR, 0, CFG_TYPES_LEN - 1},

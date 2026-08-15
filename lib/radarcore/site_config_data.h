@@ -93,6 +93,12 @@ struct SiteConfig {
   // airfield on a high-pressure day.
   uint32_t altMinFt;
   uint32_t altMaxFt;
+  // Whether multilaterated positions reach the board at all. Filtered by the
+  // Pi with the altitude band and for the same reason — they occupy cap slots
+  // — so like those two it never reaches a draw site. Off costs the signal the
+  // hollow ring carries: in saturated airspace an airframe not sending ADS-B
+  // is unusual in its own right, not merely less precisely located.
+  uint8_t mlatEnabled;
   // Scope ranges, whole nautical miles. Held as integers here because that is
   // what NVS and the config form carry; radar::ViewRanges holds them as the
   // floats the projection wants. See view_ranges.h.

@@ -112,15 +112,15 @@ static void poll() {
   // every slot and then hide most of them. The Pi filters before it sorts and
   // caps, which makes the 32 the nearest 32 IN the band.
   //
-  // Worst case is 58 characters of query — the +72 is measured against that,
+  // Worst case is 65 characters of query — the +88 is measured against that,
   // not guessed, and the truncation check below is what makes a future field
-  // fail loudly instead of silently dropping the band or mangling n=.
-  char url[radar::CFG_URL_LEN + 72];
+  // fail loudly instead of silently dropping a filter or mangling n=.
+  char url[radar::CFG_URL_LEN + 88];
   int wrote = snprintf(url, sizeof(url),
-                       "%s?lat=%.6f&lon=%.6f&n=%d&amin=%u&amax=%u",
+                       "%s?lat=%.6f&lon=%.6f&n=%d&amin=%u&amax=%u&mlat=%u",
                        RECEIVER_URL, (double)HOME_LAT, (double)HOME_LON,
                        (int)radar::MAX_AIRCRAFT, (unsigned)ALT_MIN_FT,
-                       (unsigned)ALT_MAX_FT);
+                       (unsigned)ALT_MAX_FT, (unsigned)(MLAT_ON ? 1 : 0));
   if (wrote < 0 || (size_t)wrote >= sizeof(url)) {
     // snprintf truncates rather than overflowing, so this is not a crash — it
     // is a request missing its tail, which the Pi would answer with a 400 and

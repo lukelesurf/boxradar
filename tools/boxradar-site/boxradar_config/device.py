@@ -1,6 +1,6 @@
 """The board's optional settings, and the two hops needed to reach them.
 
-Twenty-eight settings that previously required editing include/config.h and
+Twenty-nine settings that previously required editing include/config.h and
 reflashing. Four of them — the coastline, the overhead readout, night blanking
 and the overnight clock — were not even values but #ifdefs, so changing one
 meant a rebuild rather than an edit; they are compiled in both ways now and
@@ -68,13 +68,13 @@ GROUPS = [
           "the chooser you tap; the two detail levels are what the zoom "
           "toggle steps between. Nothing checks these against each other — an "
           "overview narrower than a detail level is odd, not broken."),
-    Group("alt", "Altitude band",
-          "Which aircraft reach the scope at all, in feet. The one setting "
-          "here that changes what the Pi sends rather than what the board "
-          "draws — and it has to be, because the feed runs 54-65 aircraft "
-          "against 32 slots. Filtering at the board would fill all 32 and "
-          "then hide most of them, emptying the scope exactly when the sky "
-          "is busy. A floor of 0 means no floor at all."),
+    Group("filters", "What reaches the scope",
+          "The only settings here that change what the Pi SENDS rather than "
+          "what the board draws — and they have to be, because the feed runs "
+          "54-65 aircraft against 32 slots. Filtering at the board would fill "
+          "all 32 and then hide most of them, emptying the scope exactly when "
+          "the sky is busy. Filtering first means the 32 are the nearest 32 "
+          "you actually asked for. An altitude floor of 0 means no floor."),
     Group("layers", "Scope layers",
           "What gets drawn on top of the ranges. Both of these were compiled "
           "in or out of the firmware until now, so trying the panel without "
@@ -181,18 +181,27 @@ FIELDS = [
     # ADS-B, so a record claiming more is a spoof or a decode error and is
     # better hidden than drawn. Mirrored as CFG_ALT_CEILING_FT in the
     # firmware and ALT_BAND_CEILING_FT on the display service.
-    Field("amin", "Floor", "u", "alt", 0, 70000, unit="ft",
+    Field("amin", "Altitude floor", "u", "filters", 0, 70000, unit="ft",
           help="Hide anything below this. 0 means no floor — not "
                "“at or above zero”, because barometric altitude genuinely "
                "reads slightly negative at a low airfield on a high-pressure "
                "day, and a literal 0 would make ground traffic vanish at the "
                "shipped setting. Set 1000 or so to drop circuit and ground "
                "movements and leave the airways traffic."),
-    Field("amax", "Ceiling", "u", "alt", 0, 70000, unit="ft",
+    Field("amax", "Altitude ceiling", "u", "filters", 0, 70000, unit="ft",
           help="Hide anything above this. Literal, unlike the floor. 70000 "
                "is shipped and is above every airframe that transmits, so it "
                "means “everything” in practice. Set 10000 or so to keep only "
                "what is close enough to look up and see."),
+    Field("mlaton", "MLAT traffic", "u", "filters", 0, 1,
+          choices=[(1, "show"), (0, "hide")],
+          help="Positions worked out by the feed network from timing rather "
+               "than transmitted by the aircraft, drawn as hollow rings. "
+               "Hiding them frees cap slots for positions you can trust to a "
+               "few hundred metres — but it also drops a signal, because an "
+               "airframe not sending ADS-B at all in this airspace is "
+               "unusual in its own right. That is what the ring says, and "
+               "turning this off stops asking the question."),
     Field("coaston", "Coastline", "u", "layers", 0, 1,
           choices=[(1, "on"), (0, "off")],
           help="The map blob carries the coast either way; this only decides "

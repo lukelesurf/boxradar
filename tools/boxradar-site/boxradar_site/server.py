@@ -181,6 +181,24 @@ def parse_band(query):
     return low, high
 
 
+def parse_mlat(query):
+    """Whether to include multilaterated positions, or None if malformed.
+
+    Absent means include, so a board that predates the switch is unaffected —
+    the same compatibility rule as the altitude band. Only "0" and "1" are
+    accepted rather than any truthy string: the board sends one of exactly
+    those two, and taking "false" or "no" as well would be inventing a wire
+    format nothing writes.
+    """
+    params = urllib.parse.parse_qs(query, keep_blank_values=True)
+    if "mlat" not in params:
+        return True
+    value = params["mlat"][0]
+    if value not in ("0", "1"):
+        return None
+    return value == "1"
+
+
 def _make_handler(cache, cfg, fetch_feed, board, types):
     class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 for the sake of curl and the future web UI. The firmware is
@@ -238,6 +256,10 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
                                           f"in 0..{contacts.ALT_BAND_CEILING_FT}"})
                 return
             alt_min, alt_max = band
+            include_mlat = parse_mlat(query)
+            if include_mlat is None:
+                self._json(400, {"error": "mlat must be 0 or 1"})
+                return
             # Recorded AFTER the request is validated but BEFORE the feed is
             # fetched. A malformed request did not come from the board, so it
             # must not move where we think the board is; a receiver outage is
@@ -264,7 +286,8 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
                 return
             self._binary(200, contacts.build(aircraft, lat, lon, n,
                                              alt_min=alt_min,
-                                             alt_max=alt_max),
+                                             alt_max=alt_max,
+                                             include_mlat=include_mlat),
                          config_wanted=wanted, geo_wanted=geo)
 
         def _metar(self, segment):
