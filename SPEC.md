@@ -117,7 +117,7 @@ history, logging) uses the card, not SPIFFS, so this change doesn't block
 it.
 - `ArduinoOTA.handle()` polled from the net task (core 0), not the UI loop
 - During an OTA upload: pause JSON polling and rendering, show a progress bar on the TFT (onProgress callback)
-- `platformio.ini` gets two envs: `[env:usb]` for first flash / recovery, `[env:ota]` with `upload_protocol = espota`, `upload_port = boxradar.local`, auth flag
+- `platformio.ini` gets two envs: `[env:usb]` for first flash / recovery, `[env:ota]` with `upload_protocol = espota`, `upload_port = boxradar.local`, auth flag *(superseded 2026-08-15: one env **pair** per board — `<site>` and `<site>-usb` — each carrying its own `-DBOXRADAR_SITE_*` flag and upload address, so site data and OTA target cannot be mismatched. See Building in the README.)*
 
 ## Milestones
 

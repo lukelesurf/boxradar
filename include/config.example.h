@@ -1,33 +1,57 @@
 // Copy to include/config.h and fill in. config.h is git-ignored.
 #pragma once
 
+// Shared by every board built from this file.
 #define DEFAULT_WIFI_SSID "your-ssid"
 #define DEFAULT_WIFI_PASS "your-password"
+#define DEFAULT_OTA_PASSWORD "change-me"
 
-// The boxradar-site contact feed, NOT tar1090 directly. The board appends
-// "?lat=&lon=&n=" and gets back fixed-size binary records the Pi has already
-// filtered, range-sorted and capped — see
+// ---------------------------------------------------------------------------
+// Per-board settings, selected by the build flag its PlatformIO env sets.
+//
+// One board needs only the block below. For a second board, add another
+// `#elif defined(BOXRADAR_SITE_<NAME>)` here and a matching pair of envs in
+// platformio.ini — see the `stansted` / `southend` pairs there. Keeping the
+// site data and the OTA address in one env name is what stops the two
+// drifting apart, because flashing the wrong pair fails *silently*: a board
+// rejects any blob not built for its own home (GEO_HOME_TOLERANCE_DEG, ~11m,
+// in lib/radarcore/geoblob.h) and simply carries on drawing its cached map.
+//
+// HOME_LAT/LON must match `home_lat`/`home_lon` in the site's selection JSON
+// to within that ~11m. Four decimal places is the minimum that fits; three is
+// 111m and every blob the board ever fetches is rejected, with no error
+// beyond a line on the status row.
+//
+// RECEIVER_URL is the boxradar-site contact feed, NOT tar1090 directly. The
+// board appends "?lat=&lon=&n=" and gets back fixed-size binary records the Pi
+// has already filtered, range-sorted and capped — see
 // docs/superpowers/specs/2026-08-08-contact-feed.md. Pointing this at
 // aircraft.json will not work: the board no longer parses JSON traffic.
-#define DEFAULT_RECEIVER_URL "http://receiver.lan:8081/contacts"
+//
+// The URL's last path segment names the METAR station, and METAR_STATION must
+// match it — the firmware picks that id out of the response's "stations"
+// array.
+// ---------------------------------------------------------------------------
+#if defined(BOXRADAR_SITE_HOME)
 
-// Scope centre
-#define DEFAULT_HOME_LAT 51.5000
-#define DEFAULT_HOME_LON -0.1000
+#define DEFAULT_RECEIVER_URL  "http://receiver.lan:8081/contacts"
+#define DEFAULT_HOME_LAT      51.5000
+#define DEFAULT_HOME_LON      -0.1000
+#define DEFAULT_OTA_HOSTNAME  "boxradar"
+#define DEFAULT_METAR_URL     "http://receiver.lan:8081/metar/EGSS"
+#define DEFAULT_METAR_STATION "EGSS"
+#define DEFAULT_GEO_URL       "http://receiver.lan/site.bin"
 
-#define DEFAULT_OTA_HOSTNAME "boxradar"
-#define DEFAULT_OTA_PASSWORD "change-me"
+#else
+#error "No site selected. Build a site env, e.g. -e home or -e home-usb."
+#endif
 
 #define DEFAULT_POLL_INTERVAL_MS 2000
 
-// Optional weather, proxied by tools/boxradar-site on the receiver Pi. The
-// URL's last path segment names the station, and METAR_STATION must match it —
-// the firmware picks that id out of the response's "stations" array. Comment
-// out METAR_URL to disable; the status line simply omits the weather segments
-// and everything else carries on.
+// Optional weather, proxied by tools/boxradar-site on the receiver Pi. Comment
+// out METAR_ENABLED and the site block's METAR_URL to disable; the status line
+// simply omits the weather segments and everything else carries on.
 #define METAR_ENABLED
-#define DEFAULT_METAR_URL "http://receiver.lan:8081/metar/EGSS"
-#define DEFAULT_METAR_STATION "EGSS"
 // METARs are issued half-hourly and the proxy caches each station for 5
 // minutes, so there is nothing to gain from polling this hard.
 #define DEFAULT_METAR_POLL_INTERVAL_MS 60000
@@ -37,7 +61,6 @@
 // Comment out to keep using the tables compiled into flash. The board
 // caches the last good blob to LittleFS, so a Pi outage costs nothing.
 #define GEO_ENABLED
-#define DEFAULT_GEO_URL "http://receiver.lan/site.bin"
 #define DEFAULT_GEO_POLL_INTERVAL_MS 600000   // 10 min; it changes rarely
 
 

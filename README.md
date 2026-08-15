@@ -169,10 +169,19 @@ Toolchain is PlatformIO via the Nix devShell (`direnv allow` or
 
 ```bash
 cp include/config.example.h include/config.h   # fill in WiFi, receiver URL, home lat/lon
-pio run -e usb -t upload                       # first flash over serial
-pio run -e ota -t upload                       # thereafter; needs BOXRADAR_OTA_PASS in env
+pio run -e southend-usb -t upload               # first flash over serial
+pio run -e southend     -t upload               # thereafter; needs BOXRADAR_OTA_PASS in env
 pio test -e native                             # unit tests, no hardware needed
 ```
+
+**There is no site-less env.** Each board gets a pair of envs — `<site>` over
+the air and `<site>-usb` over serial — carrying both its `-DBOXRADAR_SITE_*`
+flag and its upload address, and `config.h` `#error`s without one. The pairing
+is deliberate: a board rejects any blob not built for its own home
+(`GEO_HOME_TOLERANCE_DEG`, ~11m, in `lib/radarcore/geoblob.h`), and it does so
+*silently* — it keeps drawing its cached map. Flashing one board with the
+other's firmware would otherwise look fine for hours. Adding a board is one
+`#elif` in `config.h` and one env pair in `platformio.ini`.
 
 Partitions are `min_spiffs.csv`: both OTA slots kept, 1.875 MiB each,
 with the extra space taken from a SPIFFS partition this project never
@@ -187,7 +196,7 @@ lottery — see Known Quirks in SPEC.md.
 Compile out entirely unless requested:
 
 ```bash
-PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FRAME_TIME pio run -e ota -t upload
+PLATFORMIO_BUILD_FLAGS=-DBOXRADAR_FRAME_TIME pio run -e southend -t upload
 ```
 
 - `BOXRADAR_FRAME_TIME` — frame cost in the top-right: `R` is building the
