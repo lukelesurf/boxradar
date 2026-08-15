@@ -72,6 +72,14 @@ constexpr uint16_t COAST_LINE = rgb332(1, 1, 0);
 // Dark grey text would give poor contrast while still lighting the panel.
 constexpr uint16_t NIGHT_CLOCK_COLOUR = rgb332(6, 0, 0);
 
+// A watchlist hit. Full green-blue with no red, which is the one bright hue
+// the altitude ramp does not use for a band of its own — red/orange/yellow are
+// low, green is mid, cyan is high, violet is above FL300. Picking a NEW hue
+// rather than reusing one keeps the rule "colour means altitude" intact
+// everywhere except the ring, which is drawn outside the blip rather than as
+// part of it.
+constexpr uint16_t WATCH_RING = rgb332(7, 7, 3);
+
 // Home marker. Identical to TFT_GREEN once quantized, and deliberately named
 // so the collision below is on the record: this is one rung from ALT_BAND_200
 // (1,7,1) and the two are indistinguishable on an 8-bit sprite. Home is

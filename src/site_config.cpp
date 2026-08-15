@@ -53,6 +53,7 @@ const char *K_SDROP = "sdrop";
 const char *K_AMIN = "amin";
 const char *K_AMAX = "amax";
 const char *K_MLATON = "mlaton";
+const char *K_WATCH = "watch";
 
 SiteConfig s_cfg;
 bool s_fromNvs = false;
@@ -184,6 +185,8 @@ void siteConfigBegin() {
     applied += overlayStr(p, K_TZ, s_cfg.nightTz, radar::CFG_TZ_LEN);
     applied += overlayStr(p, K_TYPES, s_cfg.commonTypes,
                           radar::CFG_TYPES_LEN);
+    applied += overlayStr(p, K_WATCH, s_cfg.watchList,
+                          radar::CFG_WATCH_LEN);
     if (p.isKey(K_LAT)) { s_cfg.homeLat = p.getFloat(K_LAT); applied++; }
     if (p.isKey(K_LON)) { s_cfg.homeLon = p.getFloat(K_LON); applied++; }
     if (p.isKey(K_POLL)) { s_cfg.pollIntervalMs = p.getUInt(K_POLL); applied++; }
@@ -376,6 +379,7 @@ const char *siteConfigReadStr(const char *key) {
   if (strcmp(key, K_NTP) == 0) return s_cfg.ntpServer;
   if (strcmp(key, K_TZ) == 0) return s_cfg.nightTz;
   if (strcmp(key, K_TYPES) == 0) return s_cfg.commonTypes;
+  if (strcmp(key, K_WATCH) == 0) return s_cfg.watchList;
   return nullptr;
 }
 

@@ -37,7 +37,7 @@ namespace radar {
 // broken feed. Nothing enforces sdrop > sdim, for the same reason nothing
 // enforces the ranges against each other — see below.
 //
-// amin/amax/mlaton are the only settings the BOARD never acts on. They ride on
+// amin/amax/mlaton/watch are the only settings the BOARD never acts on. They ride on
 // the /contacts request and the Pi filters before it sorts and caps, because
 // a real feed runs 54-65 aircraft against 32 slots: a filter behind the cap
 // would spend every slot and then hide most of them, leaving the scope
@@ -50,6 +50,13 @@ namespace radar {
 // at the price of the signal the hollow ring carries — not sending ADS-B in
 // this airspace is itself worth seeing. Nothing on the board changes: the
 // status strip's "(n)" is already conditional on there being any.
+//
+// watch MARKS rather than filters, which is the one thing to keep straight
+// about it: every other setting in that group decides what reaches the board,
+// and confusing "show me this" with "show me only this" would put an empty
+// scope one typo away. A pattern matches a designator prefix, a callsign
+// prefix, or a substring of the type NAME — and the last of those is why the
+// matching is on the Pi, because the board has never seen a name.
 //
 // nstart == nend is ALLOWED: night_mode.cpp reads it as "disabled", so it is
 // the off switch rather than a 24-hour blank.
@@ -112,6 +119,7 @@ const DeviceField DEVICE_FIELDS[] = {
     {"ntp", DEV_STR, 0, CFG_HOST_LEN - 1},
     {"tz", DEV_STR, 0, CFG_TZ_LEN - 1},
     {"types", DEV_STR, 0, CFG_TYPES_LEN - 1},
+    {"watch", DEV_STR, 0, CFG_WATCH_LEN - 1},
 };
 
 const size_t DEVICE_FIELD_COUNT =

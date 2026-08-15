@@ -30,7 +30,7 @@ static void test_the_expected_keys_are_present() {
                             "d2nm",    "tlnm",    "ohrnm",   "ohsec",
                             "ohturn",  "sdim",    "sdrop",   "amin",
                             "amax",    "mlaton",  "ntp",     "tz",
-                            "types"};
+                            "types",   "watch"};
   size_t n = sizeof(expected) / sizeof(expected[0]);
   TEST_ASSERT_EQUAL_size_t(n, DEVICE_FIELD_COUNT);
   for (size_t i = 0; i < n; i++)

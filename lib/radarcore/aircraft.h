@@ -56,6 +56,11 @@ struct Aircraft {
   bool isMlat;         // position multilaterated, not transmitted by the
                        // aircraft: lower confidence, and by definition an
                        // airframe that isn't sending ADS-B at all
+  // Matched a watchlist pattern. Decided entirely by the Pi and carried in a
+  // spare flag bit: the patterns can match a type NAME, and the board has
+  // never seen a name — only the four-character designator. One byte a slot,
+  // 128 across the four stores.
+  bool isWatched;
   float seenS;
   float rssi;
   Vec2 pos;           // NM east/north of home

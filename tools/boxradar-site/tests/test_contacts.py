@@ -352,3 +352,121 @@ class TestMlatFilter(unittest.TestCase):
         out = contacts.read(contacts.build(feed, HOME_LAT, HOME_LON, 32,
                                            include_mlat=False))
         self.assertEqual([c["is_mlat"] for c in out["contacts"]], [False])
+
+
+NAMES = {
+    "B738": "BOEING 737-800",
+    "B38M": "BOEING 737 MAX 8",
+    "B744": "BOEING 747-400",
+    "A388": "AIRBUS A-380-800",
+    "C130": "LOCKHEED C-130 Hercules",
+    "C30J": "LOCKHEED MARTIN C-130J Super Hercules",
+    "EC30": "EUROCOPTER EC-130",
+    "A320": "AIRBUS A-320",
+}
+
+
+def name_for(designator):
+    return NAMES.get(designator)
+
+
+class TestWatchlist(unittest.TestCase):
+    """Marks, never filters — and matches three ways because one is not enough.
+
+    The name substring is the reason this is on the Pi at all: the board holds
+    a four-character designator and has never seen a name, so "737" catching
+    all thirteen 737 codes is something only this side can do.
+    """
+
+    def watch(self, feed, patterns, limit=32):
+        return contacts.select(feed, HOME_LAT, HOME_LON, limit,
+                               watch=patterns, name_for=name_for)
+
+    def test_a_designator_prefix_catches_a_family(self):
+        picked, _ = self.watch([at_range_nm(5, t="B744"),
+                                at_range_nm(9, t="A320")], ["B74"])
+        self.assertEqual([c.watched for c in picked], [True, False])
+
+    def test_a_callsign_prefix_catches_an_operator(self):
+        picked, _ = self.watch([at_range_nm(5, flight="RRR7241"),
+                                at_range_nm(9, flight="BAW123")], ["RRR"])
+        self.assertEqual([c.watched for c in picked], [True, False])
+
+    def test_a_name_substring_catches_what_no_prefix_can(self):
+        # The whole point. B738 and B38M are both 737s and share no prefix —
+        # the MAX designators are B37M/B38M/B39M against B732..B739.
+        picked, _ = self.watch([at_range_nm(5, t="B738"),
+                                at_range_nm(9, t="B38M"),
+                                at_range_nm(12, t="A320")], ["737"])
+        self.assertEqual([c.watched for c in picked], [True, True, False])
+
+    def test_matching_is_case_insensitive(self):
+        picked, _ = self.watch([at_range_nm(5, t="C30J")], ["hercules"])
+        self.assertTrue(picked[0].watched)
+
+    def test_the_hyphen_trap_is_real(self):
+        # Airbus hyphenates and Boeing does not, so "A380" matches nothing and
+        # "A-380" matches. This is exactly why /watch/<pattern> exists.
+        picked, _ = self.watch([at_range_nm(5, t="A388")], ["A380"])
+        self.assertFalse(picked[0].watched)
+        picked, _ = self.watch([at_range_nm(5, t="A388")], ["A-380"])
+        self.assertTrue(picked[0].watched)
+
+    def test_a_name_pattern_can_over_match(self):
+        # "C-130" catches the Hercules AND the Eurocopter EC-130, because the
+        # latter's name contains the former's pattern. Recorded rather than
+        # fixed: the pattern is the user's to choose, and "Hercules" is the
+        # one that does what they meant.
+        picked, _ = self.watch([at_range_nm(5, t="EC30")], ["C-130"])
+        self.assertTrue(picked[0].watched)
+        picked, _ = self.watch([at_range_nm(5, t="EC30")], ["Hercules"])
+        self.assertFalse(picked[0].watched)
+
+    def test_a_short_pattern_never_matches_a_name(self):
+        # "17" appears in "C-17", "B717" and "Beech 1700". Below three
+        # characters a pattern stops describing an airframe and starts
+        # colliding with one, so name matching is off — the anchored
+        # designator and callsign prefixes still apply.
+        picked, _ = self.watch([at_range_nm(5, t="B738")], ["37"])
+        self.assertFalse(picked[0].watched)
+        picked, _ = self.watch([at_range_nm(5, t="B738")], ["B7"])
+        self.assertTrue(picked[0].watched)  # anchored prefix, still fine
+
+    def test_watching_marks_and_never_filters(self):
+        # The property that keeps a typo from emptying the scope. Every other
+        # argument to select() decides what is SENT; this one does not.
+        feed = [at_range_nm(5, t="B738"), at_range_nm(9, t="A320")]
+        picked, total = self.watch(feed, ["NOTHINGMATCHES"])
+        self.assertEqual(len(picked), 2)
+        self.assertEqual(total, 2)
+        self.assertEqual([c.watched for c in picked], [False, False])
+
+    def test_no_watchlist_marks_nothing(self):
+        picked, _ = contacts.select([at_range_nm(5, t="B744")], HOME_LAT,
+                                    HOME_LON, 32)
+        self.assertFalse(picked[0].watched)
+
+    def test_the_flag_survives_the_wire(self):
+        data = contacts.build([at_range_nm(5, t="B744"),
+                               at_range_nm(9, t="A320")],
+                              HOME_LAT, HOME_LON, 32, watch=["B74"],
+                              name_for=name_for)
+        out = contacts.read(data)
+        self.assertEqual([c["watched"] for c in out["contacts"]],
+                         [True, False])
+
+    def test_watching_composes_with_the_filters(self):
+        feed = [at_range_nm(2, t="B744", alt_baro=500),
+                at_range_nm(4, t="B744", alt_baro=9000)]
+        picked, _ = contacts.select(feed, HOME_LAT, HOME_LON, 32,
+                                    alt_min=1000, alt_max=70000,
+                                    watch=["B74"], name_for=name_for)
+        self.assertEqual(len(picked), 1)
+        self.assertTrue(picked[0].watched)
+
+    def test_matching_works_without_a_name_table(self):
+        # name_for is optional: a Pi with no type database still does the two
+        # anchored matches rather than failing.
+        picked, _ = contacts.select([at_range_nm(5, t="B744")], HOME_LAT,
+                                    HOME_LON, 32, watch=["B74"])
+        self.assertTrue(picked[0].watched)

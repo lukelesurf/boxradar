@@ -89,6 +89,7 @@ const char *siteConfigSummary();
 #define ALT_MIN_FT (siteConfig().altMinFt)
 #define ALT_MAX_FT (siteConfig().altMaxFt)
 #define MLAT_ON (siteConfig().mlatEnabled)
+#define WATCH_LIST (siteConfig().watchList)
 // The four that used to be #ifdefs. Read them in an `if`, not an `#ifdef`:
 // both branches are compiled now, and a stray #ifdef on one of these names
 // would silently evaluate false and take the feature out of the build.

@@ -80,7 +80,7 @@ class TestFieldTable(unittest.TestCase):
                     "coaston", "ohon", "nighton", "nclkon",
                     "ovnm", "d1nm", "d2nm", "tlnm",
                     "ohrnm", "ohsec", "ohturn", "sdim", "sdrop",
-                    "amin", "amax", "mlaton",
+                    "amin", "amax", "mlaton", "watch",
                     "ntp", "tz", "types"]))
 
     def test_no_scope_range_can_be_saved_as_zero(self):
@@ -146,7 +146,7 @@ class TestFieldTable(unittest.TestCase):
         # belong in one group because the thing worth knowing about them is
         # the same thing: they change what the Pi sends, before the cap.
         self.assertEqual({f.key for f in device.fields_in("filters")},
-                         {"amin", "amax", "mlaton"})
+                         {"amin", "amax", "mlaton", "watch"})
         self.assertTrue(device.BY_KEY["mlaton"].choices)
 
     def test_the_pages_open_groups_are_the_ones_worth_scrolling_to(self):

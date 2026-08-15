@@ -59,6 +59,13 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
   less certain than ADS-B; and in saturated airspace an aircraft not
   sending ADS-B at all is unusual in its own right
 - **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
+- **Watchlist** (`watch`): patterns that ring a blip and give it first claim
+  on datablock space — a type designator prefix (`B74`), a callsign prefix
+  (`RRR` for the RAF), or a substring of the full type name (`737` catches all
+  thirteen 737 codes, which no designator prefix can). Marks rather than
+  filters, so a typo cannot empty the scope. `GET /watch/<pattern>` on the Pi
+  says what a pattern actually catches, because name matching surprises:
+  `A380` matches nothing at all, the name being `AIRBUS A-380-800`
 - **Trails** are distance-gated, so the dots are evenly spaced whether
   the aircraft is a 90kt Cessna or a 450kt jet, at every range
 - **Next-overhead readout** (`ohon`): the aircraft predicted to pass closest
@@ -119,8 +126,8 @@ Relocating.
   TZ rule, not a fixed offset
 - LDR-driven backlight dimming, RGB LED status (red no-WiFi / amber
   no-data), OTA updates with on-screen progress
-- **Twenty-nine settings live on the board's NVS and are editable from the
-  Pi** — ranges, the feed filters, layers, thresholds, ageing, night
+- **Thirty settings live on the board's NVS and are editable from the Pi** —
+  ranges, the feed filters, the watchlist, layers, thresholds, ageing, night
   blanking, poll intervals, the ordinary-type list — none of which costs a reflash. NVS is an *overlay*: an
   empty one behaves exactly like the compiled defaults, which is what keeps a
   board on WiFi and reachable over OTA no matter what the config layer does.

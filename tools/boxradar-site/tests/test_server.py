@@ -258,6 +258,33 @@ class TestParseMlat(unittest.TestCase):
             self.assertIsNone(server.parse_mlat(bad), bad)
 
 
+class TestParseWatch(unittest.TestCase):
+    def test_absent_is_an_empty_list_not_an_error(self):
+        self.assertEqual(server.parse_watch("lat=51.9&lon=0.03&n=32"), [])
+        self.assertEqual(server.parse_watch("watch="), [])
+
+    def test_a_well_formed_list(self):
+        self.assertEqual(server.parse_watch("watch=737,A-380,RRR"),
+                         ["737", "A-380", "RRR"])
+
+    def test_uppercased_and_deduped(self):
+        self.assertEqual(server.parse_watch("watch=b74,B74,rrr"),
+                         ["B74", "RRR"])
+
+    def test_spaces_and_punctuation_are_refused(self):
+        # No encoding is ever needed on the /contacts request because of this.
+        self.assertIsNone(server.parse_watch("watch=has space"))
+        self.assertIsNone(server.parse_watch("watch=737,,B74"))
+        self.assertIsNone(server.parse_watch("watch=a/b"))
+
+    def test_too_many_patterns_are_refused_before_dedup(self):
+        many = ",".join(f"P{i}" for i in range(server.MAX_WATCH + 1))
+        self.assertIsNone(server.parse_watch(f"watch={many}"))
+        # Repeats do NOT sneak past the cap by collapsing to one.
+        repeats = ",".join(["B74"] * (server.MAX_WATCH + 1))
+        self.assertIsNone(server.parse_watch(f"watch={repeats}"))
+
+
 class TestContactsRoute(ServerTest):
     HOME = "lat=51.88501837&lon=0.23502732"
 
@@ -341,6 +368,26 @@ class TestContactsRoute(ServerTest):
     def test_a_nonsense_mlat_flag_is_400(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.get_binary(f"/contacts?{self.HOME}&n=32&mlat=maybe")
+        self.assertEqual(caught.exception.code, 400)
+
+    def test_the_watchlist_marks_without_filtering(self):
+        self.feed.aircraft = [
+            {"hex": "400abc", "lat": 52.0, "lon": 0.1, "seen": 1.0,
+             "t": "B744"},
+            {"hex": "400def", "lat": 52.1, "lon": 0.1, "seen": 1.0,
+             "t": "A320"},
+        ]
+        _, body, _ = self.get_binary(f"/contacts?{self.HOME}&n=32&watch=B74")
+        got = contacts.read(body)
+        # Both sent. Marking is not filtering, and that is the property that
+        # keeps a typo in this field from emptying the scope.
+        self.assertEqual(len(got["contacts"]), 2)
+        self.assertEqual([c["watched"] for c in got["contacts"]],
+                         [True, False])
+
+    def test_a_nonsense_watchlist_is_400(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.get_binary(f"/contacts?{self.HOME}&n=32&watch=has%20space")
         self.assertEqual(caught.exception.code, 400)
 
     def test_a_dead_receiver_is_503_not_an_empty_feed(self):

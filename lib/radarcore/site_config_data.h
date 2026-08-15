@@ -30,6 +30,10 @@ enum {
   // Roughly forty ICAO designators at five characters each. The built-in list
   // is 134 characters, so this leaves room to grow one without a reflash.
   CFG_TYPES_LEN = 256,
+  // Twelve patterns of up to sixteen characters, plus separators. Shorter than
+  // the type list because this one rides on EVERY contact poll, where the type
+  // list only ever moves at boot.
+  CFG_WATCH_LEN = 96,
 };
 
 // Top of the altitude band, in feet, and its shipped ceiling. Above anything
@@ -49,6 +53,11 @@ struct SiteConfig {
   char ntpServer[CFG_HOST_LEN];
   char nightTz[CFG_TZ_LEN];
   char commonTypes[CFG_TYPES_LEN];
+  // Watchlist patterns, comma separated. Like the altitude band this never
+  // reaches a draw site directly — it rides on the /contacts request and the
+  // Pi does the matching, because a pattern may name a type ("737",
+  // "Hercules") and only the Pi holds the names.
+  char watchList[CFG_WATCH_LEN];
   float homeLat;
   float homeLon;
   uint32_t pollIntervalMs;

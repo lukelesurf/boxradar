@@ -1,6 +1,6 @@
 """The board's optional settings, and the two hops needed to reach them.
 
-Twenty-nine settings that previously required editing include/config.h and
+Thirty settings that previously required editing include/config.h and
 reflashing. Four of them — the coastline, the overhead readout, night blanking
 and the overnight clock — were not even values but #ifdefs, so changing one
 meant a rebuild rather than an edit; they are compiled in both ways now and
@@ -74,7 +74,9 @@ GROUPS = [
           "54-65 aircraft against 32 slots. Filtering at the board would fill "
           "all 32 and then hide most of them, emptying the scope exactly when "
           "the sky is busy. Filtering first means the 32 are the nearest 32 "
-          "you actually asked for. An altitude floor of 0 means no floor."),
+          "you actually asked for. An altitude floor of 0 means no floor. "
+          "The watchlist is the odd one out: it MARKS rather than filters, so "
+          "nothing here can empty the scope by matching too little."),
     Group("layers", "Scope layers",
           "What gets drawn on top of the ranges. Both of these were compiled "
           "in or out of the firmware until now, so trying the panel without "
@@ -202,6 +204,22 @@ FIELDS = [
                "airframe not sending ADS-B at all in this airspace is "
                "unusual in its own right. That is what the ring says, and "
                "turning this off stops asking the question."),
+    # 95 is CFG_WATCH_LEN - 1. Shorter than the type list because this one
+    # rides on every contact poll, where the type list only moves at boot.
+    Field("watch", "Watchlist", "s", "filters", high=95, wide=True,
+          help="Comma-separated patterns. An aircraft matching any of them "
+               "gets a ring on the scope and first claim on datablock space — "
+               "it is MARKED, never filtered, so a typo here cannot empty the "
+               "scope. Each pattern matches a type designator prefix "
+               "(“B74” catches every 747), a callsign prefix (“RRR” "
+               "catches the RAF), or a substring of the full type name "
+               "(“737” catches all thirteen 737 codes, which no "
+               "designator prefix can — the MAX variants are B37M/B38M/B39M). "
+               "Name matching is loose in surprising ways: “A380” "
+               "matches nothing at all, because the name is “AIRBUS "
+               "A-380-800”. Check a pattern before trusting it — "
+               "curl the Pi at /watch/&lt;pattern&gt; and it will list exactly "
+               "what that pattern catches."),
     Field("coaston", "Coastline", "u", "layers", 0, 1,
           choices=[(1, "on"), (0, "off")],
           help="The map blob carries the coast either way; this only decides "

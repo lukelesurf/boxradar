@@ -113,15 +113,19 @@ static void poll() {
   // every slot and then hide most of them. The Pi filters before it sorts and
   // caps, which makes the 32 the nearest 32 IN the band.
   //
-  // Worst case is 65 characters of query — the +88 is measured against that,
-  // not guessed, and the truncation check below is what makes a future field
-  // fail loudly instead of silently dropping a filter or mangling n=.
-  char url[radar::CFG_URL_LEN + 88];
-  int wrote = snprintf(url, sizeof(url),
-                       "%s?lat=%.6f&lon=%.6f&n=%d&amin=%u&amax=%u&mlat=%u",
-                       RECEIVER_URL, (double)HOME_LAT, (double)HOME_LON,
-                       (int)radar::MAX_AIRCRAFT, (unsigned)ALT_MIN_FT,
-                       (unsigned)ALT_MAX_FT, (unsigned)(MLAT_ON ? 1 : 0));
+  // Worst case is 65 characters of fixed query plus the watchlist, which is
+  // CFG_WATCH_LEN and rides here rather than being held on the Pi so the
+  // board's NVS stays the single authority and two boards can watch for
+  // different things. Patterns are letters, digits and dashes only, so no
+  // URL-encoding is ever needed. The truncation check below is what makes a
+  // future field fail loudly instead of silently dropping a filter.
+  char url[radar::CFG_URL_LEN + radar::CFG_WATCH_LEN + 96];
+  int wrote = snprintf(
+      url, sizeof(url), "%s?lat=%.6f&lon=%.6f&n=%d&amin=%u&amax=%u&mlat=%u%s%s",
+      RECEIVER_URL, (double)HOME_LAT, (double)HOME_LON,
+      (int)radar::MAX_AIRCRAFT, (unsigned)ALT_MIN_FT, (unsigned)ALT_MAX_FT,
+      (unsigned)(MLAT_ON ? 1 : 0), WATCH_LIST[0] ? "&watch=" : "",
+      WATCH_LIST[0] ? WATCH_LIST : "");
   if (wrote < 0 || (size_t)wrote >= sizeof(url)) {
     // snprintf truncates rather than overflowing, so this is not a crash — it
     // is a request missing its tail, which the Pi would answer with a 400 and

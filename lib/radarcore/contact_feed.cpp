@@ -101,6 +101,10 @@ ContactStatus loadContacts(const uint8_t *data, size_t len, AircraftStore &dst,
     uint8_t flags = r[38];
     a.onGround = (flags & 0x01) != 0;
     a.isMlat = (flags & 0x02) != 0;
+    // Bit 2 was spare, which is why the watchlist needed no CONTACT_VERSION
+    // bump: firmware built before it existed reads this byte and ignores the
+    // bit, and a Pi built before it existed never sets it.
+    a.isWatched = (flags & 0x04) != 0;
     // The wire cannot carry an altitude for an aircraft on the ground, and
     // parse.cpp reported 0 there. Kept identical so the change is transport
     // only — format.cpp renders "GND" off onGround, not off the number.

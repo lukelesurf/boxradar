@@ -41,6 +41,8 @@ asked for, and the station list stops being configuration on both sides.
 | `GET /contacts?...&mlat=0` | …with multilaterated positions dropped |
 | `GET /type/AS50` | the full aircraft type name for a designator |
 | `GET /operator/BAW` | the operator and radio callsign for an airline code |
+| `GET /contacts?...&watch=` | …marking aircraft that match a watchlist pattern |
+| `GET /watch/737` | what a watchlist pattern actually catches |
 | `GET /board` | the board's address and how long since it last polled |
 | `POST /board/wake` | asks the board to open its settings server |
 | `POST /board/reload-geo` | tells it a new map is published |
@@ -276,13 +278,13 @@ raise.
 
 ### Device settings
 
-Twenty-nine settings that used to need an edit to `include/config.h` and a
+Thirty settings that used to need an edit to `include/config.h` and a
 reflash — and, for four of them, a rebuild rather than an edit:
 
 | group | keys | collapsed |
 |---|---|---|
 | Scope ranges | `ovnm`, `d1nm`, `d2nm`, `tlnm` | no |
-| What reaches the scope | `amin`, `amax`, `mlaton` | no |
+| What reaches the scope | `amin`, `amax`, `mlaton`, `watch` | no |
 | Scope layers | `coaston`, `ohon` | no |
 | Overhead prediction | `ohrnm`, `ohsec`, `ohturn` | yes |
 | Traffic | `types`, `sdim`, `sdrop` | no |
@@ -398,8 +400,39 @@ Only `0` and `1` are accepted for `mlat`, not any truthy string — the board
 sends exactly one of those two, and taking `false` or `no` as well would be
 inventing a wire format nothing writes.
 
-A board flashed before any of this existed sends none of the three parameters,
-and absent means no filtering, so it keeps working untouched.
+`watch` is the odd one out and the difference matters: it **marks** rather
+than filters. A matching aircraft gets a ring on the scope and first claim on
+datablock space; nothing is ever withheld because of it, so a typo here cannot
+empty the scope the way a typo in the altitude band could.
+
+A pattern matches three ways, because no one of them is enough:
+
+| | |
+|---|---|
+| designator prefix | `B74` catches B741–B748, B74R, B74S |
+| callsign prefix | `RRR` catches every RAF flight |
+| type-name substring | `737` catches all thirteen 737 codes |
+
+The last is why the matching is here rather than on the board: the board holds
+a four-character designator and has never seen a name. And it is genuinely
+needed — the 737 MAX designators are `B37M`/`B38M`/`B39M` and share no prefix
+with `B732`–`B739`, so no designator pattern catches a 737 family.
+
+Name matching is loose in ways nobody guesses right first time, which is what
+`GET /watch/<pattern>` is for:
+
+- **`A380` matches nothing at all.** The name is `AIRBUS A-380-800` — Airbus
+  hyphenates before the model number and Boeing does not, so `A-380` is the
+  pattern that works and `747` is.
+- **`C-130` also catches `EC30`**, because `EUROCOPTER EC-130` contains it.
+  `Hercules` is the pattern that means what you meant.
+
+Patterns below three characters are matched against designators and callsigns
+only, never names: `17` appears in `C-17`, `B717` and `Beech 1700` alike, and
+at that length a pattern has stopped describing an airframe.
+
+A board flashed before any of this existed sends none of these parameters, and
+absent means no filtering and no marking, so it keeps working untouched.
 Present-but-malformed is a 400.
 
 **WiFi, the receiver URL and the OTA credentials are deliberately not here.**

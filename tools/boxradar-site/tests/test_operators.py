@@ -160,3 +160,76 @@ class TestRouteWithNoDatabase(ServerTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWatchPreview(ServerTest):
+    """The route that stops a fuzzy pattern being a guess.
+
+    Both traps it exists for are pinned here, because both were found by
+    reading the real table rather than by reasoning: the A380's name is
+    hyphenated where Boeing's is not, and "C-130" is a substring of
+    "EUROCOPTER EC-130".
+    """
+
+    NAMES = {
+        "B738": "BOEING 737-800",
+        "B38M": "BOEING 737 MAX 8",
+        "A388": "AIRBUS A-380-800",
+        "C130": "LOCKHEED C-130 Hercules",
+        "C30J": "LOCKHEED MARTIN C-130J Super Hercules",
+        "EC30": "EUROCOPTER EC-130",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.shutdown()
+        from boxradar_site import aircraft_types
+        self.httpd = server.make_server(
+            ("127.0.0.1", 0), self.cache, self.cfg, fetch_feed=self.feed,
+            board=self.presence,
+            types=aircraft_types.TypeNames(dict(self.NAMES)))
+        self.port = self.httpd.server_address[1]
+        import threading
+        self.thread = threading.Thread(target=self.httpd.serve_forever,
+                                       daemon=True)
+        self.thread.start()
+
+    def get(self, path):
+        url = f"http://127.0.0.1:{self.port}{path}"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            return json.load(r)
+
+    def test_a_name_pattern_lists_what_it_catches(self):
+        body = self.get("/watch/737")
+        self.assertEqual(body["count"], 2)
+        self.assertEqual(sorted(t["id"] for t in body["types"]),
+                         ["B38M", "B738"])
+        self.assertEqual({t["via"] for t in body["types"]}, {"name"})
+
+    def test_a_designator_prefix_is_reported_as_such(self):
+        body = self.get("/watch/B7")
+        self.assertEqual({t["via"] for t in body["types"]}, {"designator"})
+
+    def test_the_hyphen_trap_is_visible_here(self):
+        # The whole reason for the route: A380 looks obviously right and
+        # catches nothing at all.
+        self.assertEqual(self.get("/watch/A380")["count"], 0)
+        self.assertEqual(self.get("/watch/A-380")["count"], 1)
+
+    def test_the_over_match_is_visible_here_too(self):
+        self.assertEqual(sorted(t["id"] for t in self.get("/watch/C-130")["types"]),
+                         ["C130", "C30J", "EC30"])
+        self.assertEqual(sorted(t["id"] for t in self.get("/watch/Hercules")["types"]),
+                         ["C130", "C30J"])
+
+    def test_a_short_pattern_matches_designators_only(self):
+        # Mirrors MIN_NAME_PATTERN in contacts.py: below three characters a
+        # pattern collides with names rather than describing them.
+        body = self.get("/watch/37")
+        self.assertEqual([t["via"] for t in body["types"]], [])
+
+    def test_a_malformed_pattern_is_400(self):
+        for bad in ("has%20space", "a%2Fb", ""):
+            with self.assertRaises(urllib.error.HTTPError) as caught:
+                self.get(f"/watch/{bad}")
+            self.assertEqual(caught.exception.code, 400, bad)

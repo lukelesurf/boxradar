@@ -80,6 +80,13 @@ _TYPE_RE = re.compile(r"^[A-Z0-9]{1,4}$")
 # which refuses the same shapes a step earlier.
 _OPERATOR_RE = re.compile(r"^[A-Z]{3}$")
 
+# Watchlist patterns: letters, digits and dashes, 1-16 characters. The dash is
+# there because half the useful patterns need it — the A380's name is
+# "AIRBUS A-380-800" and the Hercules is "C-130". No spaces, so the list never
+# needs URL-encoding on the /contacts request it rides on.
+_WATCH_RE = re.compile(r"^[A-Z0-9-]{1,16}$")
+MAX_WATCH = 12
+
 
 def parse_types(segment):
     """Uppercased designator list, or None if the segment is not acceptable.
@@ -123,6 +130,39 @@ def parse_operators(segment):
             seen.add(part)
             out.append(part)
     return out or None
+
+
+def parse_watch(query):
+    """Watchlist patterns from the query string, [] if unasked, None if bad.
+
+    Absent is an empty list rather than an error, so a board flashed before
+    the watchlist existed is unaffected — the same compatibility rule as the
+    altitude band and the MLAT switch.
+
+    Deduped, and capped on the RAW list before dedup for the reason parse_ids
+    gives. The cap is low because this is matched against every contact on
+    every poll: twelve patterns against 60 aircraft is nothing, twelve hundred
+    would be a way to make the display service the slow part of the system
+    from an unauthenticated LAN request.
+    """
+    params = urllib.parse.parse_qs(query, keep_blank_values=True)
+    if "watch" not in params:
+        return []
+    raw = params["watch"][0].strip()
+    if not raw:
+        return []
+    parts = raw.upper().split(",")
+    if len(parts) > MAX_WATCH:
+        return None
+    seen, out = set(), []
+    for part in parts:
+        part = part.strip()
+        if not _WATCH_RE.match(part):
+            return None
+        if part not in seen:
+            seen.add(part)
+            out.append(part)
+    return out
 
 
 def parse_ids(segment):
@@ -254,6 +294,9 @@ def _make_handler(cache, cfg, fetch_feed, board, types, ops):
             if path.startswith("/operator/"):
                 self._operators(path[len("/operator/"):])
                 return
+            if path.startswith("/watch/"):
+                self._watch_preview(path[len("/watch/"):])
+                return
             if path == "/contacts":
                 self._contacts(query)
                 return
@@ -294,6 +337,12 @@ def _make_handler(cache, cfg, fetch_feed, board, types, ops):
             if include_mlat is None:
                 self._json(400, {"error": "mlat must be 0 or 1"})
                 return
+            watch = parse_watch(query)
+            if watch is None:
+                self._json(400, {"error": f"watch takes up to {MAX_WATCH} "
+                                          "patterns of letters, digits and "
+                                          "dashes"})
+                return
             # Recorded AFTER the request is validated but BEFORE the feed is
             # fetched. A malformed request did not come from the board, so it
             # must not move where we think the board is; a receiver outage is
@@ -321,7 +370,9 @@ def _make_handler(cache, cfg, fetch_feed, board, types, ops):
             self._binary(200, contacts.build(aircraft, lat, lon, n,
                                              alt_min=alt_min,
                                              alt_max=alt_max,
-                                             include_mlat=include_mlat),
+                                             include_mlat=include_mlat,
+                                             watch=watch,
+                                             name_for=types.name_for),
                          config_wanted=wanted, geo_wanted=geo)
 
         def _metar(self, segment):
@@ -399,6 +450,48 @@ def _make_handler(cache, cfg, fetch_feed, board, types, ops):
                         entry["radio"] = found[1]
                 out.append(entry)
             self._json(200, {"operators": out})
+
+        def _watch_preview(self, segment):
+            """What one watchlist pattern actually catches.
+
+            This exists because the name substring is loose in ways nobody
+            guesses right first time. `A380` matches NOTHING — the name is
+            "AIRBUS A-380-800", because Airbus hyphenates and Boeing does not.
+            `C-130` matches the Hercules AND the Eurocopter EC-130. Finding
+            that out from a pattern that quietly never fires, or quietly fires
+            too often, is the kind of silent surprise worth a route to avoid.
+
+            Types only. A callsign prefix cannot be previewed against a static
+            table — there is no list of callsigns, only of aircraft — so the
+            answer says so rather than implying the pattern matches nothing.
+            """
+            pattern = urllib.parse.unquote(segment).strip().upper()
+            if not _WATCH_RE.match(pattern):
+                self._json(400, {"error": "a pattern is 1-16 letters, digits "
+                                          "and dashes"})
+                return
+            if not len(types):
+                self._json(503, {"error": "no aircraft type database"})
+                return
+            hits = []
+            for designator in sorted(types.names):
+                name = types.name_for(designator) or ""
+                by_code = designator.startswith(pattern)
+                by_name = (len(pattern) >= contacts.MIN_NAME_PATTERN
+                           and pattern in name.upper())
+                if by_code or by_name:
+                    hits.append({"id": designator, "name": name,
+                                 "via": "designator" if by_code else "name"})
+            self._json(200, {
+                "pattern": pattern,
+                "count": len(hits),
+                # Capped so a one-character pattern cannot return the whole
+                # table. The count above is the honest total either way.
+                "types": hits[:40],
+                "truncated": len(hits) > 40,
+                "note": "types only; a callsign prefix matches at poll time "
+                        "and cannot be previewed here",
+            })
 
         def _binary(self, status, body, config_wanted=False,
                     geo_wanted=False):

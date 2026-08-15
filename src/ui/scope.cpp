@@ -257,6 +257,13 @@ static void drawBlip(TFT_eSprite &spr, const radar::Aircraft &a, bool dim,
   spr.drawLine(a.sx, a.sy, a.sx + (int)(sinf(rad) * len),
                a.sy - (int)(cosf(rad) * len), col);
   if (alert && flashOn) spr.drawCircle(a.sx, a.sy, 5, ALERT_RED);
+  // A watchlist hit: a ring AROUND the blip rather than a change to it, so the
+  // blip keeps saying what it always said. Colour is altitude everywhere on
+  // this scope, and a watched aircraft that had its level recoloured would be
+  // trading one fact for another rather than adding one. Drawn at r=4, inside
+  // the selection ring at 6 and outside the alert ring at 5, so all three can
+  // be true at once and still be told apart.
+  if (a.isWatched && !dim) spr.drawCircle(a.sx, a.sy, 4, WATCH_RING);
   // Selection ring is white, not yellow: yellow now belongs to an altitude
   // band, and a selection marker must not read as a level.
   if (selected) spr.drawCircle(a.sx, a.sy, 6, SELECT_RING);
@@ -297,14 +304,19 @@ static float effectiveAge(const radar::Aircraft &a,
 // miles out could lose its block to a 738 on short final.
 static int placementTier(const radar::Aircraft &a) {
   if (radar::isAlertSquawk(a.squawk)) return 0;
+  // A watchlist hit outranks the heuristics, because it is the one signal here
+  // somebody asked for by name. Below an emergency squawk and above everything
+  // else: nothing should outrank a 7700, and a rare-airframe guess should not
+  // take the label space from an aircraft you said you wanted to see.
+  if (a.isWatched) return 1;
   // MLAT ranks with the rare airframes, and for the same reason: in airspace
   // this saturated, an aircraft not sending ADS-B at all is unusual by
   // definition. It arrives via a wholly separate mechanism from the type
   // lookup, so the two signals corroborate rather than duplicate.
-  if (a.isMlat || !radar::isCommonType(a.type)) return 1;
-  return 2;
+  if (a.isMlat || !radar::isCommonType(a.type)) return 2;
+  return 3;
 }
-static constexpr int N_TIERS = 3;
+static constexpr int N_TIERS = 4;
 
 void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
                const radar::Metar &metar, const UiState &ui,
@@ -491,8 +503,9 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
     spr.setTextColor(TFT_WHITE, TFT_BLACK);
   }
 
-  snprintf(line, sizeof(line), "trk %u  vs %+d%s", a->trackDeg, a->vertRateFpm,
-           a->isMlat ? "  MLAT" : "");
+  snprintf(line, sizeof(line), "trk %u  vs %+d%s%s", a->trackDeg,
+           a->vertRateFpm, a->isMlat ? "  MLAT" : "",
+           a->isWatched ? "  WATCH" : "");
   spr.drawString(line, X + 4, Y + 68, 1);
   snprintf(line, sizeof(line), "%.1fnm brg %.0f", (double)a->range,
            (double)radar::bearingDeg(a->pos));
