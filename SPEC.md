@@ -37,18 +37,39 @@ ADS-B radar display on a Cheap Yellow Display. Successor to the ESP8266/Nokia 51
 - Parse with ArduinoJson **filter** — keep only: `hex`, `flight`, `t` (type), `lat`, `lon`, `alt_baro`, `gs`, `track`, `seen`, `rssi`
 - Config (WiFi SSID/pass, receiver URL, home lat/lon) in `include/config.h`, git-ignored, with a committed `config.example.h`
 
+*Superseded 2026-08-09: the board no longer parses JSON traffic at all. It
+polls `/contacts` on the Pi's display service and decodes fixed-size binary
+records the Pi has already filtered, range-sorted and capped, so the board's
+traffic allocation is a constant rather than a function of how busy the sky
+is — the filtered JSON document was the largest thing on the heap and grew
+with traffic. ArduinoJson survives for the METAR and type-name replies.*
+
+*Superseded 2026-08-12: `config.h` now holds `DEFAULT_` values, not the live
+configuration. `siteConfigBegin()` loads those and then overlays whatever NVS
+holds, so twenty-six of them are editable from the Pi's Device page without a
+reflash. NVS is an overlay and never a replacement — an empty one behaves
+exactly like these defaults, which is what keeps a board on WiFi and
+reachable over OTA no matter what the config layer does. WiFi, the receiver
+URL and the OTA credentials are deliberately not among the twenty-six.*
+
 ## Architecture
 
 - **Core 0 — net task:** WiFi manage, HTTP poll, JSON parse into an aircraft array
 - **Core 1 — UI task:** render loop, touch handling
 - Shared state: fixed-size array of `Aircraft` structs (cap **32**, nearest-first if the feed exceeds it), double-buffered or mutex-guarded — no parsing into live render state
 - `Aircraft` struct: hex (u32), callsign[9], type[5], lat/lon (float), alt (i32), gs/track (u16), seen (u8), plus derived screen x/y and range
-- Aircraft aged out after `seen > 60s`; drawn dimmed after 30s
+- Aircraft aged out after `seen > 60s`; drawn dimmed after 30s *(both are
+  settings now — `sdrop` and `sdim`; 60/30 is what they still default to)*
 - Position → screen: equirectangular projection centred on home lat/lon (fine at scope ranges)
 
 ## UI
 
-**Layout (320x240 landscape):**
+**Layout (320x240 landscape):** *(superseded 2026-08-07: the scope went
+full-screen and the traffic list was dropped. A 80px column of callsigns
+repeated what the datablocks already said, and giving those 80px back to the
+scope bought a third more east-west coverage — which is the thing the panel
+was short of. One 320x240 8-bit sprite, 76.8KB, allocated once at boot.
+Ranges are settings now, not a fixed cycle: `ovnm`/`d1nm`/`d2nm`.)*
 - Left ~240x240: radar scope. Range rings at selectable range (10/25/50/100nm cycle via touch on the scope), home marker centre, north-up
 - Right ~80x240: traffic list sorted by range — callsign, alt (FL above transition, feet below), type
 - Status strip: WiFi state, aircraft count, last-fetch age
@@ -73,6 +94,9 @@ list row to select, tap background to cycle range.)*
 
 - **ArduinoOTA**, same model as BOXRADAR v1 on the 8266
 - mDNS hostname `boxradar.local`; OTA password required (define in `config.h`)
+  *(superseded: the build host has no mDNS resolver, so each env's
+  `upload_port` is a DHCP-reserved IP. The OTA hostname is still set — it is
+  what names the board on the network — but nothing resolves it here.)*
 - Partition scheme: `default.csv` (two ~1.3MB OTA app slots on the 4MB flash) — plenty for this app; do not switch to `huge_app`, it removes the second OTA slot
 
 ### Flash headroom (min_spiffs applied 2026-08-08)
@@ -91,7 +115,7 @@ the warning above.
 
 But size and OTA are **not** a straight trade. `min_spiffs.csv` keeps both
 OTA slots and still enlarges them, by taking the space out of a SPIFFS
-partition this project never touches (no SPIFFS/LittleFS/FS.h/SD.h usage
+partition this project did not then touch (no SPIFFS/LittleFS/FS.h/SD.h usage
 anywhere in `src/`, `lib/` or `include/` as of 2026-08-07):
 
 | | `default.csv` | `min_spiffs.csv` |
@@ -105,6 +129,16 @@ anything in use. One line when it's wanted:
 ```ini
 board_build.partitions = min_spiffs.csv
 ```
+
+**That "never touches" is no longer true, and the 128 KiB is now load-bearing.**
+`src/geo_store.cpp` mounts LittleFS on that partition to cache the geography
+blob, and the streaming loader needs three files at once during a swap —
+`/site.bin`, `/site.new` and `/site.etag`. At ~15KB a blob that is ~30KB
+against 128KiB, so the margin is wide, but it is a margin rather than a
+whole unused partition. Anything that shrinks spiffs further has to be
+measured against a swap, not against a single cached blob. Note the cost is
+disk, not heap: streaming to a file is exactly what removed the requirement
+to hold two blobs in RAM, which is what let the map reload without a reboot.
 
 **Caveat: this cannot be applied over OTA.** espota writes an app image into
 the inactive slot and never rewrites the partition table at 0x8000, and the
@@ -130,7 +164,7 @@ it.
 
 ## Known Quirks (CYD)
 
-- Two display batch variants: some need `ILI9341_2_DRIVER` and/or inverted colours (`TFT_INVERSION_ON`). If colours look wrong, this is why — flip the flag, don't debug wiring.
+- Two display batch variants: some need `ILI9341_2_DRIVER` and/or inverted colours (`TFT_INVERSION_ON`). If colours look wrong, this is why — flip the flag, don't debug wiring. *Two boards bought a year apart both wanted the same pair, so the lottery is real but not a coin toss per unit.*
 - Touch shares no pins with TFT but needs its own `SPIClass(VSPI)` at ~2.5MHz
 - GPIO35/39/36/34 are input-only
 - Micro-USB and USB-C are wired to the same serial — use either
@@ -139,7 +173,18 @@ it.
 ## Non-goals (v2.0)
 
 - On-device Beast/raw decoding — the receiver already does CPR; we consume JSON
+  *(still a non-goal, but the board consumes a binary feed the Pi renders from
+  that JSON, not the JSON itself — see Data source.)*
 - Web config portal — hardcoded config is fine for one unit on one shelf
+  *(overtaken, and for a reason worth recording: "one unit on one shelf"
+  stopped being true. A second board went to another site, at which point
+  every setting that needed a reflash needed physical access to a board
+  nobody there can power-cycle on request. There are now two config surfaces
+  — the board's own captive portal, which only appears when WiFi association
+  fails and covers the eight keys a typo could strand the board with, and the
+  Pi's Device page, which covers the twenty-six that are safe to get wrong.
+  The split is the whole design: nothing reachable from the LAN can cost the
+  board the network that makes it reflashable.)*
 - Sound, SD logging
 ## Geography blob
 

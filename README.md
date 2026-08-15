@@ -61,10 +61,10 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
 - **Squawk watch**: 7500/7600/7700 flash the blip red and raise a banner
 - **Trails** are distance-gated, so the dots are evenly spaced whether
   the aircraft is a 90kt Cessna or a 450kt jet, at every range
-- **Next-overhead readout** (`OVERHEAD_PREDICTION`): the aircraft predicted
-  to pass closest to overhead soonest, amber when it's an MLAT target or a
-  rare type. Manoeuvring aircraft are excluded rather than guessed at — see
-  below
+- **Next-overhead readout** (`ohon`): the aircraft predicted to pass closest
+  to overhead soonest, amber when it's an MLAT target or a rare type.
+  Manoeuvring aircraft are excluded rather than guessed at — see below. What
+  counts as overhead is three settings (`ohrnm`, `ohsec`, `ohturn`)
 - **Tap to zoom.** Two view states rather than a cycle of ranges: a 50nm
   overview you choose from, and a 10nm (or 5nm) detail view centred on
   wherever you tapped. One gesture per state — the overview only
@@ -74,7 +74,9 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
 - Tap a blip in the detail view for a panel: callsign, hex, type, alt, GS,
   track, vertical rate, range/bearing, RSSI, squawk, MLAT. Tapping the
   range readout in the status strip toggles 10nm/5nm
-- Aircraft dim after 30s without a message and drop at 60s
+- Aircraft dim after 30s without a message and drop at 60s (`sdim`, `sdrop`) —
+  raise both for an antenna with a poor horizon, where the same aircraft
+  otherwise flickers out every few polls
 
 ### Map
 
@@ -83,15 +85,20 @@ reading the label: **solid square** = airfield, **hollow square** = town,
 **triangle** = navigation fix. All drawn under the traffic — a datablock
 always wins where they collide.
 
-- **OSM coastline** as the bottom layer (optional, `DRAW_COASTLINE`),
-  generated offline and filtered to features ≥2km
-- **Controlled airspace** — CTR outlines and CTR+CTA envelopes for
-  Stansted, Luton, City, Gatwick and Southend, the Heathrow zone, and both
-  Stansted TMZ lobes. Generated offline from the
+Everything on the map arrives in one binary blob the board fetches from the Pi
+and caches to LittleFS, so relocating is a publish rather than a reflash. The
+generated C headers are still in the repo and still one build flag away — see
+Relocating.
+
+- **OSM coastline** as the bottom layer (`coaston`), generated offline and
+  filtered to features ≥2km. The expensive layer by an order of magnitude, so
+  it is the one worth being able to switch off
+- **Controlled airspace** — CTR outlines and CTR+CTA envelopes, chosen per
+  site by a selection file. Generated offline from the
   [ahsparrow/airspace](https://github.com/ahsparrow/airspace) UK dataset
 - **Extended runway centrelines**, dashed, 6.5nm beyond each threshold —
   deliberately only for the fields whose approaches matter locally
-- **Airfields, fixes and towns** from `include/location.h`
+- **Airfields, fixes and towns**, also from the selection
 
 ### Chrome and behaviour
 
@@ -99,13 +106,19 @@ always wins where they collide.
   the MLAT subset in brackets, range, and — with the optional METAR feed —
   active runway, wind, cloud and restricted visibility. A stale feed
   replaces the count with a warning rather than adding a line
-- **Night mode**: between `NIGHT_START_HOUR` and `NIGHT_END_HOUR` the panel
-  fades to a dim red 7-segment clock (or to black, without `NIGHT_CLOCK`).
-  A tap wakes the radar for 30s and then returns. Time comes from NTP —
-  there is no RTC — and shows `--:--` rather than guessing before the first
-  sync. DST is handled by a POSIX TZ rule, not a fixed offset
+- **Night mode** (`nighton`): between `nstart` and `nend` the panel fades to a
+  dim red 7-segment clock, or to black with `nclkon` off. A tap wakes the radar
+  for 30s and then returns. Time comes from NTP — there is no RTC — and shows
+  `--:--` rather than guessing before the first sync. DST is handled by a POSIX
+  TZ rule, not a fixed offset
 - LDR-driven backlight dimming, RGB LED status (red no-WiFi / amber
   no-data), OTA updates with on-screen progress
+- **Twenty-six settings live on the board's NVS and are editable from the Pi**
+  — ranges, layers, thresholds, ageing, night blanking, poll intervals, the
+  ordinary-type list — none of which costs a reflash. NVS is an *overlay*: an
+  empty one behaves exactly like the compiled defaults, which is what keeps a
+  board on WiFi and reachable over OTA no matter what the config layer does.
+  See Site application, below
 
 ## Architecture
 
@@ -219,14 +232,18 @@ would drown the signal the highlight exists to carry.
 
 ### Regenerating airspace
 
-`src/ui/airspace_data.h` is committed, generated output. To change which
-volumes are drawn or pick up a new AIRAC cycle, from
-`tools/boxradar-site/` inside the devShell:
+Normally you don't: the config UI on the Pi picks the airspace and publishes a
+blob, and the board reloads it in about half a second. This is the offline
+path, and `--out` writes the **superseded** compiled table rather than
+anything the board reads by default. From `tools/boxradar-site/` inside the
+devShell:
 
 ```bash
 SEL=boxradar_site/geo/selection.example.json
 python3 -m boxradar_site.geo build --selection $SEL --fetch \
-  --out ../../src/ui/airspace_data.h
+  --blob /var/www/html/site.bin          # what the board actually fetches
+python3 -m boxradar_site.geo build --selection $SEL \
+  --out ../../src/ui/airspace_data.h     # the compiled-table fallback
 ```
 
 Which airspace is drawn is the selection file, not a rule. Each entry is a
@@ -251,18 +268,23 @@ excluded on width alone, and Daventry is wider than the TMA.
 
 ### Regenerating the coastline
 
-`src/ui/coastline_data.h` is committed, generated output, drawn as the
-bottom layer when `DRAW_COASTLINE` is defined. Comment that out and the
-table is dropped from the build entirely (~13KB of flash) — worth doing
-for a landlocked site.
+The coastline rides in the blob with everything else, so normally there is
+nothing to regenerate by hand — publishing from the config UI does it. The
+standalone `tools/build_coastline.py` this section used to describe is gone;
+the same job is now two flags on `geo build`:
 
 ```bash
-python3 tools/build_coastline.py   # inside the devShell
+# inside the devShell, from tools/boxradar-site/
+SEL=boxradar_site/geo/selection.example.json
+python3 -m boxradar_site.geo build --selection $SEL --coastline \
+  --blob /var/www/html/site.bin                 # into the blob
+python3 -m boxradar_site.geo build --selection $SEL \
+  --coastline-out ../../src/ui/coastline_data.h # the compiled-table path
 ```
 
-It reads `HOME_LAT`/`HOME_LON` from your `config.h`, queries OpenStreetMap
-via Overpass once, and caches the response per bounding box — so **re-run
-it after moving**, or the scope keeps drawing the previous area's coast.
+The bounding box comes from the selection's `home_lat`/`home_lon` and reach,
+not from `config.h`, and the Overpass response is cached per box — so it
+refetches when you move and not otherwise.
 
 Size is controlled by `MIN_FEATURE_KM`, not by `SIMPLIFY_M`. Simplification
 cannot reduce a two-point line, and estuaries contain thousands of tiny
@@ -270,10 +292,20 @@ saltmarsh rings, so tightening the tolerance alone barely helps: filtering
 to features ≥2km is what takes 143KB down to 12KB, and it discards exactly
 the detail that is sub-pixel at every range.
 
+**Overpass has one endpoint here and no retry**, and it is only reached on a
+cache miss — that is, precisely when relocating. A mirror once answered an
+English bounding box with a valid, empty, 272-byte result, which would have
+cached a coastline-free blob at a coastal site with nothing to show for it.
+Any retry logic added here has to check the element count, not just that the
+response parses.
+
 ### Site application (receiver-side, required)
 
 `tools/boxradar-site/` installs on the **receiver Pi**, not the display and
-not a separate server. It serves two things on port 8081:
+not a separate server. Two services:
+
+**The display service, `:8081`** — stdlib-only, so it needs no venv and no pip
+on a Debian Pi:
 
 - `GET /contacts?lat=&lon=&n=` — the traffic feed, as fixed-size binary
   records already filtered, range-sorted and capped. **Required**: the display
@@ -281,12 +313,43 @@ not a separate server. It serves two things on port 8081:
   so readsb and tar1090 are untouched.
 - `GET /metar/<ICAO>` — weather, fetched from aviationweather.gov on demand
   and cached per station for 5 minutes. Optional; the strip simply omits it.
+- `GET /type/<designator>` — the full aircraft type name, from the tar1090-db
+  table already on the Pi, so the board can show `AEROSPATIALE AS-350
+  Ecureuil` under the `AS50` it keeps. A general board-to-Pi lookup channel:
+  the next thing the board cannot hold is another route rather than another
+  design.
+- `GET /board`, `POST /board/wake`, `POST /board/reload-geo` — where the board
+  is, ask it to open its settings server, and tell it a new map is up. The
+  board announces itself on every contact poll, so no address is ever typed
+  in anywhere.
 
-Stdlib-only, so it needs no venv and no pip on a Debian Pi.
+**The configuration UI, `:8082`** — needs Flask, shapely and PyYAML; the
+installer reports rather than fails if they are missing, and the display
+service runs without them. A six-step wizard for choosing what the map shows,
+a publish that lands a new blob and tells the board to reload it in about half
+a second, and a **Device page** that reads the board's own NVS, offers the
+twenty-six settings as a form, and pushes back only what differs. Nothing
+about the board's configuration is stored on the Pi — its NVS stays the single
+authority, and a copy here would invert the overlay property the whole design
+rests on.
+
+**The Pi has no git checkout.** Deploy from the machine that does:
 
 ```bash
-# on the receiver Pi
-sudo ./install.sh
+rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' \
+  tools/boxradar-site/ pi@<receiver>:/tmp/boxradar-site-staging/
+ssh pi@<receiver> 'cd /tmp/boxradar-site-staging && sudo ./install.sh'
+```
+
+Re-running `install.sh` is the upgrade path: it keeps `config.json`, the
+selection and the published blob. Worth running the suite on the Pi first —
+it has older Flask and shapely than the devShell:
+
+```bash
+ssh pi@<receiver> 'cd /tmp/boxradar-site-staging && \
+  python3 -m unittest discover -s tests -t .'
+# test_receiver_* fail there: they test tools/receiver-install, which the
+# staging directory does not contain
 ```
 
 Any ICAO can be asked for — there is no station list to configure. The one
@@ -317,10 +380,12 @@ hour rather than 60. After an upstream failure the proxy backs off for 60s and
 serves the last good observation flagged `"stale":1`, because a stale METAR is
 far better than none.
 
-Set `METAR_URL` and `METAR_STATION` in `config.h` to consume it. They must
-agree — the URL's last path segment names the station the firmware then picks
-out of the response. Both are optional: comment out `METAR_URL` and the whole
-feature compiles out, and the status strip simply omits the weather segments.
+Set `DEFAULT_METAR_URL` and `DEFAULT_METAR_STATION` in `config.h` to consume
+it. They must agree — the URL's last path segment names the station the
+firmware then picks out of the response. Comment out `METAR_ENABLED` and the
+whole feature compiles out; the `metaron` setting turns it off at runtime
+without a reflash, which is what makes "display problem or feed problem?"
+answerable in ten seconds.
 
 ### Provisioning a receiver from scratch
 
@@ -338,19 +403,35 @@ An as-built inventory of the current receiver is in
 
 ## Relocating
 
-Five files carry location data. Nothing else needs touching.
+**Three files carry location data**, and one of them has to agree with another
+to four decimal places or nothing works at all.
 
 | file | what | in git? |
 |---|---|---|
-| `include/config.h` | `HOME_LAT`/`HOME_LON`, `METAR_STATION`, receiver URL, timezone | **no** — gitignored |
-| `include/location.h` | airfields, runway thresholds, fixes, towns | yes |
-| `tools/boxradar-site/boxradar_site/geo/selection.example.json` | which airspace to draw — copy and edit, or start from `geo suggest` | yes |
-| `tools/build_coastline.py` | re-run it; reads `HOME_*` from `config.h` | yes |
-| `/etc/boxradar-site/config.json` (on the Pi) | `runways` — stations and runway **true** headings | no — lives on the receiver |
+| `include/config.h` | `DEFAULT_HOME_LAT`/`_LON`, `DEFAULT_METAR_STATION`, receiver/METAR/geo URLs, OTA hostname | **no** — gitignored |
+| `tools/boxradar-site/boxradar_site/geo/selection.<site>.json` | `home_lat`/`home_lon`, reach, and everything drawn: airspace, airfields, runways, fixes, towns | yes |
+| `/etc/boxradar-site/config.json` (on the Pi) | `runways` — stations and runway **true** headings, for the METAR active-runway guess | no — lives on the receiver |
+
+**What gates a relocation is the blob's home, not any header.** A board refuses
+any blob whose home differs from its own by more than `GEO_HOME_TOLERANCE_DEG`
+(0.0001°, about 11m) — and then has *no map at all*, silently. So the
+selection's `home_lat`/`home_lon` must match `config.h` to 4dp. Three decimal
+places is 111m, and every fetch the board ever makes is rejected forever, with
+nothing to show for it but a line on the status row.
+
+`include/location.h`, `src/ui/airspace_data.h` and `src/ui/coastline_data.h`
+are the **superseded** compiled-tables path. Under `MAP_FROM_BLOB` — the
+default — `src/ui/map_source.h` compiles them out of the build entirely, so
+editing `location.h` changes nothing. They stay in the repo as regenerable
+output and a known-good reference one build flag away, and that flag is
+deliberately not a runtime setting: carrying both map paths costs ~20KB of
+flash for a fallback used once.
 
 Home coordinates stay in the gitignored `config.h` on purpose: airfield data
 is published AIP material, but your own position is not, and this repo may be
-mirrored somewhere public.
+mirrored somewhere public. The selection file is committed, so it carries the
+site's home too — which is a deliberate trade for a repo that is mirrored but
+not public, and the reason to think before making it so.
 
 You no longer need to know your local airspace by its YAIXM name. From
 `tools/boxradar-site/`:
@@ -370,22 +451,19 @@ selection file is what gets drawn.
 
 ### Worked example: Southend-on-Sea
 
-```c
-// include/config.h
-#define HOME_LAT 51.7897
-#define HOME_LON 1.1533
-#define METAR_STATION "EGMC"       // on the field — civil, so the
-                                   // inferred runway means something
+A second board was built to this recipe — see `selection.southend.json` and the
+`southend` env pair in `platformio.ini`.
 
-// include/location.h
-static constexpr AirfieldRef AIRFIELDS[] = {
-    {51.57056f, 0.69363f, "EGMC"},   // Southend
-    {52.12745f, 0.95619f, "EGUW"},   // Wattisham
-};
-static constexpr RunwayAxis RUNWAYS[] = {
-    {51.567200f, 0.686268f, 51.575600f, 0.704996f}, // EGMC 05/23
-    {52.120602f, 0.943800f, 52.134300f, 0.968531f}, // EGUW 05/23
-};
+```c
+// include/config.h — a new #elif block beside the existing site
+#elif defined(BOXRADAR_SITE_SOUTHEND)
+#define DEFAULT_HOME_LAT      51.5714   // 4dp, and it must match the
+#define DEFAULT_HOME_LON      0.6956    // selection's home_lat/home_lon
+#define DEFAULT_METAR_STATION "EGMC"    // on the field — civil, so the
+                                        // inferred runway means something
+#define DEFAULT_METAR_URL     "http://receiver.lan:8081/metar/EGMC"
+#define DEFAULT_GEO_URL       "http://receiver.lan/site-southend.bin"
+#define DEFAULT_OTA_HOSTNAME  "boxradar-southend"
 ```
 
 ```json
@@ -393,11 +471,18 @@ static constexpr RunwayAxis RUNWAYS[] = {
 {"runways": {"EGMC": [["05", 54], ["23", 234]]}}
 ```
 
-Then re-run both generators. For the airspace selection, start from
-`geo suggest` rather than typing feature names — they have to match the source
-YAML exactly, and the list is where you find out what they are. A selected
-name that no longer exists in the dataset is reported as a warning rather than
-silently dropped, so an AIRAC cycle that renames something is visible.
+Then pick the airspace with `geo suggest` rather than typing feature names —
+they have to match the source YAML exactly, and the listing is where you find
+out what they are. A selected name that no longer exists in the dataset is
+reported as a warning rather than silently dropped, so an AIRAC cycle that
+renames something is visible. `suggest` refused `CLACTON CTA` for this site:
+it is an enroute CTA 126nm wide, well over the 50nm limit, which is the rule
+behaving exactly as documented rather than a gap in the data.
+
+Everything else — airfields, runways, fixes, towns — goes in the selection
+file and reaches the board in the blob. The two sites are served side by side
+from the same Pi as `site.bin` and `site-southend.bin`, so a second board needs
+no second receiver.
 
 ### Where the coordinates come from
 
@@ -440,30 +525,44 @@ Three different datasets, and the gaps between them are the trap:
   want a different "ordinary" list, or the amber highlight loses meaning.
 - **The airspace dataset is UK-only.** `ahsparrow/airspace` covers Britain;
   the generator will not work abroad.
-- **Feature guards need `config.h` in scope.** A missing include makes an
-  `#ifdef` compile to nothing — the build succeeds and the feature silently
-  doesn't exist, which is worse than a link error.
-- **Per-unit, not per-location:** `LDR_DARK` and `NIGHT_CLOCK_DUTY` are
-  calibrated to one board and will differ on another — and again once it's
-  behind a case bezel. Panel driver flags in `platformio.ini` are a batch
-  lottery; see Known Quirks in SPEC.md.
+- **NVS beats `config.h`, permanently and silently.** Once a key has been
+  written from the Device page, changing its `DEFAULT_` and reflashing does
+  nothing at all. The "use built-in default" tick box on that page is what
+  removes the override; `siteConfigClear()` is the blunt alternative and takes
+  the WiFi credentials with it.
+- **The remaining feature guards need `config.h` in scope.** A missing include
+  makes an `#ifdef` compile to nothing — the build succeeds and the feature
+  silently doesn't exist, which is worse than a link error. Fewer of these
+  than there were: `DRAW_COASTLINE`, `OVERHEAD_PREDICTION`, `NIGHT_BLANKING`
+  and `NIGHT_CLOCK` are now settings, and only choose a default. Never write
+  `#ifdef COAST_ON` — those names are accessors, and an `#ifdef` on one would
+  quietly evaluate false.
+- **Per-unit, not per-location:** `LDR_DARK` is calibrated to one board and
+  will differ on another — and again once it's behind a case bezel. So is the
+  night clock brightness, which at least is a setting (`nduty`) rather than a
+  reflash. Panel driver flags in `platformio.ini` are a batch lottery; see
+  Known Quirks in SPEC.md.
 
 ## Layout
 
 ```
-include/        config.h (gitignored), location.h (airfields, runways,
-                fixes, towns)
-src/            net task (core 0), UI task (core 1), shared store,
-                night mode, status LED
+include/        config.h (gitignored) — per-board defaults; site_config.h —
+                the NVS overlay and the accessors every use site reads
+                through; location.h — superseded compiled tables
+src/            net task (core 0), UI task (core 1), shared store, night
+                mode, status LED, geo store, config server, setup portal
 src/ui/         scope, datablocks, palette, status strip, overhead
-                readout, touch, layout, generated airspace + coastline
-lib/radarcore/  portable domain logic: parse, projection, formatting,
-                classification, METAR, overhead prediction, geography
-                blob reader (geoblob.h/.cpp — not yet used on device)
-test/           native Unity tests for radarcore
-tools/          airspace and coastline codegen, boxradar-site (receiver-side
-                METAR proxy; grows into the site config app), receiver-install
-                (provisions a receiver Pi from bare OS)
-docs/           design notes for work not yet done
+                readout, touch, layout, map source, generated tables
+lib/radarcore/  portable domain logic, unit-tested natively: parse,
+                projection, formatting, classification, METAR, overhead
+                prediction, geography blob reader, and the runtime holders
+                the config layer pushes into (view_ranges, overhead params,
+                contact ageing)
+test/           native Unity tests for radarcore — 210 cases
+tools/          boxradar-site (display service, geography codegen and the
+                config UI), receiver-install (provisions a receiver Pi from
+                bare OS), metar-feed
+docs/           design notes; receiver-pi.md is the as-built inventory
+TODO.md         where the work got to, and what is unverified
 case.scad       parametric OpenSCAD enclosure (see Case, above)
 ```

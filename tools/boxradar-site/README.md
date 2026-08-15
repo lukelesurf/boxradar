@@ -267,12 +267,26 @@ raise.
 
 ### Device settings
 
-Seventeen settings that used to need an edit to `include/config.h` and a
-reflash: the night-blanking block (`nstart`, `nend`, `nwake`, `nfade`,
-`nduty`), the three poll intervals (`poll`, `mpoll`, `gpoll`), the clock
-(`ntp`, `tz`), runtime on/off for the two optional feeds (`metaron`, `geoon`),
-the ordinary-aircraft-type list (`types`) and the scope's ranges (`ovnm`,
-`d1nm`, `d2nm`, `tlnm`).
+Twenty-six settings that used to need an edit to `include/config.h` and a
+reflash — and, for four of them, a rebuild rather than an edit:
+
+| group | keys | collapsed |
+|---|---|---|
+| Scope ranges | `ovnm`, `d1nm`, `d2nm`, `tlnm` | no |
+| Scope layers | `coaston`, `ohon` | no |
+| Overhead prediction | `ohrnm`, `ohsec`, `ohturn` | yes |
+| Traffic | `types`, `sdim`, `sdrop` | no |
+| Optional feeds | `metaron`, `geoon` | no |
+| Night blanking | `nighton`, `nclkon`, `nstart`, `nend`, `nwake`, `nfade`, `nduty` | yes |
+| Poll intervals | `poll`, `mpoll`, `gpoll` | yes |
+| Clock | `ntp`, `tz` | yes |
+
+Groups are `<details>` blocks and four of them start shut. That is not
+decoration: at twenty-six fields the page stopped being something you scan, and
+the settings anyone actually reaches for were buried under timings nobody has
+touched since they were set. A closed group still submits — `display:none`
+hides a control without withdrawing it from the form — which is what makes
+collapsing safe on a page whose Save re-reads the board and pushes a diff.
 
 The ranges are whole nautical miles: `ovnm` is the overview you tap out of,
 `d1nm` and `d2nm` are the two detail levels the zoom toggle steps between, and
@@ -300,6 +314,35 @@ deliberate choice to light up every aircraft at once.
 `#ifdef` still decides whether the code exists. They decide whether it runs,
 which is what makes "is this a display problem or a feed problem?" answerable
 without a reflash.
+
+`coaston`, `ohon`, `nighton` and `nclkon` are the same shape **without** that
+caveat. They were `#ifdef`s in `config.h` — `DRAW_COASTLINE`,
+`OVERHEAD_PREDICTION`, `NIGHT_BLANKING`, `NIGHT_CLOCK` — so changing one meant
+a rebuild, and the firmware now compiles both paths and lets those defines pick
+only the starting value. Measured cost for all four: 1368 bytes of flash and 32
+of RAM. Turning one on always works, with one exception noted in
+`src/ui/map_source.h`: on the superseded compiled-tables path,
+`DRAW_COASTLINE` also decides whether the ~12KB coastline table exists, and no
+runtime switch conjures a table that was never compiled. Under `MAP_FROM_BLOB`,
+which is the default, the coast comes from the blob and `coaston` alone decides
+whether it is drawn.
+
+`nclkon` is subordinate to `nighton`: with nothing going dark there is nothing
+for a clock to appear on. `night_mode.cpp` ANDs them rather than making that a
+cross-field rule in the validator, which would fail on some orderings of the
+same edit — the config server writes one key at a time.
+
+The overhead thresholds are the "is it really overhead?" numbers, and each one
+used to cost a flash to try. `ohrnm` is the only field on the page carried in
+something other than its natural unit: **tenths of a nautical mile**, because
+the shipped radius is 1.0nm and whole miles would make the default the floor —
+half a mile and two miles are exactly the two experiments worth running, and a
+`DEV_FLOAT` would have to be threaded through validation, the config server and
+the field table to buy them.
+
+`sdim` and `sdrop` are seconds of feed silence before a contact dims and before
+it leaves the scope. 30/60 suits a rooftop antenna with a clean horizon; one
+indoors loses the same aircraft every few polls, and raising both is the fix.
 
 **WiFi, the receiver URL and the OTA credentials are deliberately not here.**
 They stay behind the board's own setup access point (`src/portal.cpp`), where a
@@ -413,8 +456,9 @@ heap floor around 43KB, and a permanently-listening `WebServer` would spend
 several KB of that to serve a page touched twice a year.
 
 **Only differences are written.** Writing a key to NVS shadows its compiled
-default permanently and silently, so a form that submitted all ten fields would
-make `config.h` dead code for all ten the first time you pressed Save. Each
+default permanently and silently, so a form that submitted all twenty-six
+fields would make `config.h` dead code for all twenty-six the first time you
+pressed Save. Each
 field that *is* overridden says so and offers "use built-in default", which
 removes just that key — previously only `siteConfigClear()` could, and that
 takes the WiFi credentials with it.
