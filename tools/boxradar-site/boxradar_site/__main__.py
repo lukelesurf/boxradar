@@ -13,6 +13,7 @@ from . import VERSION
 from .aircraft_types import load as load_types
 from .cache import DEFAULT_ERROR_BACKOFF_S, DEFAULT_TTL_S, MetarCache
 from .config import DEFAULT_PATH, load
+from .operators import load as load_operators
 from .server import make_server
 from .upstream import fetch
 
@@ -32,6 +33,9 @@ def main(argv=None):
     p.add_argument("--types-db", default=None,
                    help="ICAO type designator database "
                         "(default: tar1090-db's icao_aircraft_types2.js)")
+    p.add_argument("--operators-db", default=None,
+                   help="ICAO airline code database "
+                        "(default: tar1090-db's operators.js)")
     p.add_argument("--version", action="version", version=VERSION)
     args = p.parse_args(argv)
 
@@ -40,11 +44,13 @@ def main(argv=None):
     # Read once at startup, not per request: 112KB of JSON is cheap to hold and
     # expensive to parse on a Pi that is also running readsb.
     types = load_types(args.types_db)
-    httpd = make_server((args.host, args.port), cache, cfg, types=types)
+    ops = load_operators(args.operators_db)
+    httpd = make_server((args.host, args.port), cache, cfg, types=types,
+                        ops=ops)
     stations = ", ".join(sorted(cfg.runways)) or "none"
     print(f"boxradar-site {VERSION} on {args.host}:{args.port} "
           f"(ttl {args.ttl}s, runway tables: {stations}, "
-          f"{len(types)} aircraft types)", flush=True)
+          f"{len(types)} aircraft types, {len(ops)} operators)", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

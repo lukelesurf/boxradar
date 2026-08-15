@@ -326,6 +326,13 @@ on a Debian Pi:
   Ecureuil` under the `AS50` it keeps. A general board-to-Pi lookup channel:
   the next thing the board cannot hold is another route rather than another
   design.
+- `GET /operator/<code>` — who is behind a callsign, and what they are called
+  on the radio. `BAW` is British Airways and SPEEDBIRD; `RRR` is the RAF and
+  ASCOT. 6,310 codes, from the operator table tar1090-db ships beside the type
+  one, so again there is nothing new to download. The board derives the code
+  from the callsign it already holds — but only when that callsign is three
+  letters followed by a digit, because a registration like `GBXYZ` would
+  otherwise yield `GBX` and resolve confidently to somebody else's airline.
 - `GET /board`, `POST /board/wake`, `POST /board/reload-geo` — where the board
   is, ask it to open its settings server, and tell it a new map is up. The
   board announces itself on every contact poll, so no address is ever typed

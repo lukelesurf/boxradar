@@ -16,6 +16,7 @@
 #include "ui/status_bar.h"
 #include "ui/touch_input.h"
 #include "hold_gesture.h"
+#include "operator_name.h"
 #include "ui/viewport.h"
 
 TFT_eSPI tft;
@@ -262,6 +263,14 @@ static void uiTaskLoop(void *) {
     if (s_ui.detailOpen && s_ui.selectedHex) {
       const radar::Aircraft *sel = s_snap.findByHex(s_ui.selectedHex);
       if (sel && sel->type[0]) requestTypeName(sel->type);
+      // The operator, from the callsign's three-letter prefix. Silently does
+      // nothing for a registration or an empty callsign, which is most GA
+      // traffic — operatorCodeFrom() refuses anything that is not three
+      // letters then a digit, precisely so a registration cannot resolve to
+      // somebody else's airline.
+      char code[8];
+      if (sel && radar::operatorCodeFrom(sel->callsign, code, sizeof(code)))
+        requestOperator(code);
     }
     // Selection highlight now lags one frame behind a fresh tap (drawScope
     // already ran); the detail panel below reflects the tap immediately.

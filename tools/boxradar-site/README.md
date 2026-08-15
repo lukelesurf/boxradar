@@ -40,6 +40,7 @@ asked for, and the station list stops being configuration on both sides.
 | `GET /contacts?...&amin=&amax=` | …restricted to an altitude band, in feet |
 | `GET /contacts?...&mlat=0` | …with multilaterated positions dropped |
 | `GET /type/AS50` | the full aircraft type name for a designator |
+| `GET /operator/BAW` | the operator and radio callsign for an airline code |
 | `GET /board` | the board's address and how long since it last polled |
 | `POST /board/wake` | asks the board to open its settings server |
 | `POST /board/reload-geo` | tells it a new map is published |

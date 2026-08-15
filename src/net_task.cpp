@@ -10,6 +10,7 @@
 #include "contact_feed.h"
 #include "geo_store.h"
 #include "metar.h"
+#include "operator_name.h"
 #include "shared_state.h"
 #include "status_led.h"
 
@@ -300,6 +301,55 @@ static void pollTypeName() {
   http.end();
 }
 
+// The operator behind the selected aircraft's callsign. Same machinery and the
+// same gating as pollTypeName(), against the second of the two lookup slots —
+// a tap wants both answers, so sharing one slot would have them evicting each
+// other every time you selected an aircraft.
+//
+// Two round trips per tap rather than one combined endpoint. At the rate a
+// person taps a 320px panel that is free, and keeping them separate means
+// /type stays exactly what it was and each answer arrives as soon as it can
+// rather than at the speed of the slower lookup.
+static void pollOperator() {
+  char code[8];
+  if (!pendingOperator(code, sizeof(code))) return;
+
+  char url[160];
+  if (!radar::operatorUrl(RECEIVER_URL, code, url, sizeof(url))) {
+    // A code that cannot form a URL never will, so this is answered as unknown
+    // rather than retried — the same reasoning as the designator case.
+    publishOperator(code, "", "");
+    return;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(1500);
+  http.setTimeout(3000);
+  http.useHTTP10(true);
+  http.begin(url);
+  int code_ = http.GET();
+  if (code_ == HTTP_CODE_OK) {
+    JsonDocument doc; // one small object; the response is under 120 bytes
+    DeserializationError err = deserializeJson(doc, http.getStream());
+    char name[radar::OPERATOR_NAME_LEN];
+    char radio[radar::OPERATOR_RADIO_LEN];
+    if (!err && radar::loadOperatorName(doc, code, name, sizeof(name), radio,
+                                        sizeof(radio))) {
+      // Published even when empty: the Pi echoes every id it was asked about,
+      // so no name means the table has nothing for this code and never will.
+      publishOperator(code, name, radio);
+    } else {
+      Serial.printf("operator: unexpected answer for %s\n", code);
+      failOperator(code);
+    }
+  } else {
+    // Includes the 503 a Pi with no database returns, which may come good.
+    Serial.printf("operator: http error %d for %s\n", code_, code);
+    failOperator(code);
+  }
+  http.end();
+}
+
 static void netTaskLoop(void *) {
   uint32_t lastPoll = 0;
   for (;;) {
@@ -347,6 +397,7 @@ static void netTaskLoop(void *) {
     // driven by what the UI task has selected, and does nothing at all until
     // somebody taps an aircraft.
     if (!g_otaActive && netReady()) pollTypeName();
+    if (!g_otaActive && netReady()) pollOperator();
     if (WiFi.status() != WL_CONNECTED)
       statusLedSet(LedStatus::NoWifi);
     else if (!s_prev.fetchOk || millis() - s_prev.lastFetchMs > 10000)

@@ -9,6 +9,7 @@
 #include "config.h"
 #include "map_source.h"
 #include "shared_state.h"
+#include "operator_name.h"
 #include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
@@ -426,7 +427,11 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   // cells that is 32 characters against 23, which turns truncation from
   // routine into rare: of the 2,806 names the Pi can return, 526 are longer
   // than 23 characters and only 51 are longer than 32.
-  constexpr int W = 200, H = 92, X = 4, Y = SCOPE_H - H - 16;
+  // H grew from 92 to 106 for the operator row. Y is derived FROM H, so the
+  // panel extends upward and its bottom edge stays where it was — still clear
+  // of STATUS_Y at 230, which is the constraint that actually matters.
+  constexpr int W = 200, H = 106, X = 4, Y = SCOPE_H - H - 16;
+  static_assert(Y + H < STATUS_Y, "detail panel must clear the status strip");
   constexpr int TEXT_CHARS = (W - 8) / 6;
   spr.fillRect(X, Y, W, H, TFT_BLACK);
   spr.drawRect(X, Y, W, H, TFT_YELLOW);
@@ -438,10 +443,36 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   spr.drawString(l1, X + 4, Y + 4, 2);
   spr.setTextColor(TFT_WHITE, TFT_BLACK);
   char alt[8], line[TEXT_CHARS + 1];
+
+  // Directly under the callsign it explains, the same placement argument the
+  // type name made for the designator. Blank for a registration or an empty
+  // callsign — most GA traffic — because operatorCodeFrom() refuses anything
+  // that is not three letters then a digit rather than guessing.
+  //
+  // Name and radio callsign are composed HERE, not on the Pi, because whether
+  // both fit is a property of this panel's width. "British Airways
+  // (SPEEDBIRD)" is 27 of the 32 available; "West Atlantic Uk Limited
+  // (NEPTUNE)" is 34 and drops the parenthesis rather than being cut mid-word.
+  char opCode[8], opName[radar::OPERATOR_NAME_LEN];
+  char opRadio[radar::OPERATOR_RADIO_LEN];
+  opName[0] = opRadio[0] = '\0';
+  if (radar::operatorCodeFrom(a->callsign, opCode, sizeof(opCode)))
+    operatorFor(opCode, opName, sizeof(opName), opRadio, sizeof(opRadio));
+  if (opName[0]) {
+    spr.setTextColor(TFT_CYAN, TFT_BLACK);
+    if (opRadio[0] &&
+        strlen(opName) + strlen(opRadio) + 3 <= (size_t)TEXT_CHARS)
+      snprintf(line, sizeof(line), "%s (%s)", opName, opRadio);
+    else
+      snprintf(line, sizeof(line), "%s", opName);
+    spr.drawString(line, X + 4, Y + 22, 1);
+    spr.setTextColor(TFT_WHITE, TFT_BLACK);
+  }
+
   radar::formatAltitude(alt, sizeof(alt), a->altFt, a->onGround);
   snprintf(line, sizeof(line), "%-4s  %s  %ukt", a->type[0] ? a->type : "-",
            alt, a->gsKt);
-  spr.drawString(line, X + 4, Y + 26, 1);
+  spr.drawString(line, X + 4, Y + 40, 1);
 
   // Directly under the designator it explains, which is why the four rows
   // below shifted down rather than this going in the free row at the bottom.
@@ -456,17 +487,17 @@ void drawDetailPanel(TFT_eSprite &spr, const radar::AircraftStore &s,
   if (typeName[0]) {
     spr.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
     snprintf(line, sizeof(line), "%s", typeName);
-    spr.drawString(line, X + 4, Y + 40, 1);
+    spr.drawString(line, X + 4, Y + 54, 1);
     spr.setTextColor(TFT_WHITE, TFT_BLACK);
   }
 
   snprintf(line, sizeof(line), "trk %u  vs %+d%s", a->trackDeg, a->vertRateFpm,
            a->isMlat ? "  MLAT" : "");
-  spr.drawString(line, X + 4, Y + 54, 1);
+  spr.drawString(line, X + 4, Y + 68, 1);
   snprintf(line, sizeof(line), "%.1fnm brg %.0f", (double)a->range,
            (double)radar::bearingDeg(a->pos));
-  spr.drawString(line, X + 4, Y + 68, 1);
+  spr.drawString(line, X + 4, Y + 82, 1);
   snprintf(line, sizeof(line), "rssi %.1f  sqk %s", (double)a->rssi,
            a->squawk[0] ? a->squawk : "----");
-  spr.drawString(line, X + 4, Y + 82, 1);
+  spr.drawString(line, X + 4, Y + 96, 1);
 }

@@ -4,6 +4,8 @@
     GET  /metar/EGSS,EGGW    several, in one upstream call
     GET  /type/PC12          full name for an ICAO type designator
     GET  /type/PC12,A320     several, same cap as /metar
+    GET  /operator/RYR       operator and radio callsign for an airline code
+    GET  /operator/RYR,BAW   several, same cap again
     GET  /contacts?lat=&lon=&n=   the binary traffic feed
     GET  /board              where the board is and when it last polled
     POST /board/wake         ask it to open its config server
@@ -32,7 +34,7 @@ import re
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import VERSION, aircraft_types, contacts, feed, presence
+from . import VERSION, aircraft_types, contacts, feed, operators, presence
 from .metar import envelope, normalise
 
 # Set on a /contacts response when the configuration UI has asked the board to
@@ -70,6 +72,13 @@ _ICAO_RE = re.compile(r"^[A-Z]{4}$")
 # same reason as the ICAO codes above — unauthenticated LAN service — though
 # this one is only a dict key, never an outbound URL.
 _TYPE_RE = re.compile(r"^[A-Z0-9]{1,4}$")
+# Exactly three letters. ICAO airline codes are always three alphabetic
+# characters, so this is narrower than _TYPE_RE on purpose: the board derives
+# the code from a callsign, and a callsign that is really a registration would
+# otherwise produce a plausible-looking three-character key and a confidently
+# wrong operator. See operatorCodeFrom() in lib/radarcore/operator_name.cpp,
+# which refuses the same shapes a step earlier.
+_OPERATOR_RE = re.compile(r"^[A-Z]{3}$")
 
 
 def parse_types(segment):
@@ -87,6 +96,28 @@ def parse_types(segment):
     seen, out = set(), []
     for part in parts:
         if not _TYPE_RE.match(part):
+            return None
+        if part not in seen:
+            seen.add(part)
+            out.append(part)
+    return out or None
+
+
+def parse_operators(segment):
+    """Uppercased airline-code list, or None if the segment is not acceptable.
+
+    Same two-step and same ordering as parse_types: the cap applies to the RAW
+    list, before dedup, so a segment repeating one code five hundred times is
+    refused rather than collapsing to one and sailing past the limit.
+    """
+    if not segment:
+        return None
+    parts = segment.upper().split(",")
+    if len(parts) > MAX_IDS:
+        return None
+    seen, out = set(), []
+    for part in parts:
+        if not _OPERATOR_RE.match(part):
             return None
         if part not in seen:
             seen.add(part)
@@ -199,7 +230,7 @@ def parse_mlat(query):
     return value == "1"
 
 
-def _make_handler(cache, cfg, fetch_feed, board, types):
+def _make_handler(cache, cfg, fetch_feed, board, types, ops):
     class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 for the sake of curl and the future web UI. The firmware is
         # NOT a beneficiary: net_task.cpp calls http.useHTTP10(true), so the
@@ -219,6 +250,9 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
                 return
             if path.startswith("/type/"):
                 self._types(path[len("/type/"):])
+                return
+            if path.startswith("/operator/"):
+                self._operators(path[len("/operator/"):])
                 return
             if path == "/contacts":
                 self._contacts(query)
@@ -337,6 +371,35 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
                 out.append(entry)
             self._json(200, {"types": out})
 
+        def _operators(self, segment):
+            wanted = parse_operators(segment)
+            if wanted is None:
+                self._json(400, {"error": "expected one to "
+                                          f"{MAX_IDS} three-letter ICAO "
+                                          "airline codes"})
+                return
+            if not len(ops):
+                # 503, not 200-with-nothing: no database is a service fault the
+                # board should retry, where an unknown code is a definitive
+                # answer it should cache. Same split as /type.
+                self._json(503, {"error": "no operator database"})
+                return
+            # Every requested code is echoed, and `name` appears only when
+            # there is one — that distinction is the contract, exactly as for
+            # /type. `radio` is separate rather than folded into `name`
+            # because what fits is a property of the panel, and the panel is
+            # what should decide whether "British Airways (SPEEDBIRD)" fits.
+            out = []
+            for code in wanted:
+                found = ops.lookup(code)
+                entry = {"id": code}
+                if found:
+                    entry["name"] = found[0]
+                    if found[1]:
+                        entry["radio"] = found[1]
+                out.append(entry)
+            self._json(200, {"operators": out})
+
         def _binary(self, status, body, config_wanted=False,
                     geo_wanted=False):
             self.send_response(status)
@@ -374,7 +437,8 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
     return Handler
 
 
-def make_server(addr, cache, cfg, fetch_feed=None, board=None, types=None):
+def make_server(addr, cache, cfg, fetch_feed=None, board=None, types=None,
+                ops=None):
     """Threading so a slow upstream fetch cannot block an unrelated request.
 
     Threading matters more now than it did for weather alone: /contacts is on
@@ -384,14 +448,16 @@ def make_server(addr, cache, cfg, fetch_feed=None, board=None, types=None):
     Pass port 0 to let the OS choose, `board` a Presence with a fake clock, and
     `types` a TypeNames built from a literal dict — all used by the tests.
 
-    `types` defaults to an EMPTY table rather than loading from disk. Reading a
-    112KB database is a caller's decision, not a side effect of constructing a
-    server: __main__ loads it once at startup, and a test that never mentions
-    type names gets a server that cannot be slowed down or made
-    environment-dependent by one.
+    `types` and `ops` default to EMPTY tables rather than loading from disk.
+    Reading a 112KB or a 407KB database is a caller's decision, not a side
+    effect of constructing a server: __main__ loads them once at startup, and a
+    test that never mentions names gets a server that cannot be slowed down or
+    made environment-dependent by one.
     """
     return ThreadingHTTPServer(
         addr, _make_handler(cache, cfg, fetch_feed or feed.fetch,
                             board or presence.Presence(),
                             types if types is not None
-                            else aircraft_types.TypeNames()))
+                            else aircraft_types.TypeNames(),
+                            ops if ops is not None
+                            else operators.Operators()))

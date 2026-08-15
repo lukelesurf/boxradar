@@ -60,3 +60,23 @@ void failTypeName(const char *designator);
 // the designator so a stale answer for a previous selection can never be drawn
 // against the current one.
 void typeNameFor(const char *designator, char *out, size_t cap);
+
+// ------------------------------------------------------------- operator names
+// Identical machinery to the type names above, keyed by the three-letter
+// airline code instead of the designator, and deliberately a SECOND slot
+// rather than a shared one: a tap wants both answers at once, so one slot
+// would have the two lookups evicting each other on every selection.
+//
+// The code is derived from the callsign by radar::operatorCodeFrom(), which
+// refuses anything that is not three letters followed by a digit — so a
+// registration never produces a plausible-looking code and a wrong airline.
+void requestOperator(const char *code);
+bool pendingOperator(char *out, size_t cap);
+void publishOperator(const char *code, const char *name, const char *radio);
+void failOperator(const char *code);
+
+// For the UI: the operator for this code, or empty until one arrives. `radio`
+// may be empty while `name` is not — several hundred operators have no radio
+// callsign registered, which is a partial answer rather than a failure.
+void operatorFor(const char *code, char *name, size_t nameCap, char *radio,
+                 size_t radioCap);
