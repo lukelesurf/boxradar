@@ -77,7 +77,9 @@ class TestFieldTable(unittest.TestCase):
             sorted(f.key for f in device.FIELDS),
             sorted(["nstart", "nend", "nwake", "nfade", "nduty",
                     "poll", "mpoll", "gpoll", "metaron", "geoon",
+                    "coaston", "ohon", "nighton", "nclkon",
                     "ovnm", "d1nm", "d2nm", "tlnm",
+                    "ohrnm", "ohsec", "ohturn", "sdim", "sdrop",
                     "ntp", "tz", "types"]))
 
     def test_no_scope_range_can_be_saved_as_zero(self):
@@ -123,6 +125,40 @@ class TestFieldTable(unittest.TestCase):
         # as a wire format. A key that does not fit would fail at runtime.
         for f in device.FIELDS:
             self.assertLessEqual(len(f.key), 15, f.key)
+
+    def test_every_group_holds_at_least_one_field(self):
+        # An empty group renders as a heading with nothing under it, which
+        # reads as a page that failed to load rather than as a group nobody
+        # filled in.
+        for group in device.GROUPS:
+            self.assertTrue(device.fields_in(group.key), group.key)
+
+    def test_the_four_former_ifdefs_offer_a_choice_not_a_number(self):
+        # These were #ifdefs in config.h until the firmware started compiling
+        # both paths. A text box asking for 0 or 1 would be a worse control
+        # than the reflash it replaced.
+        for key in ("coaston", "ohon", "nighton", "nclkon"):
+            self.assertTrue(device.BY_KEY[key].choices, key)
+
+    def test_the_pages_open_groups_are_the_ones_worth_scrolling_to(self):
+        # The point of collapsing is that the settings someone actually came
+        # for are visible without scrolling past twenty timings. If this ever
+        # inverts, the page has quietly gone back to being a wall.
+        collapsed = {g.key for g in device.GROUPS if g.collapsed}
+        self.assertEqual(collapsed, {"overhead", "night", "poll", "clock"})
+        shown = sum(len(device.fields_in(g.key))
+                    for g in device.GROUPS if not g.collapsed)
+        self.assertLess(shown, len(device.FIELDS) / 2)
+
+    def test_only_the_overhead_radius_is_carried_in_a_scaled_unit(self):
+        # Every other field on the page is a whole number in its natural unit.
+        # The radius is tenths of a nautical mile because its shipped value is
+        # 1.0nm, and whole miles would put the floor at the default — so the
+        # help text has to say so, and this is what notices if a second field
+        # ever picks up the same trick without the same explanation.
+        scaled = [f for f in device.FIELDS if "tenths" in f.unit]
+        self.assertEqual([f.key for f in scaled], ["ohrnm"])
+        self.assertIn("1.0nm", device.BY_KEY["ohrnm"].help)
 
 
 class TestValidation(unittest.TestCase):

@@ -3,6 +3,7 @@
 #include <Preferences.h>
 #include "config.h"
 #include "classify.h"
+#include "overhead.h"   // OverheadParams, and SeenAgeing via aircraft.h
 
 using radar::SiteConfig;
 
@@ -40,6 +41,15 @@ const char *K_OVNM = "ovnm";
 const char *K_D1NM = "d1nm";
 const char *K_D2NM = "d2nm";
 const char *K_TLNM = "tlnm";
+const char *K_COASTON = "coaston";
+const char *K_OHON = "ohon";
+const char *K_NIGHTON = "nighton";
+const char *K_NCLKON = "nclkon";
+const char *K_OHRNM = "ohrnm";
+const char *K_OHSEC = "ohsec";
+const char *K_OHTURN = "ohturn";
+const char *K_SDIM = "sdim";
+const char *K_SDROP = "sdrop";
 
 SiteConfig s_cfg;
 bool s_fromNvs = false;
@@ -74,10 +84,40 @@ void loadDefaults(SiteConfig &c) {
   for (int i = 0; i < radar::VIEW_DETAIL_RANGES; i++)
     c.detailNm[i] = (uint16_t)r.detailNm[i];
   c.twoLineMaxNm = (uint16_t)r.twoLineMaxNm;
+  // Same argument for these two: the reasoning for 1nm / 150s / 8 deg-per-nm
+  // and for 30s / 60s is written beside the values in radarcore, and a
+  // DEFAULT_ in config.h would give two places to disagree.
+  const radar::OverheadParams &o = radar::overheadParamsDefaults();
+  c.overheadRadiusTenthsNm = (uint16_t)(o.radiusNm * 10.0f + 0.5f);
+  c.overheadHorizonS = (uint16_t)o.horizonS;
+  c.overheadMaxTurnDegPerNm = (uint8_t)o.maxTurnDegPerNm;
+  const radar::SeenAgeing &ag = radar::seenAgeingDefaults();
+  c.seenDimS = (uint16_t)ag.dimS;
+  c.seenDropS = (uint16_t)ag.dropS;
   // Default to on wherever the feature is compiled in; the flag exists to let
   // it be turned off without a reflash, not to make it off by default.
   c.metarEnabled = 0;
   c.geoEnabled = 0;
+  // These four are compiled in either way, so the #ifdef only picks the
+  // default. An existing config.h therefore keeps behaving exactly as it did:
+  // `#define DRAW_COASTLINE` still means "draw the coastline", it just means
+  // it as a starting value rather than as a build decision.
+  c.coastEnabled = 0;
+  c.overheadEnabled = 0;
+  c.nightEnabled = 0;
+  c.nightClockEnabled = 0;
+#ifdef DRAW_COASTLINE
+  c.coastEnabled = 1;
+#endif
+#ifdef OVERHEAD_PREDICTION
+  c.overheadEnabled = 1;
+#endif
+#ifdef NIGHT_BLANKING
+  c.nightEnabled = 1;
+#endif
+#ifdef NIGHT_CLOCK
+  c.nightClockEnabled = 1;
+#endif
 #ifdef METAR_ENABLED
   c.metarEnabled = 1;
   radar::cfgSetStr(c.metarUrl, radar::CFG_URL_LEN, DEFAULT_METAR_URL);
@@ -161,6 +201,15 @@ void siteConfigBegin() {
     if (p.isKey(K_D1NM)) { s_cfg.detailNm[0] = (uint16_t)p.getUInt(K_D1NM); applied++; }
     if (p.isKey(K_D2NM)) { s_cfg.detailNm[1] = (uint16_t)p.getUInt(K_D2NM); applied++; }
     if (p.isKey(K_TLNM)) { s_cfg.twoLineMaxNm = (uint16_t)p.getUInt(K_TLNM); applied++; }
+    if (p.isKey(K_COASTON)) { s_cfg.coastEnabled = p.getUInt(K_COASTON) ? 1 : 0; applied++; }
+    if (p.isKey(K_OHON)) { s_cfg.overheadEnabled = p.getUInt(K_OHON) ? 1 : 0; applied++; }
+    if (p.isKey(K_NIGHTON)) { s_cfg.nightEnabled = p.getUInt(K_NIGHTON) ? 1 : 0; applied++; }
+    if (p.isKey(K_NCLKON)) { s_cfg.nightClockEnabled = p.getUInt(K_NCLKON) ? 1 : 0; applied++; }
+    if (p.isKey(K_OHRNM)) { s_cfg.overheadRadiusTenthsNm = (uint16_t)p.getUInt(K_OHRNM); applied++; }
+    if (p.isKey(K_OHSEC)) { s_cfg.overheadHorizonS = (uint16_t)p.getUInt(K_OHSEC); applied++; }
+    if (p.isKey(K_OHTURN)) { s_cfg.overheadMaxTurnDegPerNm = (uint8_t)p.getUInt(K_OHTURN); applied++; }
+    if (p.isKey(K_SDIM)) { s_cfg.seenDimS = (uint16_t)p.getUInt(K_SDIM); applied++; }
+    if (p.isKey(K_SDROP)) { s_cfg.seenDropS = (uint16_t)p.getUInt(K_SDROP); applied++; }
     p.end();
   }
   s_fromNvs = applied > 0;
@@ -189,6 +238,20 @@ void siteConfigBegin() {
     ranges.detailNm[i] = (float)s_cfg.detailNm[i];
   ranges.twoLineMaxNm = (float)s_cfg.twoLineMaxNm;
   radar::viewRangesSet(ranges);
+
+  // Same push, same reason: overhead.cpp and aircraft.cpp are linked into the
+  // native tests and cannot see this file. Tenths back to nautical miles here,
+  // so nothing downstream of the config layer has to know the encoding.
+  radar::OverheadParams overhead;
+  overhead.radiusNm = (float)s_cfg.overheadRadiusTenthsNm / 10.0f;
+  overhead.horizonS = (float)s_cfg.overheadHorizonS;
+  overhead.maxTurnDegPerNm = (float)s_cfg.overheadMaxTurnDegPerNm;
+  radar::overheadParamsSet(overhead);
+
+  radar::SeenAgeing ageing;
+  ageing.dimS = (float)s_cfg.seenDimS;
+  ageing.dropS = (float)s_cfg.seenDropS;
+  radar::seenAgeingSet(ageing);
 
   snprintf(s_summary, sizeof(s_summary),
            "%s, ssid %s, home %.4f,%.4f, recv %s, metar %s, geo %s",
@@ -278,6 +341,15 @@ bool siteConfigReadU32(const char *key, uint32_t *out) {
   if (strcmp(key, K_D1NM) == 0) { *out = s_cfg.detailNm[0]; return true; }
   if (strcmp(key, K_D2NM) == 0) { *out = s_cfg.detailNm[1]; return true; }
   if (strcmp(key, K_TLNM) == 0) { *out = s_cfg.twoLineMaxNm; return true; }
+  if (strcmp(key, K_COASTON) == 0) { *out = s_cfg.coastEnabled; return true; }
+  if (strcmp(key, K_OHON) == 0) { *out = s_cfg.overheadEnabled; return true; }
+  if (strcmp(key, K_NIGHTON) == 0) { *out = s_cfg.nightEnabled; return true; }
+  if (strcmp(key, K_NCLKON) == 0) { *out = s_cfg.nightClockEnabled; return true; }
+  if (strcmp(key, K_OHRNM) == 0) { *out = s_cfg.overheadRadiusTenthsNm; return true; }
+  if (strcmp(key, K_OHSEC) == 0) { *out = s_cfg.overheadHorizonS; return true; }
+  if (strcmp(key, K_OHTURN) == 0) { *out = s_cfg.overheadMaxTurnDegPerNm; return true; }
+  if (strcmp(key, K_SDIM) == 0) { *out = s_cfg.seenDimS; return true; }
+  if (strcmp(key, K_SDROP) == 0) { *out = s_cfg.seenDropS; return true; }
   return false;
 }
 

@@ -83,3 +83,10 @@ const char *siteConfigSummary();
 #define COMMON_TYPES_CSV (siteConfig().commonTypes)
 #define METAR_ON (siteConfig().metarEnabled)
 #define GEO_ON (siteConfig().geoEnabled)
+// The four that used to be #ifdefs. Read them in an `if`, not an `#ifdef`:
+// both branches are compiled now, and a stray #ifdef on one of these names
+// would silently evaluate false and take the feature out of the build.
+#define COAST_ON (siteConfig().coastEnabled)
+#define OVERHEAD_ON (siteConfig().overheadEnabled)
+#define NIGHT_ON (siteConfig().nightEnabled)
+#define NIGHT_CLOCK_ON (siteConfig().nightClockEnabled)

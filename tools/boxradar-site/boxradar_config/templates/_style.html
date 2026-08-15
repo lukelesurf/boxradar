@@ -119,6 +119,20 @@
   /* Wide tables and diagrams scroll inside themselves; the page never does. */
   .scroll { overflow-x: auto; }
 
+  /* Collapsible groups on the Device page. The <h2> goes INSIDE the <summary>
+     so the whole heading is the click target; it has to be made inline or the
+     UA's disclosure triangle sits on a line of its own above it. A closed
+     group's inputs are still in the form and still submitted — display:none
+     hides a control, it does not withdraw it — which is what makes collapsing
+     safe on a page whose Save re-reads the board and pushes only a diff. */
+  details.group { border-bottom: 1px solid var(--rule); padding-bottom: .5rem; }
+  details.group > summary { cursor: pointer; list-style-position: outside; }
+  details.group > summary h2 { display: inline; }
+  details.group > summary::marker { color: var(--dim); }
+  /* Shut, a group should read as one line: no heading margin collapsing out
+     of an element with no content below it. */
+  details.group:not([open]) > summary h2 { margin-bottom: 0; }
+
   @media (max-width: 60rem) {
     .shell { grid-template-columns: 1fr; }
     .strip { border-right: 0; border-bottom: 1px solid var(--rule);

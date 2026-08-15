@@ -11,6 +11,11 @@
 //
 // Timezone is a POSIX TZ rule, not a fixed offset, so BST transitions are
 // handled by localtime() forever rather than drifting an hour twice a year.
+//
+// Blanking and the overnight clock are two separate runtime settings
+// (`nighton`, `nclkon`). Blanking off wins over both: with nothing ever going
+// dark there is no clock to show, which is why nightModeClockOn() is an AND
+// rather than the caller checking `nclkon` on its own.
 
 void nightModeInit();
 
@@ -28,6 +33,11 @@ float nightModeUpdate(uint32_t frameMs);
 // Absolute backlight duty (0-255) when fully night: 0 when blanking, or
 // NIGHT_CLOCK_DUTY when showing the clock.
 int nightModeIdleDuty();
+
+// Whether the overnight clock should be drawn at all. The UI task asks this
+// rather than reading the setting, so the "blanking off means no clock" rule
+// lives in one place.
+bool nightModeClockOn();
 
 // A tap during night hours: hold the display up for NIGHT_WAKE_S. Safe to
 // call at any hour — outside the night window it does nothing.

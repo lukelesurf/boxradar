@@ -12,9 +12,9 @@
 #include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
-#ifdef OVERHEAD_PREDICTION
+// Unconditional now that the readout is a runtime setting (`ohon`) rather
+// than a compile-time one. Both paths are compiled; see overhead.h.
 #include "overhead_readout.h"
-#endif
 
 static constexpr uint32_t ALERT_FLASH_MS = 400;
 static constexpr int BANNER_H = 14;
@@ -60,9 +60,10 @@ static void drawCentrelines(TFT_eSprite &spr, const Viewport &vp,
   }
 }
 
-#ifdef DRAW_COASTLINE
 // ~1900 points, an order of magnitude more than everything else on the map,
-// so this is the one layer where the per-point cost actually matters.
+// so this is the one layer where the per-point cost actually matters — which
+// is why `coaston` exists: this is the one layer worth being able to switch
+// off to see what the frame time does.
 //
 // Two things keep it cheap. The whole panel is converted to a lat/lon window
 // once per frame, letting an entire segment be rejected on four comparisons
@@ -112,7 +113,6 @@ static void drawCoastline(TFT_eSprite &spr, const Viewport &vp,
     }
   }
 }
-#endif // DRAW_COASTLINE
 
 // Outlines are closed rings (last vertex repeats the first), reprojected
 // every frame — ~200 projections, cheaper than caching per range change.
@@ -319,21 +319,18 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   bool flashOn = (millis() / ALERT_FLASH_MS) % 2 == 0;
 
   datablocksBegin();
-#ifdef DRAW_COASTLINE
-  drawCoastline(spr, vp, lonScale); // bottom layer
-#endif
+  if (COAST_ON) drawCoastline(spr, vp, lonScale); // bottom layer
   drawAirspace(spr, vp, lonScale);
   drawCentrelines(spr, vp, lonScale);
   if (vp.homeCentred()) drawRings(spr, vp);
   drawFixedRefs(spr, vp, lonScale);
   // The status strip is off-limits to datablocks.
   datablockReserve(0, STATUS_Y, SCOPE_W, STATUS_H);
-#ifdef OVERHEAD_PREDICTION
-  // Reserved unconditionally, not only when a prediction exists: a corner
-  // that a block occupies half the time would make the readout flicker in
-  // and out from behind it.
-  datablockReserve(0, 0, 104, 14);
-#endif
+  // Reserved whenever the readout is ON, not only when a prediction exists: a
+  // corner that a block occupies half the time would make the readout flicker
+  // in and out from behind it. Switched off, the corner is given back to
+  // datablocks rather than left as a permanent hole.
+  if (OVERHEAD_ON) datablockReserve(0, 0, 104, 14);
 #ifdef BOXRADAR_FRAME_TIME
   datablockReserve(SCOPE_W - 84, 0, 84, 14); // frame-time overlay, top right
 #endif
@@ -344,7 +341,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   for (int i = s.count - 1; i >= 0; i--) {
     radar::Aircraft &a = s.list[i];
     float ageS = effectiveAge(a, s);
-    if (ageS > radar::SEEN_DROP_S) {
+    if (ageS > radar::seenAgeing().dropS) {
       a.sx = a.sy = -1000; // stale: not drawn, not tappable
       continue;
     }
@@ -377,7 +374,7 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
       spr.drawPixel(tx, ty, col);
       if (t >= (2 * a.trailLen) / 3) spr.drawPixel(tx + 1, ty, col);
     }
-    drawBlip(spr, a, ageS > radar::SEEN_DIM_S,
+    drawBlip(spr, a, ageS > radar::seenAgeing().dimS,
              ui.selectedHex != 0 && a.hex == ui.selectedHex,
              radar::isAlertSquawk(a.squawk), flashOn);
     datablockReserve(a.sx - 3, a.sy - 3, 7, 7); // blocks never cover a blip
@@ -400,22 +397,22 @@ void drawScope(TFT_eSprite &spr, radar::AircraftStore &s,
   const radar::Aircraft *sel =
       ui.selectedHex ? s.findByHex(ui.selectedHex) : nullptr;
   if (sel && sel->sx > -1000) // an explicit tap outranks every heuristic
-    drawDatablock(spr, *sel, effectiveAge(*sel, s) > radar::SEEN_DIM_S,
+    drawDatablock(spr, *sel, effectiveAge(*sel, s) > radar::seenAgeing().dimS,
                   twoLine);
   for (int tier = 0; tier < N_TIERS; tier++) {
     for (int i = 0; i < s.count; i++) {
       const radar::Aircraft &a = s.list[i];
       if (a.sx <= -1000 || &a == sel) continue;
       if (placementTier(a) != tier) continue;
-      drawDatablock(spr, a, effectiveAge(a, s) > radar::SEEN_DIM_S, twoLine);
+      drawDatablock(spr, a, effectiveAge(a, s) > radar::seenAgeing().dimS,
+                    twoLine);
     }
   }
 
-#ifdef OVERHEAD_PREDICTION
   // Drawn before the banner so a 7700 always wins the top of the screen.
-  drawOverheadReadout(
-      spr, s, s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
-#endif
+  if (OVERHEAD_ON)
+    drawOverheadReadout(
+        spr, s, s.lastFetchMs ? (millis() - s.lastFetchMs) / 1000.0f : 0.0f);
   drawSquawkBanner(spr, s);
   drawStatusCorner(spr, s, metar, onScreen, mlatOnScreen, vp.rangeNm);
 }

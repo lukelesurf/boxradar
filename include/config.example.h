@@ -64,29 +64,47 @@
 #define DEFAULT_GEO_POLL_INTERVAL_MS 600000   // 10 min; it changes rarely
 
 
-// Draw the OSM coastline under everything else. Comment out to disable and
-// drop the generated table (~12KB of flash) from the build entirely — worth
-// doing for a landlocked site. Regenerate with
+// ---------------------------------------------------------------------------
+// The four below used to be build switches. They are now DEFAULTS for the
+// runtime settings `coaston`, `ohon`, `nighton` and `nclkon`, which the Pi's
+// Device page can change without a reflash. Both paths are compiled either
+// way — measured at 1368 bytes of flash for all four — so commenting one out
+// no longer removes any code, it just starts the board with that feature off.
+//
+// Change one here and the board must have no NVS override for it, or nothing
+// happens: NVS shadows a compiled default permanently and silently. The
+// Device page's "use built-in default" tick box is what removes the override.
+// ---------------------------------------------------------------------------
+
+// Draw the OSM coastline under everything else — the map's most expensive
+// layer by an order of magnitude, and pointless at a landlocked site. Under
+// MAP_FROM_BLOB (below) the coast comes from the blob, so this is purely a
+// default. WITHOUT that flag it also decides whether the generated table
+// (~12KB of flash) is compiled at all, and then `coaston` cannot turn on what
+// is not there. Regenerate the table with
 // `python3 -m boxradar_site.geo build --coastline-out ...` after moving, or it
 // will keep drawing the previous area's coast.
 #define DRAW_COASTLINE
 
 // "OVHD <callsign> <n>s" readout in the top-left corner, predicting the
-// next aircraft to pass close to overhead. Comment out to disable; see
-// lib/radarcore/overhead.h for how to drop it from the tree entirely.
+// next aircraft to pass close to overhead. The three thresholds behind it are
+// settings too — see lib/radarcore/overhead.h, which also says how to drop
+// the whole feature from the tree.
 #define OVERHEAD_PREDICTION
 
-// Blank the display overnight, waking on a tap. Comment out NIGHT_BLANKING
-// to disable. Needs NTP: the board has no RTC, and until the first sync
-// lands it deliberately stays lit rather than sitting dark and looking dead.
+// Blank the display overnight, waking on a tap. Needs NTP: the board has no
+// RTC, and until the first sync lands it deliberately stays lit rather than
+// sitting dark and looking dead. Off, the board never asks for the time at
+// all — nothing else on it reads a wall clock.
 #define NIGHT_BLANKING
 #define DEFAULT_NIGHT_START_HOUR 0
 #define DEFAULT_NIGHT_END_HOUR 7        // set equal to START to disable the window
 #define DEFAULT_NIGHT_WAKE_S 30         // how long a tap holds the display up
 #define DEFAULT_NIGHT_FADE_MS 600       // 0 snaps instead of fading
-// Show a dim clock overnight instead of a black screen. Comment out for
-// full blanking. The duty is ABSOLUTE (0-255) and bypasses the LDR: at
-// these levels the LDR's own floor (BL_MIN_DUTY, 40) is far too bright.
+// Show a dim clock overnight instead of a black screen. Subordinate to
+// NIGHT_BLANKING: with nothing going dark there is nothing for a clock to
+// appear on. The duty is ABSOLUTE (0-255) and bypasses the LDR: at these
+// levels the LDR's own floor (BL_MIN_DUTY, 40) is far too bright.
 #define NIGHT_CLOCK
 #define DEFAULT_NIGHT_CLOCK_DUTY 7
 #define DEFAULT_NTP_SERVER "pool.ntp.org"   // or your router / LAN time server

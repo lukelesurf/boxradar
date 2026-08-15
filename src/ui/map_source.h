@@ -76,6 +76,11 @@ static inline bool mapAirspace(uint16_t i, MapPolyline &out) {
   return true;
 }
 
+// Still a real #ifdef, unlike the `coaston` setting scope.cpp now reads: this
+// one decides whether the ~12KB generated table is in the binary at all, and
+// no runtime switch can conjure a table that was never compiled. On this path
+// only — with MAP_FROM_BLOB set, which is the default, the coast comes from
+// the blob and `coaston` alone decides whether it is drawn.
 #ifdef DRAW_COASTLINE
 #include "coastline_data.h"
 static inline uint16_t mapCoastCount() {

@@ -1,8 +1,10 @@
 #include <unity.h>
 #include <stdio.h>
 #include <string.h>
+#include "aircraft.h"
 #include "classify.h"
 #include "device_config.h"
+#include "overhead.h"
 #include "site_config_data.h"
 #include "view_ranges.h"
 
@@ -21,10 +23,13 @@ static void test_only_safe_keys_are_offered() {
 }
 
 static void test_the_expected_keys_are_present() {
-  const char *expected[] = {"nstart",  "nend",  "nwake", "nfade", "nduty",
-                            "poll",    "mpoll", "gpoll", "metaron",
-                            "geoon",   "ovnm",  "d1nm",  "d2nm",   "tlnm",
-                            "ntp",     "tz",    "types"};
+  const char *expected[] = {"nstart",  "nend",    "nwake",   "nfade",
+                            "nduty",   "poll",    "mpoll",   "gpoll",
+                            "metaron", "geoon",   "coaston", "ohon",
+                            "nighton", "nclkon",  "ovnm",    "d1nm",
+                            "d2nm",    "tlnm",    "ohrnm",   "ohsec",
+                            "ohturn",  "sdim",    "sdrop",   "ntp",
+                            "tz",      "types"};
   size_t n = sizeof(expected) / sizeof(expected[0]);
   TEST_ASSERT_EQUAL_size_t(n, DEVICE_FIELD_COUNT);
   for (size_t i = 0; i < n; i++)
@@ -177,6 +182,78 @@ static void test_the_shipped_ranges_are_inside_their_own_bounds() {
   TEST_ASSERT_NULL(problem);
 }
 
+static void test_the_shipped_overhead_thresholds_are_inside_their_bounds() {
+  // Same trap as the ranges: a bound that refused the value the board already
+  // predicts with would make the Device page unable to save its own defaults.
+  // The radius is the one to watch, because it is the only field on the page
+  // carried in something other than its natural unit.
+  const OverheadParams &o = overheadParamsDefaults();
+  const char *problem = "unset";
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d", (int)(o.radiusNm * 10.0f + 0.5f));
+  parsed("ohrnm", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+  snprintf(buf, sizeof(buf), "%d", (int)o.horizonS);
+  parsed("ohsec", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+  snprintf(buf, sizeof(buf), "%d", (int)o.maxTurnDegPerNm);
+  parsed("ohturn", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+}
+
+static void test_the_overhead_radius_is_carried_in_tenths() {
+  // The encoding is the point of the field: whole nautical miles would make
+  // the shipped 1.0nm the FLOOR, so the two experiments worth running — half
+  // a mile and two miles — would be one unreachable and one a doubling.
+  uint32_t parsedValue = 0;
+  const DeviceField *f = deviceFieldByKey("ohrnm");
+  TEST_ASSERT_NOT_NULL(f);
+  TEST_ASSERT_NULL(deviceFieldProblem(*f, "5", &parsedValue));
+  TEST_ASSERT_EQUAL_UINT32(5, parsedValue);  // 0.5nm, below the default
+  TEST_ASSERT_EQUAL_UINT32(10, (uint32_t)(overheadParamsDefaults().radiusNm *
+                                          10.0f + 0.5f));
+}
+
+static void test_the_shipped_ageing_is_inside_its_own_bounds() {
+  const SeenAgeing &a = seenAgeingDefaults();
+  const char *problem = "unset";
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d", (int)a.dimS);
+  parsed("sdim", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+  snprintf(buf, sizeof(buf), "%d", (int)a.dropS);
+  parsed("sdrop", buf, &problem);
+  TEST_ASSERT_NULL(problem);
+}
+
+static void test_the_four_former_ifdefs_are_boolean() {
+  // These were compile-time switches, so unlike metaron/geoon they can turn a
+  // feature ON as well as off — the code behind them is always compiled.
+  const char *keys[] = {"coaston", "ohon", "nighton", "nclkon"};
+  for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+    const char *problem = "unset";
+    parsed(keys[i], "0", &problem);
+    TEST_ASSERT_NULL(problem);
+    parsed(keys[i], "1", &problem);
+    TEST_ASSERT_NULL(problem);
+    parsed(keys[i], "2", &problem);
+    TEST_ASSERT_NOT_NULL(problem);
+  }
+}
+
+static void test_a_zero_ageing_never_reaches_the_scope() {
+  // 0 would drop every contact the instant it arrived, which reads as a dead
+  // feed rather than a bad setting. Refused here and ignored again by
+  // seenAgeingSet(), on the same two-guard principle as the ranges.
+  const char *problem = "unset";
+  parsed("sdrop", "0", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+  parsed("ohrnm", "0", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+  parsed("ohsec", "0", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+}
+
 static void test_poll_floor_protects_the_receiver() {
   const char *problem = "unset";
   parsed("poll", "10", &problem);
@@ -239,6 +316,11 @@ int main(int, char **) {
   RUN_TEST(test_a_zero_scope_range_never_reaches_the_projection);
   RUN_TEST(test_the_two_line_range_may_be_zero);
   RUN_TEST(test_the_shipped_ranges_are_inside_their_own_bounds);
+  RUN_TEST(test_the_shipped_overhead_thresholds_are_inside_their_bounds);
+  RUN_TEST(test_the_overhead_radius_is_carried_in_tenths);
+  RUN_TEST(test_the_shipped_ageing_is_inside_its_own_bounds);
+  RUN_TEST(test_the_four_former_ifdefs_are_boolean);
+  RUN_TEST(test_a_zero_ageing_never_reaches_the_scope);
   RUN_TEST(test_poll_floor_protects_the_receiver);
   RUN_TEST(test_a_string_within_its_field_is_accepted);
   RUN_TEST(test_string_limits_match_the_struct_they_land_in);

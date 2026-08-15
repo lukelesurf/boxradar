@@ -2,9 +2,10 @@
 #include <Arduino.h>
 #include <string.h>
 #include <time.h>
-// Required for the NIGHT_CLOCK / BOXRADAR_* feature guards below. Without it
-// those #ifdefs silently compile to nothing — the build succeeds and the
-// feature just never runs, which is a far worse failure than a link error.
+// Required for the BOXRADAR_* feature guards below, and for the siteConfig()
+// accessors the night settings read through. Without it those #ifdefs silently
+// compile to nothing — the build succeeds and the feature just never runs,
+// which is a far worse failure than a link error.
 #include "config.h"
 #include "night_mode.h"
 #include "ui/palette.h"
@@ -30,9 +31,7 @@ static UiState s_ui;
 static constexpr uint32_t HOLD_HINT_MS = 500, HOLD_RESTART_MS = 3000;
 static radar::HoldGesture s_hold(HOLD_HINT_MS, HOLD_RESTART_MS);
 static UiState s_uiBeforeHold;
-#ifdef NIGHT_CLOCK
 static int s_lastClockMin = -1;
-#endif
 
 static constexpr int LDR_PIN = 34;
 static constexpr int BL_PIN = 21;
@@ -98,7 +97,6 @@ static void backlightUpdate(float nightScale) {
   ledcWrite(BL_CHANNEL, idle + (int)((duty - idle) * nightScale));
 }
 
-#ifdef NIGHT_CLOCK
 // Font 7 is the 7-segment face, already compiled in via LOAD_FONT7. At
 // textSize 2 it is 96px tall — about 40% of the panel — and "00:00" comes
 // to roughly 288px wide, which fits 320 with a little margin.
@@ -118,7 +116,6 @@ static void drawNightClock(TFT_eSprite &spr, const struct tm *lt) {
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
 }
-#endif
 
 // Non-destructive probe for the planned full-screen (320x240) layout: the
 // two current sprites total 76.8KB but in two chunks, and full-screen needs
@@ -177,27 +174,25 @@ static void uiTaskLoop(void *) {
       // consumed here rather than passed to touchInputPoll, so waking the
       // display never also opens a detail panel for whatever was underneath.
       if (touchInputTapped()) nightModeWake();
-#ifdef NIGHT_CLOCK
-      // Redraw only when the minute actually changes, so the saving from
-      // skipping the radar render survives almost intact — one 38ms push a
-      // minute instead of ten a second.
-      time_t now = time(nullptr);
-      struct tm lt;
-      bool haveTime = now > 1700000000 && localtime_r(&now, &lt) != nullptr;
-      int minuteNow = haveTime ? lt.tm_hour * 60 + lt.tm_min : -1;
-      if (minuteNow != s_lastClockMin) {
-        s_lastClockMin = minuteNow;
-        drawNightClock(s_scope, haveTime ? &lt : nullptr);
-        s_scope.pushSprite(0, 0);
+      if (nightModeClockOn()) {
+        // Redraw only when the minute actually changes, so the saving from
+        // skipping the radar render survives almost intact — one 38ms push a
+        // minute instead of ten a second.
+        time_t now = time(nullptr);
+        struct tm lt;
+        bool haveTime = now > 1700000000 && localtime_r(&now, &lt) != nullptr;
+        int minuteNow = haveTime ? lt.tm_hour * 60 + lt.tm_min : -1;
+        if (minuteNow != s_lastClockMin) {
+          s_lastClockMin = minuteNow;
+          drawNightClock(s_scope, haveTime ? &lt : nullptr);
+          s_scope.pushSprite(0, 0);
+        }
       }
-#endif
       backlightUpdate(nightScale);
       vTaskDelay(pdMS_TO_TICKS(UI_FRAME_MS));
       continue;
     }
-#ifdef NIGHT_CLOCK
     s_lastClockMin = -1; // awake: force a redraw when night resumes
-#endif
     snapshotStore(s_snap);
     snapshotMetar(s_metar);
     // Built once per frame into a local and passed to everything that needs

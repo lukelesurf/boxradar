@@ -17,6 +17,26 @@ namespace radar {
 // panel without weather stops costing a reflash. They cannot turn a feature ON
 // that was compiled out — the #ifdef still decides whether the code exists.
 //
+// coaston/ohon/nighton/nclkon are the same shape but WITHOUT that caveat: the
+// code behind them is compiled either way now, and the matching define in
+// config.h only chooses the default. Turning one on always works. nclkon is
+// subordinate to nighton — nothing goes dark with blanking off, so there is
+// nothing for the clock to appear on — and night_mode.cpp ANDs them rather
+// than making that a cross-field rule here.
+//
+// The overhead thresholds are the "is it really overhead?" numbers, and each
+// one used to cost a flash to try. ohrnm is in TENTHS of a nautical mile: the
+// shipped value is 1.0nm, so whole miles would offer no step below the default
+// and the interesting experiments are 0.5 and 2.0. Everything else here is a
+// whole number in its natural unit, which is why this is the only field that
+// needs its unit spelled out on the page.
+//
+// sdim/sdrop are seconds of silence before a contact dims and before it is
+// dropped. Their floor is 5s rather than 1s because below about two poll
+// intervals every contact spends most of its life dimmed, which reads as a
+// broken feed. Nothing enforces sdrop > sdim, for the same reason nothing
+// enforces the ranges against each other — see below.
+//
 // nstart == nend is ALLOWED: night_mode.cpp reads it as "disabled", so it is
 // the off switch rather than a 24-hour blank.
 //
@@ -48,10 +68,28 @@ const DeviceField DEVICE_FIELDS[] = {
     {"gpoll", DEV_U32, 60000, 86400000},
     {"metaron", DEV_U32, 0, 1},
     {"geoon", DEV_U32, 0, 1},
+    {"coaston", DEV_U32, 0, 1},
+    {"ohon", DEV_U32, 0, 1},
+    {"nighton", DEV_U32, 0, 1},
+    {"nclkon", DEV_U32, 0, 1},
     {"ovnm", DEV_U32, 5, 200},
     {"d1nm", DEV_U32, 1, 200},
     {"d2nm", DEV_U32, 1, 200},
     {"tlnm", DEV_U32, 0, 200},
+    // Tenths of a nautical mile: 2 is 0.2nm, 100 is 10nm, 10 is shipped. The
+    // ceiling is the overview's own floor — a miss distance wider than the
+    // narrowest view you can select is not a prediction about overhead.
+    {"ohrnm", DEV_U32, 2, 100},
+    // Below 30s nothing has time to arrive; above 600s the aircraft has more
+    // time to change its mind than the straight-line extrapolation has
+    // validity, which is the whole reason the threshold exists.
+    {"ohsec", DEV_U32, 30, 600},
+    // A standard-rate turn is ~43 deg/nm at 250kt, so 45 admits everything and
+    // makes the steadiness test a no-op — deliberately reachable, because
+    // "does the filter matter?" is a question worth being able to answer.
+    {"ohturn", DEV_U32, 1, 45},
+    {"sdim", DEV_U32, 5, 3600},
+    {"sdrop", DEV_U32, 5, 3600},
     {"ntp", DEV_STR, 0, CFG_HOST_LEN - 1},
     {"tz", DEV_STR, 0, CFG_TZ_LEN - 1},
     {"types", DEV_STR, 0, CFG_TYPES_LEN - 1},

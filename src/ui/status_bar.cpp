@@ -75,7 +75,7 @@ void drawStatusCorner(TFT_eSprite &spr, const radar::AircraftStore &s,
     snprintf(buf, sizeof(buf), "NO UPDATE %lus",
              (unsigned long)(ageS > 999 ? 999 : ageS));
     seg(spr, x, buf,
-        ageS >= (uint32_t)radar::SEEN_DROP_S ? TFT_RED : TFT_ORANGE);
+        ageS >= (uint32_t)radar::seenAgeing().dropS ? TFT_RED : TFT_ORANGE);
   } else {
     if (mlatOnScreen > 0)
       snprintf(buf, sizeof(buf), "AC %d (%d)", onScreen, mlatOnScreen);

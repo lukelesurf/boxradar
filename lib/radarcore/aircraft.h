@@ -5,8 +5,37 @@
 namespace radar {
 constexpr int MAX_AIRCRAFT = 32;
 constexpr int TRAIL_LEN = 10;
-constexpr float SEEN_DIM_S = 30.0f;
-constexpr float SEEN_DROP_S = 60.0f;
+
+// How long a contact survives on the scope after the feed stops mentioning it.
+//
+// Settable at runtime, unlike the two above, because these are a judgement
+// about the receiver rather than an allocation: at 30/60 a contact that drops
+// behind a hill dims for half a minute and then vanishes, which is right for a
+// rooftop antenna with a clean horizon and wrong for one indoors, where the
+// same aircraft flickers in and out and the scope loses it every few polls.
+// MAX_AIRCRAFT and TRAIL_LEN size static .bss arrays and stay compiled.
+struct SeenAgeing {
+  // Past this, a blip is drawn dimmed and its datablock greys — still there,
+  // but no longer to be trusted for position.
+  float dimS;
+
+  // Past this it is not drawn and not tappable. Nothing enforces
+  // dropS > dimS; setting them the other way round just means contacts leave
+  // without ever dimming first, which is odd rather than broken.
+  float dropS;
+};
+
+// The live ageing. Returns the compiled defaults until seenAgeingSet() is
+// called, so the native tests and a board with empty NVS behave alike.
+const SeenAgeing &seenAgeing();
+
+// The compiled defaults, for the configuration UI and the tests.
+const SeenAgeing &seenAgeingDefaults();
+
+// Replace the live ageing. A non-positive value is IGNORED and the previous
+// one kept: a zero would drop every contact the moment it arrived, which
+// reads as a dead feed rather than a bad setting.
+void seenAgeingSet(const SeenAgeing &a);
 
 // Fallback spacing until the UI publishes one, ~right for the default 10nm
 // range. Only used for the first polls after boot.

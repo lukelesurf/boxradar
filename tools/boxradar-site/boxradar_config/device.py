@@ -1,7 +1,10 @@
 """The board's optional settings, and the two hops needed to reach them.
 
-Seventeen settings that previously required editing include/config.h and
-reflashing.
+Twenty-six settings that previously required editing include/config.h and
+reflashing. Four of them — the coastline, the overhead readout, night blanking
+and the overnight clock — were not even values but #ifdefs, so changing one
+meant a rebuild rather than an edit; they are compiled in both ways now and
+config.h only picks their default.
 The board's own captive portal (src/portal.cpp) covers the other eight keys and
 only appears when WiFi association fails, so these were unreachable in practice.
 
@@ -43,10 +46,20 @@ DEFAULT_FEED_URL = "http://127.0.0.1:8081"
 
 
 class Group:
-    def __init__(self, key, label, note=""):
+    """One <details> block on the Device page.
+
+    `collapsed` is not cosmetic. At twenty-six fields the page stopped being
+    something you scan and became something you scroll, and the settings you
+    actually reach for — the ranges, what gets drawn, the type list — were
+    buried under a wall of timings nobody has touched since they were set. A
+    collapsed group is one whose right answer is almost always the shipped one.
+    """
+
+    def __init__(self, key, label, note="", collapsed=False):
         self.key = key
         self.label = label
         self.note = note
+        self.collapsed = collapsed
 
 
 GROUPS = [
@@ -55,22 +68,42 @@ GROUPS = [
           "the chooser you tap; the two detail levels are what the zoom "
           "toggle steps between. Nothing checks these against each other — an "
           "overview narrower than a detail level is odd, not broken."),
+    Group("layers", "Scope layers",
+          "What gets drawn on top of the ranges. Both of these were compiled "
+          "in or out of the firmware until now, so trying the panel without "
+          "one meant a reflash. The coastline is the expensive layer — ~1900 "
+          "points against a couple of hundred for everything else — so it is "
+          "the one to switch off if a frame ever looks slow."),
+    Group("overhead", "Overhead prediction",
+          "What counts as “overhead”, for the readout in the "
+          "top-left corner. These are the numbers to try a few values of: too "
+          "wide and something is always about to pass over, which carries no "
+          "information; too narrow and the readout never appears. Only "
+          "reachable when the readout itself is on, above.",
+          collapsed=True),
+    Group("traffic", "Traffic",
+          "Which aircraft are worth a second look, and how long one stays on "
+          "the scope after the feed goes quiet about it. The type list is "
+          "what the board considers ORDINARY, so anything not on it is "
+          "highlighted."),
     Group("feeds", "Optional feeds",
           "Weather and the map are extras. Turning one off stops the board "
           "asking for it at all — useful for telling a display problem from "
           "a feed problem without a reflash."),
-    Group("traffic", "Traffic",
-          "Which aircraft are worth a second look. The list is what the "
-          "board considers ORDINARY, so anything not on it is highlighted."),
     Group("night", "Night blanking",
-          "Set start and end to the same hour to turn night mode off "
-          "entirely — that is how night_mode.cpp reads it."),
+          "Set start and end to the same hour to turn the window off without "
+          "turning the feature off — that is how night_mode.cpp reads it. "
+          "Blanking off wins over the clock: nothing goes dark, so there is "
+          "nothing for a clock to appear on.",
+          collapsed=True),
     Group("poll", "Poll intervals",
           "Faster polling costs the Pi, which is also running readsb and "
-          "tar1090. Weather below 300s only re-serves the proxy's cache."),
+          "tar1090. Weather below 300s only re-serves the proxy's cache.",
+          collapsed=True),
     Group("clock", "Clock",
           "The board has no RTC, so night blanking depends entirely on NTP "
-          "and on this timezone rule being right."),
+          "and on this timezone rule being right.",
+          collapsed=True),
 ]
 
 
@@ -102,6 +135,15 @@ class Field:
 # bounds exist because the value below them is silently useless rather than
 # obviously broken.
 FIELDS = [
+    Field("nighton", "Blank overnight", "u", "night", 0, 1,
+          choices=[(1, "on"), (0, "off")],
+          help="Off keeps the panel lit around the clock, and stops the board "
+               "asking for the time at all — nothing else on it reads a wall "
+               "clock."),
+    Field("nclkon", "Overnight clock", "u", "night", 0, 1,
+          choices=[(1, "on"), (0, "off")],
+          help="A dim clock during the blanked hours instead of a black "
+               "screen. Ignored while blanking is off."),
     Field("nstart", "Start hour", "u", "night", 0, 23,
           help="Local time, 24-hour."),
     Field("nend", "End hour", "u", "night", 0, 23,
@@ -128,6 +170,17 @@ FIELDS = [
           choices=[(1, "on"), (0, "off")],
           help="Stops the board fetching geography. It keeps drawing "
                "whatever it already had."),
+    Field("coaston", "Coastline", "u", "layers", 0, 1,
+          choices=[(1, "on"), (0, "off")],
+          help="The map blob carries the coast either way; this only decides "
+               "whether it is drawn. Nothing to draw at a landlocked site, "
+               "and it is the layer with ~1900 points against a couple of "
+               "hundred for everything else put together."),
+    Field("ohon", "Overhead readout", "u", "layers", 0, 1,
+          choices=[(1, "on"), (0, "off")],
+          help="The “OVHD …” line in the top-left corner. Off also gives "
+               "that corner back to datablocks instead of leaving it "
+               "reserved and empty."),
     # Whole nautical miles: the field machinery carries unsigned integers, and
     # a DEV_FLOAT would have to be threaded through validation, the config
     # server and this table to buy a 2.5nm detail level. 200 is the ceiling
@@ -147,6 +200,27 @@ FIELDS = [
                "two lines are only legible while the scope is sparse. 0 "
                "means never two lines. 10 is shipped, which is why the "
                "detail views get them and the overview does not."),
+    # The only field on the page carried in something other than its natural
+    # unit. Whole nautical miles would put the floor at the shipped value, so
+    # the two experiments actually worth running — half a mile, two miles —
+    # would both be unreachable.
+    Field("ohrnm", "Radius", "u", "overhead", 2, 100,
+          unit="tenths of a nm",
+          help="Lateral miss distance that counts as overhead — 10 is 1.0nm, "
+               "which is shipped. Altitude is ignored on purpose: for a "
+               "look-out-of-the-window readout, a jet at FL350 and a light "
+               "aircraft at 2000ft pass over the same patch of sky."),
+    Field("ohsec", "Horizon", "u", "overhead", 30, 600, unit="s",
+          help="How far ahead to predict. Past about two and a half minutes "
+               "an aircraft has more time to change its mind than a straight "
+               "line has validity. 150 is shipped."),
+    Field("ohturn", "Straightness", "u", "overhead", 1, 45,
+          unit="deg per nm",
+          help="How much an aircraft may be turning and still be "
+               "extrapolated. A standard-rate turn is about 43; straight "
+               "flight with position noise sits near zero, so the gap is "
+               "wide and 8 is shipped. 45 admits everything, which is how to "
+               "see what the filter was doing for you."),
     # 255 is CFG_TYPES_LEN - 1. The built-in list is 134 characters, so there
     # is room to grow one without a reflash.
     Field("types", "Ordinary types", "s", "traffic", high=255, wide=True,
@@ -156,6 +230,16 @@ FIELDS = [
                "fleet that saturates a London feed — a box somewhere else "
                "wants a different list, and at a GA field it wants an "
                "entirely different kind of list."),
+    Field("sdim", "Dim after", "u", "traffic", 5, 3600, unit="s",
+          help="Silence from the feed before a contact is drawn dimmed — "
+               "still there, no longer trusted for position. 30 is shipped, "
+               "a little over ten polls at the default cadence."),
+    Field("sdrop", "Drop after", "u", "traffic", 5, 3600, unit="s",
+          help="Silence before a contact leaves the scope entirely and stops "
+               "being tappable. 60 is shipped. Raise both if the antenna has "
+               "a poor horizon and aircraft keep flickering out; nothing "
+               "checks this against the dim threshold, and setting it lower "
+               "just means contacts vanish without dimming first."),
     # 33 and 48 are CFG_HOST_LEN and CFG_TZ_LEN from site_config_data.h, less
     # the terminator. cfgSetStr refuses an oversized value rather than
     # truncating it, so a longer string would be rejected on the board — this

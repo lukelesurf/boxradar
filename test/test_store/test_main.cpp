@@ -148,6 +148,39 @@ static void test_trail_ring_wraps_at_capacity() {
   TEST_ASSERT_FLOAT_WITHIN(1e-4f, 99.0f, c->trail[0].x); // overwrote oldest
 }
 
+// ---------------------------------------------------------- contact ageing
+//
+// The store itself does not age anything — src/ui/scope.cpp compares against
+// these — so what is worth pinning is that the setter behaves like the other
+// two runtime holders: it takes what it is given, ignores what would break
+// the display, and hands back the compiled values until it is called.
+
+static void test_ageing_starts_at_the_compiled_defaults() {
+  TEST_ASSERT_EQUAL_FLOAT(seenAgeingDefaults().dimS, seenAgeing().dimS);
+  TEST_ASSERT_EQUAL_FLOAT(seenAgeingDefaults().dropS, seenAgeing().dropS);
+  // The shipped pair, which the whole scope's sense of "stale" rests on.
+  TEST_ASSERT_EQUAL_FLOAT(30.0f, seenAgeingDefaults().dimS);
+  TEST_ASSERT_EQUAL_FLOAT(60.0f, seenAgeingDefaults().dropS);
+}
+
+static void test_ageing_is_settable_and_restorable() {
+  SeenAgeing longer = {120.0f, 300.0f};
+  seenAgeingSet(longer);
+  TEST_ASSERT_EQUAL_FLOAT(120.0f, seenAgeing().dimS);
+  TEST_ASSERT_EQUAL_FLOAT(300.0f, seenAgeing().dropS);
+  seenAgeingSet(seenAgeingDefaults());
+  TEST_ASSERT_EQUAL_FLOAT(30.0f, seenAgeing().dimS);
+}
+
+static void test_a_zero_ageing_is_ignored_not_stored() {
+  // Zero would drop every contact the instant it arrived: a blank scope, which
+  // reads as a dead receiver rather than as a setting someone typed.
+  SeenAgeing zeroed = {0.0f, 0.0f};
+  seenAgeingSet(zeroed);
+  TEST_ASSERT_EQUAL_FLOAT(30.0f, seenAgeing().dimS);
+  TEST_ASSERT_EQUAL_FLOAT(60.0f, seenAgeing().dropS);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_insert_keeps_sorted_by_range);
@@ -157,5 +190,8 @@ int main(int, char **) {
   RUN_TEST(test_slow_movement_below_spacing_does_not_append);
   RUN_TEST(test_spacing_measured_diagonally);
   RUN_TEST(test_trail_ring_wraps_at_capacity);
+  RUN_TEST(test_ageing_starts_at_the_compiled_defaults);
+  RUN_TEST(test_ageing_is_settable_and_restorable);
+  RUN_TEST(test_a_zero_ageing_is_ignored_not_stored);
   return UNITY_END();
 }

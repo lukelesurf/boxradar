@@ -89,8 +89,13 @@
 
 {% if fields %}
   <form method="post">
+    {# <details> rather than a script toggle, and open unless the group says
+       otherwise. A closed group still submits: its inputs are in the DOM and
+       in the form, they are simply not on screen — which is what makes this
+       safe to do to a page whose Save re-reads and diffs. #}
     {% for group in groups %}
-      <h2>{{ group.label }}</h2>
+      <details class="group"{{ '' if group.collapsed else ' open' }}>
+      <summary><h2>{{ group.label }}</h2></summary>
       <p class="note">{{ group.note }}</p>
       <div class="scroll">
         <table>
@@ -146,6 +151,7 @@
           {% endfor %}
         </table>
       </div>
+      </details>
     {% endfor %}
 
     <p class="note">

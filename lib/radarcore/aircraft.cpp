@@ -4,6 +4,26 @@
 
 namespace radar {
 
+namespace {
+
+// 30s is a little over ten polls at the shipped 2s cadence — long enough that
+// a single missed update never dims anything, short enough that a stale blip
+// admits it. 60s is where a contact stops being evidence of anything.
+const SeenAgeing AGEING_DEFAULTS = {30.0f, 60.0f};
+
+SeenAgeing s_ageing = AGEING_DEFAULTS;
+
+} // namespace
+
+const SeenAgeing &seenAgeing() { return s_ageing; }
+
+const SeenAgeing &seenAgeingDefaults() { return AGEING_DEFAULTS; }
+
+void seenAgeingSet(const SeenAgeing &a) {
+  if (a.dimS > 0.0f) s_ageing.dimS = a.dimS;
+  if (a.dropS > 0.0f) s_ageing.dropS = a.dropS;
+}
+
 void AircraftStore::clear() {
   count = 0;
   feedTotal = 0;

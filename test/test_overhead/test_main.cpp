@@ -169,6 +169,86 @@ static void test_age_advances_the_prediction() {
   TEST_ASSERT_UINT16_WITHIN(2, 92, p.secondsAway); // 100 - 8
 }
 
+// ------------------------------------------------------ runtime thresholds
+//
+// Every test above runs against the compiled defaults, so these restore them
+// afterwards. The state is a file-static in overhead.cpp and the tests share
+// one process — a widened radius left behind here would make an unrelated
+// test pass for the wrong reason, which is the failure this whole file exists
+// to prevent.
+
+static void test_a_widened_radius_admits_a_wide_pass() {
+  AircraftStore s;
+  s.clear();
+  s.insertByRange(straightFlyer(1, 5.0f, 10.0f, 180, 360)); // 5nm miss
+  TEST_ASSERT_FALSE(predictOverhead(s, 0.0f).valid);
+
+  OverheadParams p = overheadParamsDefaults();
+  p.radiusNm = 6.0f;
+  overheadParamsSet(p);
+  TEST_ASSERT_TRUE(predictOverhead(s, 0.0f).valid);
+
+  overheadParamsSet(overheadParamsDefaults());
+  TEST_ASSERT_FALSE(predictOverhead(s, 0.0f).valid);
+}
+
+static void test_a_longer_horizon_admits_a_distant_arrival() {
+  AircraftStore s;
+  s.clear();
+  s.insertByRange(straightFlyer(1, 0.0f, 40.0f, 180, 360)); // 400s away
+  TEST_ASSERT_FALSE(predictOverhead(s, 0.0f).valid);
+
+  OverheadParams p = overheadParamsDefaults();
+  p.horizonS = 500.0f;
+  overheadParamsSet(p);
+  TEST_ASSERT_TRUE(predictOverhead(s, 0.0f).valid);
+
+  overheadParamsSet(overheadParamsDefaults());
+}
+
+static void test_a_slack_turn_threshold_admits_a_turning_aircraft() {
+  Aircraft a;
+  memset(&a, 0, sizeof(a));
+  a.hex = 1;
+  a.trackDeg = 180;
+  a.gsKt = 250;
+  // ~15 deg per 0.45nm leg: a third of a rate-one turn, well over the 8
+  // deg/nm default and under the 45 the field's ceiling allows.
+  float x = 0.0f, y = 10.0f, heading = 180.0f;
+  for (int i = 0; i < 6; i++) {
+    a.trail[i] = {x, y};
+    float rad = heading * (float)M_PI / 180.0f;
+    x += sinf(rad) * 0.45f;
+    y += cosf(rad) * 0.45f;
+    heading += 15.0f;
+  }
+  a.trailLen = 6;
+  a.trailHead = 6;
+  TEST_ASSERT_FALSE(isTrackSteady(a));
+
+  OverheadParams p = overheadParamsDefaults();
+  p.maxTurnDegPerNm = 45.0f;
+  overheadParamsSet(p);
+  TEST_ASSERT_TRUE(isTrackSteady(a));
+
+  overheadParamsSet(overheadParamsDefaults());
+  TEST_ASSERT_FALSE(isTrackSteady(a));
+}
+
+static void test_a_non_positive_threshold_is_ignored_not_stored() {
+  // A zero radius would silence the readout permanently, which looks like a
+  // broken feature rather than a bad setting. DEVICE_FIELDS refuses it first;
+  // this is the backstop behind that.
+  OverheadParams zeroed = {0.0f, 0.0f, 0.0f};
+  overheadParamsSet(zeroed);
+  TEST_ASSERT_EQUAL_FLOAT(overheadParamsDefaults().radiusNm,
+                          overheadParams().radiusNm);
+  TEST_ASSERT_EQUAL_FLOAT(overheadParamsDefaults().horizonS,
+                          overheadParams().horizonS);
+  TEST_ASSERT_EQUAL_FLOAT(overheadParamsDefaults().maxTurnDegPerNm,
+                          overheadParams().maxTurnDegPerNm);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_straight_trail_is_steady);
@@ -183,5 +263,9 @@ int main(int, char **) {
   RUN_TEST(test_turning_aircraft_excluded_from_prediction);
   RUN_TEST(test_slow_and_ground_traffic_ignored);
   RUN_TEST(test_age_advances_the_prediction);
+  RUN_TEST(test_a_widened_radius_admits_a_wide_pass);
+  RUN_TEST(test_a_longer_horizon_admits_a_distant_arrival);
+  RUN_TEST(test_a_slack_turn_threshold_admits_a_turning_aircraft);
+  RUN_TEST(test_a_non_positive_threshold_is_ignored_not_stored);
   return UNITY_END();
 }
