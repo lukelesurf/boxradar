@@ -80,6 +80,7 @@ class TestFieldTable(unittest.TestCase):
                     "coaston", "ohon", "nighton", "nclkon",
                     "ovnm", "d1nm", "d2nm", "tlnm",
                     "ohrnm", "ohsec", "ohturn", "sdim", "sdrop",
+                    "amin", "amax",
                     "ntp", "tz", "types"]))
 
     def test_no_scope_range_can_be_saved_as_zero(self):
@@ -145,10 +146,13 @@ class TestFieldTable(unittest.TestCase):
         # for are visible without scrolling past twenty timings. If this ever
         # inverts, the page has quietly gone back to being a wall.
         collapsed = {g.key for g in device.GROUPS if g.collapsed}
+        shown = {g.key for g in device.GROUPS if not g.collapsed}
+        # Stated as two explicit sets rather than as a ratio. A ratio drifts
+        # into being true by accident as fields are added, and what matters is
+        # not how much is hidden but WHICH things are: everything open changes
+        # the picture, everything shut is a timing or a threshold.
         self.assertEqual(collapsed, {"overhead", "night", "poll", "clock"})
-        shown = sum(len(device.fields_in(g.key))
-                    for g in device.GROUPS if not g.collapsed)
-        self.assertLess(shown, len(device.FIELDS) / 2)
+        self.assertEqual(shown, {"view", "alt", "layers", "traffic", "feeds"})
 
     def test_only_the_overhead_radius_is_carried_in_a_scaled_unit(self):
         # Every other field on the page is a whole number in its natural unit.

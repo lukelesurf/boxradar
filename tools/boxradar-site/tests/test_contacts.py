@@ -209,3 +209,94 @@ class TestClamping(unittest.TestCase):
 
     def test_overlong_type_is_truncated_to_the_field(self):
         self.assertEqual(self.field("type", t="TOOLONG"), "TOOL")
+
+
+class TestAltitudeBand(unittest.TestCase):
+    """The band is applied HERE, not on the board.
+
+    The cap saturates continuously — a real feed runs 54-65 aircraft against
+    32 slots — so a filter behind the cap would spend every slot and then hide
+    most of them. These check that the band runs before the sort and the cap,
+    and that the two ways it can be asked a nonsense question fail toward
+    showing traffic rather than toward a blank scope.
+    """
+
+    def band(self, feed, low, high, limit=32):
+        return contacts.select(feed, HOME_LAT, HOME_LON, limit,
+                               alt_min=low, alt_max=high)
+
+    def test_a_floor_drops_what_is_below_it(self):
+        picked, total = self.band([at_range_nm(5, alt_baro=500),
+                                   at_range_nm(10, alt_baro=5000)], 1000, 70000)
+        self.assertEqual([c.alt_ft for c in picked], [5000])
+        # Excluded traffic is not counted either: "+N" has to mean "aircraft
+        # you asked for that did not fit", or it becomes a permanent number.
+        self.assertEqual(total, 1)
+
+    def test_a_ceiling_drops_what_is_above_it(self):
+        picked, _ = self.band([at_range_nm(5, alt_baro=38000),
+                               at_range_nm(10, alt_baro=3000)], 0, 10000)
+        self.assertEqual([c.alt_ft for c in picked], [3000])
+
+    def test_the_band_runs_before_the_cap_not_after(self):
+        # Three low, one high, one slot. Filtering after the cap would take
+        # the nearest (low, excluded) and return nothing at all.
+        feed = [at_range_nm(1, alt_baro=200), at_range_nm(2, alt_baro=200),
+                at_range_nm(3, alt_baro=200), at_range_nm(9, alt_baro=9000)]
+        picked, total = self.band(feed, 1000, 70000, limit=1)
+        self.assertEqual([c.alt_ft for c in picked], [9000])
+        self.assertEqual(total, 1)
+
+    def test_a_floor_of_zero_means_no_floor(self):
+        # Baro altitude reads negative at a low airfield under high pressure.
+        # A literal floor of 0 would hide ground traffic at the SHIPPED
+        # setting, which is the worst place for a surprise.
+        picked, _ = self.band([at_range_nm(5, alt_baro=-75)], 0, 70000)
+        self.assertEqual([c.alt_ft for c in picked], [-75])
+
+    def test_a_real_floor_does_drop_negative_altitudes(self):
+        picked, _ = self.band([at_range_nm(5, alt_baro=-75)], 500, 70000)
+        self.assertEqual(picked, [])
+
+    def test_ground_traffic_is_governed_by_the_floor(self):
+        onground = [at_range_nm(2, alt_baro="ground")]
+        self.assertEqual(len(self.band(onground, 0, 70000)[0]), 1)
+        self.assertEqual(self.band(onground, 1000, 70000)[0], [])
+
+    def test_an_unknown_altitude_always_passes(self):
+        # alt_baro simply absent lands as 0 through _number's default, so
+        # without alt_known it would be indistinguishable from a genuine 0 and
+        # a jet with a dropped altitude field would vanish behind any floor.
+        entry = at_range_nm(5)
+        entry.pop("alt_baro", None)
+        picked, _ = self.band([entry], 20000, 30000)
+        self.assertEqual(len(picked), 1)
+        self.assertFalse(picked[0].alt_known)
+
+    def test_a_boolean_altitude_is_not_a_number(self):
+        # isinstance(True, int) is True in Python, so a stray `true` would
+        # otherwise read as a known 1ft.
+        picked, _ = self.band([at_range_nm(5, alt_baro=True)], 20000, 30000)
+        self.assertEqual(len(picked), 1)
+        self.assertFalse(picked[0].alt_known)
+
+    def test_an_inverted_band_is_ignored_rather_than_obeyed(self):
+        # Obeying it empties the scope, and an empty scope reads as a dead
+        # board rather than as a setting someone typed. The firmware accepts
+        # the pair because each field is validated alone; this is the backstop.
+        feed = [at_range_nm(5, alt_baro=3000), at_range_nm(9, alt_baro=38000)]
+        picked, total = self.band(feed, 40000, 1000)
+        self.assertEqual(len(picked), 2)
+        self.assertEqual(total, 2)
+
+    def test_no_band_asked_for_behaves_as_before(self):
+        feed = [at_range_nm(5, alt_baro=200), at_range_nm(9, alt_baro=41000)]
+        picked, _ = contacts.select(feed, HOME_LAT, HOME_LON, 32)
+        self.assertEqual(len(picked), 2)
+
+    def test_build_passes_the_band_through(self):
+        feed = [at_range_nm(5, alt_baro=200), at_range_nm(9, alt_baro=9000)]
+        data = contacts.build(feed, HOME_LAT, HOME_LON, 32,
+                              alt_min=1000, alt_max=70000)
+        out = contacts.read(data)
+        self.assertEqual([c["alt_ft"] for c in out["contacts"]], [9000])

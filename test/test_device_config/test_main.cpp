@@ -28,8 +28,8 @@ static void test_the_expected_keys_are_present() {
                             "metaron", "geoon",   "coaston", "ohon",
                             "nighton", "nclkon",  "ovnm",    "d1nm",
                             "d2nm",    "tlnm",    "ohrnm",   "ohsec",
-                            "ohturn",  "sdim",    "sdrop",   "ntp",
-                            "tz",      "types"};
+                            "ohturn",  "sdim",    "sdrop",   "amin",
+                            "amax",    "ntp",     "tz",      "types"};
   size_t n = sizeof(expected) / sizeof(expected[0]);
   TEST_ASSERT_EQUAL_size_t(n, DEVICE_FIELD_COUNT);
   for (size_t i = 0; i < n; i++)
@@ -254,6 +254,42 @@ static void test_a_zero_ageing_never_reaches_the_scope() {
   TEST_ASSERT_NOT_NULL(problem);
 }
 
+static void test_the_altitude_band_spans_everything_that_transmits() {
+  // The shipped band has to be a no-op, or turning the feature on for the
+  // first time would change what an untouched board displays.
+  const DeviceField *lo = deviceFieldByKey("amin");
+  const DeviceField *hi = deviceFieldByKey("amax");
+  TEST_ASSERT_NOT_NULL(lo);
+  TEST_ASSERT_NOT_NULL(hi);
+  TEST_ASSERT_EQUAL_UINT32(0, lo->low);
+  TEST_ASSERT_EQUAL_UINT32(CFG_ALT_CEILING_FT, lo->high);
+  TEST_ASSERT_EQUAL_UINT32(CFG_ALT_CEILING_FT, hi->high);
+  // 70000 is above every airframe that reports ADS-B, which is the whole
+  // argument for the ceiling being literal where the floor is a sentinel.
+  TEST_ASSERT_TRUE(CFG_ALT_CEILING_FT > 60000);
+}
+
+static void test_an_inverted_band_is_accepted_here_and_ignored_later() {
+  // Each field is validated alone, because the config server writes one key
+  // at a time and a cross-field rule would make some orderings of the same
+  // edit fail. A floor above the ceiling therefore passes — and the Pi's
+  // select() ignores the band rather than obeying it, because obeying it
+  // blanks the scope and a blank scope reads as a dead board.
+  const char *problem = "unset";
+  parsed("amin", "40000", &problem);
+  TEST_ASSERT_NULL(problem);
+  parsed("amax", "1000", &problem);
+  TEST_ASSERT_NULL(problem);
+}
+
+static void test_an_altitude_above_the_ceiling_is_refused() {
+  const char *problem = "unset";
+  parsed("amax", "70001", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+  parsed("amin", "999999", &problem);
+  TEST_ASSERT_NOT_NULL(problem);
+}
+
 static void test_poll_floor_protects_the_receiver() {
   const char *problem = "unset";
   parsed("poll", "10", &problem);
@@ -321,6 +357,9 @@ int main(int, char **) {
   RUN_TEST(test_the_shipped_ageing_is_inside_its_own_bounds);
   RUN_TEST(test_the_four_former_ifdefs_are_boolean);
   RUN_TEST(test_a_zero_ageing_never_reaches_the_scope);
+  RUN_TEST(test_the_altitude_band_spans_everything_that_transmits);
+  RUN_TEST(test_an_inverted_band_is_accepted_here_and_ignored_later);
+  RUN_TEST(test_an_altitude_above_the_ceiling_is_refused);
   RUN_TEST(test_poll_floor_protects_the_receiver);
   RUN_TEST(test_a_string_within_its_field_is_accepted);
   RUN_TEST(test_string_limits_match_the_struct_they_land_in);

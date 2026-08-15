@@ -32,6 +32,11 @@ enum {
   CFG_TYPES_LEN = 256,
 };
 
+// Top of the altitude band, in feet, and its shipped ceiling. Above anything
+// that reports ADS-B — a record claiming more is better hidden than drawn —
+// and mirrored on the Pi as contacts.ALT_BAND_CEILING_FT.
+enum { CFG_ALT_CEILING_FT = 70000 };
+
 struct SiteConfig {
   char wifiSsid[CFG_SSID_LEN];
   char wifiPass[CFG_PASS_LEN];
@@ -79,6 +84,15 @@ struct SiteConfig {
   // Contact ageing, whole seconds. See radar::SeenAgeing.
   uint16_t seenDimS;
   uint16_t seenDropS;
+  // Altitude band, whole feet. uint32 rather than uint16 because the ceiling
+  // is 70000 and would wrap. Unlike everything else here these two never
+  // reach a draw site: they ride on the /contacts request and the Pi applies
+  // them, because the 32-slot cap saturates continuously and a filter behind
+  // the cap would spend all 32 slots and then hide most of them. 0 as a floor
+  // means NO floor — barometric altitude reads slightly negative at a low
+  // airfield on a high-pressure day.
+  uint32_t altMinFt;
+  uint32_t altMaxFt;
   // Scope ranges, whole nautical miles. Held as integers here because that is
   // what NVS and the config form carry; radar::ViewRanges holds them as the
   // floats the projection wants. See view_ranges.h.

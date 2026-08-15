@@ -77,6 +77,9 @@ print. Fixings are 4× M3×6 self-tap (board to bezel bosses) and 4× M3×8
 - Aircraft dim after 30s without a message and drop at 60s (`sdim`, `sdrop`) —
   raise both for an antenna with a poor horizon, where the same aircraft
   otherwise flickers out every few polls
+- **Altitude band** (`amin`, `amax`): hide anything outside a floor/ceiling in
+  feet, so a site under an airway can drop the overflights and keep the
+  circuit, or vice versa. Applied by the Pi rather than the board — see below
 
 ### Map
 
@@ -113,9 +116,9 @@ Relocating.
   TZ rule, not a fixed offset
 - LDR-driven backlight dimming, RGB LED status (red no-WiFi / amber
   no-data), OTA updates with on-screen progress
-- **Twenty-six settings live on the board's NVS and are editable from the Pi**
-  — ranges, layers, thresholds, ageing, night blanking, poll intervals, the
-  ordinary-type list — none of which costs a reflash. NVS is an *overlay*: an
+- **Twenty-eight settings live on the board's NVS and are editable from the
+  Pi** — ranges, the altitude band, layers, thresholds, ageing, night
+  blanking, poll intervals, the ordinary-type list — none of which costs a reflash. NVS is an *overlay*: an
   empty one behaves exactly like the compiled defaults, which is what keeps a
   board on WiFi and reachable over OTA no matter what the config layer does.
   See Site application, below
@@ -310,7 +313,8 @@ on a Debian Pi:
 - `GET /contacts?lat=&lon=&n=` — the traffic feed, as fixed-size binary
   records already filtered, range-sorted and capped. **Required**: the display
   has no JSON fallback, by design. It reads `aircraft.json` over the loopback,
-  so readsb and tar1090 are untouched.
+  so readsb and tar1090 are untouched. Optional `&amin=&amax=` restrict it to
+  an altitude band; absent means no band, so an older board is unaffected.
 - `GET /metar/<ICAO>` — weather, fetched from aviationweather.gov on demand
   and cached per station for 5 minutes. Optional; the strip simply omits it.
 - `GET /type/<designator>` — the full aircraft type name, from the tar1090-db
@@ -509,6 +513,16 @@ Three different datasets, and the gaps between them are the trap:
   `+N` whenever the cap is binding, and `feed=` vs `kept=` on the serial log
   says the same thing. Raising it costs 624 bytes of DRAM a slot across four
   stores, so check `minheap=` before you do.
+- **The cap saturates continuously** — a real feed runs 54-65 aircraft against
+  those 32 slots — which is why the altitude band is applied on the Pi, before
+  the sort and the cap, rather than at draw time on the board. Behind the cap
+  it would spend all 32 slots and then hide most of them, emptying the scope
+  exactly when the sky is busiest. Anything else that filters traffic belongs
+  on the same side of the cap for the same reason.
+- **An altitude floor of 0 means no floor.** Barometric altitude reads
+  slightly negative at a low airfield on a high-pressure day, so a literal 0
+  would hide ground traffic at the shipped setting. The ceiling is literal by
+  contrast; the asymmetry is deliberate and documented in `contacts.py`.
 - **The scope's ranges are Device-page settings**, not compiled constants —
   `ovnm`, `d1nm`, `d2nm`, `tlnm`, whole nautical miles. The shipped `50` and
   `{10,5}` suit a busy TMA; somewhere rural wants both higher, a GA field

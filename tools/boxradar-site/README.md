@@ -37,6 +37,8 @@ asked for, and the station list stops being configuration on both sides.
 | `GET /metar/EGSS` | one station |
 | `GET /metar/EGSS,EGGW` | several, in one upstream call |
 | `GET /contacts?lat=&lon=&n=` | the binary traffic feed |
+| `GET /contacts?...&amin=&amax=` | …restricted to an altitude band, in feet |
+| `GET /type/AS50` | the full aircraft type name for a designator |
 | `GET /board` | the board's address and how long since it last polled |
 | `POST /board/wake` | asks the board to open its settings server |
 | `POST /board/reload-geo` | tells it a new map is published |
@@ -75,14 +77,19 @@ until the clock caught up. The wall clock is recorded only for the envelope's
 
 ## Install
 
+**The Pi has no git checkout**, so this runs from the machine that does:
+
 ```bash
-ssh pi@<receiver>
-cd /path/to/boxradar/tools/boxradar-site
-sudo ./install.sh
+rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' \
+  tools/boxradar-site/ pi@<receiver>:/tmp/boxradar-site-staging/
+ssh pi@<receiver> 'cd /tmp/boxradar-site-staging && sudo ./install.sh'
 ```
 
 Re-run it to upgrade; it restarts the services and keeps an existing
-`config.json`. The configuration UI is installed and enabled only if Flask,
+`config.json`, the selection and the published blob. Worth running the suite
+on the Pi first — `test_receiver_*` fail there because they test
+`tools/receiver-install`, which the staging directory does not contain, and
+everything else should pass. The configuration UI is installed and enabled only if Flask,
 shapely and yaml are all present — a receiver that only wants weather still
 works without them.
 
@@ -267,12 +274,13 @@ raise.
 
 ### Device settings
 
-Twenty-six settings that used to need an edit to `include/config.h` and a
+Twenty-eight settings that used to need an edit to `include/config.h` and a
 reflash — and, for four of them, a rebuild rather than an edit:
 
 | group | keys | collapsed |
 |---|---|---|
 | Scope ranges | `ovnm`, `d1nm`, `d2nm`, `tlnm` | no |
+| Altitude band | `amin`, `amax` | no |
 | Scope layers | `coaston`, `ohon` | no |
 | Overhead prediction | `ohrnm`, `ohsec`, `ohturn` | yes |
 | Traffic | `types`, `sdim`, `sdrop` | no |
@@ -343,6 +351,39 @@ the field table to buy them.
 `sdim` and `sdrop` are seconds of feed silence before a contact dims and before
 it leaves the scope. 30/60 suits a rooftop antenna with a clean horizon; one
 indoors loses the same aircraft every few polls, and raising both is the fix.
+
+`amin` and `amax` are the only two settings the **board never acts on**. They
+ride on the `/contacts` request and the display service filters before it
+sorts and caps. That placement is the whole point: a real feed runs 54-65
+aircraft against 32 slots, so a filter at draw time would spend every slot and
+then hide most of them, emptying the scope exactly when the sky is busy.
+Filtering first makes the 32 the nearest 32 *in the band*, and `+N` keeps
+meaning "aircraft you asked to see that did not fit".
+
+Three rules are worth knowing, and each exists because the obvious reading is
+wrong somewhere real:
+
+- **A floor of 0 means no floor**, not "at or above zero". Barometric altitude
+  genuinely reads slightly negative at a low airfield on a high-pressure day,
+  so a literal floor would hide ground and early-climb traffic at the
+  *shipped* setting.
+- **The ceiling is literal.** 70000ft is above every airframe that transmits,
+  so a record claiming more is a spoof or a decode error and is better hidden
+  than drawn. Asymmetric with the floor on purpose.
+- **An unknown altitude always passes.** `alt_baro` simply absent lands as 0
+  through `_number`'s default, indistinguishable from a real 0, so `Contact`
+  carries an `alt_known` flag that is never transmitted. Without it a jet with
+  a dropped altitude field would vanish behind any floor. Same reasoning as an
+  unknown *type* counting as ordinary rather than rare.
+
+`amin` above `amax` is refused by neither validator — each field is checked
+alone, because the config server writes one key at a time and a cross-field
+rule would make some orderings of the same edit fail. `select()` **ignores**
+an inverted band rather than obeying it: obeying it blanks the scope, and a
+blank scope reads as a dead board rather than as a setting someone typed.
+
+A board flashed before this existed sends neither parameter, and absent means
+no band, so it keeps working untouched. Present-but-malformed is a 400.
 
 **WiFi, the receiver URL and the OTA credentials are deliberately not here.**
 They stay behind the board's own setup access point (`src/portal.cpp`), where a

@@ -106,9 +106,28 @@ static void poll() {
   // Home goes on the request rather than into the Pi's config: NVS is the
   // single authority for where "here" is, so the service holds no site
   // position and cannot silently disagree with the board about it.
-  char url[radar::CFG_URL_LEN + 48];
-  snprintf(url, sizeof(url), "%s?lat=%.6f&lon=%.6f&n=%d", RECEIVER_URL,
-           (double)HOME_LAT, (double)HOME_LON, (int)radar::MAX_AIRCRAFT);
+  //
+  // The altitude band rides here too, for the same reason and one more: the
+  // 32-slot cap saturates continuously, so filtering behind it would spend
+  // every slot and then hide most of them. The Pi filters before it sorts and
+  // caps, which makes the 32 the nearest 32 IN the band.
+  //
+  // Worst case is 58 characters of query — the +72 is measured against that,
+  // not guessed, and the truncation check below is what makes a future field
+  // fail loudly instead of silently dropping the band or mangling n=.
+  char url[radar::CFG_URL_LEN + 72];
+  int wrote = snprintf(url, sizeof(url),
+                       "%s?lat=%.6f&lon=%.6f&n=%d&amin=%u&amax=%u",
+                       RECEIVER_URL, (double)HOME_LAT, (double)HOME_LON,
+                       (int)radar::MAX_AIRCRAFT, (unsigned)ALT_MIN_FT,
+                       (unsigned)ALT_MAX_FT);
+  if (wrote < 0 || (size_t)wrote >= sizeof(url)) {
+    // snprintf truncates rather than overflowing, so this is not a crash — it
+    // is a request missing its tail, which the Pi would answer with a 400 and
+    // no explanation the board could act on. Say so once per poll instead.
+    pollFailed("request url too long for its buffer", wrote);
+    return;
+  }
 
   HTTPClient http;
   http.setConnectTimeout(1500);

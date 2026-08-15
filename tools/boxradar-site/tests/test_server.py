@@ -202,6 +202,46 @@ class TestParseSite(unittest.TestCase):
             server.parse_site(f"lat=51.9&lon=0.03&n={server.MAX_CONTACTS + 1}"))
 
 
+class TestParseBand(unittest.TestCase):
+    """Optional where parse_site is mandatory, and that asymmetry is the point.
+
+    A board flashed before the altitude band existed sends lat/lon/n and
+    nothing else. It must keep working untouched, so absent means "no band" —
+    but present-and-nonsense is still refused rather than quietly ignored,
+    because the board is trusted to be the authority on its own settings, not
+    trusted to be incapable of sending rubbish.
+    """
+
+    def test_absent_is_no_band_not_an_error(self):
+        self.assertEqual(server.parse_band("lat=51.9&lon=0.03&n=32"),
+                         server.NO_BAND)
+
+    def test_a_well_formed_band(self):
+        self.assertEqual(server.parse_band("amin=1000&amax=40000"),
+                         (1000, 40000))
+
+    def test_either_half_may_be_sent_alone(self):
+        self.assertEqual(server.parse_band("amin=1000"),
+                         (1000, contacts.ALT_BAND_CEILING_FT))
+        self.assertEqual(server.parse_band("amax=9000"), (0, 9000))
+
+    def test_unparseable_values_are_refused(self):
+        self.assertIsNone(server.parse_band("amin=low&amax=40000"))
+        self.assertIsNone(server.parse_band("amin=1000&amax="))
+        self.assertIsNone(server.parse_band("amin=1000.5"))
+
+    def test_above_the_ceiling_is_refused(self):
+        ceiling = contacts.ALT_BAND_CEILING_FT
+        self.assertIsNone(server.parse_band(f"amax={ceiling + 1}"))
+        self.assertIsNone(server.parse_band("amin=-100"))
+
+    def test_an_inverted_band_parses_and_is_left_to_select(self):
+        # Refusing it here would 400 the poll and blank the scope, which is a
+        # worse answer than the one select() gives — ignore the band.
+        self.assertEqual(server.parse_band("amin=40000&amax=1000"),
+                         (40000, 1000))
+
+
 class TestContactsRoute(ServerTest):
     HOME = "lat=51.88501837&lon=0.23502732"
 
@@ -241,6 +281,34 @@ class TestContactsRoute(ServerTest):
         got = contacts.read(body)
         self.assertEqual(len(got["contacts"]), 4)
         self.assertEqual(got["total"], 10)
+
+    def test_the_altitude_band_reaches_the_feed(self):
+        self.feed.aircraft = [
+            {"hex": "400abc", "lat": 52.0, "lon": 0.1, "seen": 1.0,
+             "alt_baro": 500},
+            {"hex": "400def", "lat": 52.1, "lon": 0.1, "seen": 1.0,
+             "alt_baro": 9000},
+        ]
+        _, body, _ = self.get_binary(
+            f"/contacts?{self.HOME}&n=32&amin=1000&amax=70000")
+        got = contacts.read(body)
+        self.assertEqual([c["alt_ft"] for c in got["contacts"]], [9000])
+        self.assertEqual(got["total"], 1)
+
+    def test_a_request_without_a_band_is_unchanged(self):
+        # The compatibility case that matters: a board flashed before this
+        # existed sends no amin/amax and must keep seeing everything.
+        self.feed.aircraft = [
+            {"hex": "400abc", "lat": 52.0, "lon": 0.1, "seen": 1.0,
+             "alt_baro": 500},
+        ]
+        _, body, _ = self.get_binary(f"/contacts?{self.HOME}&n=32")
+        self.assertEqual(len(contacts.read(body)["contacts"]), 1)
+
+    def test_a_nonsense_band_is_400_not_a_silently_unfiltered_feed(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.get_binary(f"/contacts?{self.HOME}&n=32&amin=cloudbase")
+        self.assertEqual(caught.exception.code, 400)
 
     def test_a_dead_receiver_is_503_not_an_empty_feed(self):
         self.feed.error = feed.FeedError("connection refused")

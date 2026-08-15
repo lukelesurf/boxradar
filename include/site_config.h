@@ -86,6 +86,11 @@ const char *siteConfigSummary();
 // The four that used to be #ifdefs. Read them in an `if`, not an `#ifdef`:
 // both branches are compiled now, and a stray #ifdef on one of these names
 // would silently evaluate false and take the feature out of the build.
+// The altitude band. Read only by net_task.cpp, which puts them on the
+// /contacts request — no draw site consults these, because the Pi has already
+// applied them by the time a contact reaches the board.
+#define ALT_MIN_FT (siteConfig().altMinFt)
+#define ALT_MAX_FT (siteConfig().altMaxFt)
 #define COAST_ON (siteConfig().coastEnabled)
 #define OVERHEAD_ON (siteConfig().overheadEnabled)
 #define NIGHT_ON (siteConfig().nightEnabled)

@@ -144,6 +144,43 @@ def parse_site(query):
     return lat, lon, n
 
 
+# Sentinel for "this request did not ask for a band". Distinct from the widest
+# possible band because absent and 0-70000 should behave identically but be
+# tellable apart in a log — and because a board flashed before this existed
+# sends neither parameter and must keep working unchanged.
+NO_BAND = (None, None)
+
+
+def parse_band(query):
+    """(alt_min, alt_max) in feet, NO_BAND if unasked, or None if malformed.
+
+    Separate from parse_site because it is optional and that one is not: an
+    older board sends lat/lon/n and nothing else, and must not start getting
+    400s the day the Pi learns about altitude. Present-but-nonsense is still
+    refused rather than ignored, on the same principle as the rest of this
+    module — the board is trusted to be the authority on its own settings,
+    not to be incapable of sending rubbish.
+    """
+    # keep_blank_values, unlike parse_site's default parse. Without it
+    # `amax=` disappears from the dict entirely and reads as "not asked for",
+    # so a request that plainly tried to set a ceiling would be answered with
+    # an unfiltered feed and no complaint. Present-and-empty is malformed.
+    params = urllib.parse.parse_qs(query, keep_blank_values=True)
+    if "amin" not in params and "amax" not in params:
+        return NO_BAND
+    try:
+        # Defaulted independently, so a request may send only one of them.
+        low = int(params.get("amin", ["0"])[0])
+        high = int(params.get("amax",
+                              [str(contacts.ALT_BAND_CEILING_FT)])[0])
+    except (IndexError, ValueError):
+        return None
+    ceiling = contacts.ALT_BAND_CEILING_FT
+    if not (0 <= low <= ceiling) or not (0 <= high <= ceiling):
+        return None
+    return low, high
+
+
 def _make_handler(cache, cfg, fetch_feed, board, types):
     class Handler(BaseHTTPRequestHandler):
         # HTTP/1.1 for the sake of curl and the future web UI. The firmware is
@@ -195,6 +232,12 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
                                           f"{MAX_CONTACTS}"})
                 return
             lat, lon, n = site
+            band = parse_band(query)
+            if band is None:
+                self._json(400, {"error": "amin and amax must be whole feet "
+                                          f"in 0..{contacts.ALT_BAND_CEILING_FT}"})
+                return
+            alt_min, alt_max = band
             # Recorded AFTER the request is validated but BEFORE the feed is
             # fetched. A malformed request did not come from the board, so it
             # must not move where we think the board is; a receiver outage is
@@ -219,7 +262,9 @@ def _make_handler(cache, cfg, fetch_feed, board, types):
                 self._json(503, {"error": str(e)}, config_wanted=wanted,
                            geo_wanted=geo)
                 return
-            self._binary(200, contacts.build(aircraft, lat, lon, n),
+            self._binary(200, contacts.build(aircraft, lat, lon, n,
+                                             alt_min=alt_min,
+                                             alt_max=alt_max),
                          config_wanted=wanted, geo_wanted=geo)
 
         def _metar(self, segment):

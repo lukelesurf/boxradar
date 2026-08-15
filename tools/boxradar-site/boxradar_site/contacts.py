@@ -61,6 +61,12 @@ class Contact(NamedTuple):
     squawk: str
     alt_ft: int
     on_ground: bool
+    # Whether alt_ft means anything. NOT transmitted: the altitude band is
+    # applied here, so the board never has to tell "0ft" from "no idea".
+    # Without this they are the same number — `alt_baro` simply absent lands
+    # as 0 through _number's default — and a jet with a dropped altitude
+    # field would silently vanish the moment anyone set a floor above 0.
+    alt_known: bool
     gs_kt: int
     track_deg: int
     vert_rate_fpm: int
@@ -123,6 +129,12 @@ def _to_contact(entry, home_lat, home_lon, lon_scale):
     alt_raw = entry.get("alt_baro")
     on_ground = isinstance(alt_raw, str)
     alt_ft = 0 if on_ground else int(_number(alt_raw, 0.0))
+    # On the ground the altitude is known and it is zero. Otherwise it is
+    # known only if a real number arrived: bools are excluded because
+    # isinstance(True, int) is True in Python and would make a stray `true`
+    # read as 1ft.
+    alt_known = on_ground or (isinstance(alt_raw, (int, float))
+                              and not isinstance(alt_raw, bool))
 
     # baro_rate is the usual source. Airframes reporting only geometric
     # altitude omit it, so fall back to geom_rate before giving up.
@@ -143,6 +155,7 @@ def _to_contact(entry, home_lat, home_lon, lon_scale):
         squawk=_text(entry.get("squawk"), SQUAWK_LEN),
         alt_ft=int(_clamp(alt_ft, MIN_ALT_FT, MAX_ALT_FT)),
         on_ground=on_ground,
+        alt_known=alt_known,
         gs_kt=int(_clamp(_number(entry.get("gs")), 0, 65535)),
         track_deg=int(_number(entry.get("track"))) % 360,
         vert_rate_fpm=int(_clamp(_number(rate), MIN_VERT_RATE_FPM,
@@ -154,21 +167,67 @@ def _to_contact(entry, home_lat, home_lon, lon_scale):
     )
 
 
-def select(aircraft, home_lat, home_lon, limit):
+# The altitude band's own bounds, mirroring DEVICE_FIELDS' amin/amax.
+ALT_BAND_CEILING_FT = 70000
+
+# A floor of 0 means NO floor, not "at or above zero". Barometric altitude
+# genuinely reads slightly negative at a low airfield on a high-pressure day,
+# so a literal 0 would make ground and early-climb traffic vanish at the
+# DEFAULT setting — a silent wrong answer, and the worst kind. The ceiling is
+# literal by contrast: nothing that reports ADS-B flies above 70000ft, so a
+# record claiming to is better hidden than drawn.
+NO_ALT_FLOOR = 0
+
+
+def in_alt_band(contact, alt_min, alt_max):
+    """Whether one contact passes the altitude band.
+
+    An unknown altitude always passes. The same reasoning as an unknown type
+    counting as ordinary rather than rare: erring toward showing keeps the
+    absence of data from masquerading as a value, and a band is a filter
+    someone chose, not a claim that everything outside it does not exist.
+    """
+    if not contact.alt_known:
+        return True
+    if alt_min > NO_ALT_FLOOR and contact.alt_ft < alt_min:
+        return False
+    return contact.alt_ft <= alt_max
+
+
+def select(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None):
     """Filter, range-sort and cap. Returns (contacts, total_before_cap).
 
     `total` is what the board renders as the second half of "32/58". The cap
     has always dropped the farthest silently; the count is what stops that
-    being invisible.
+    being invisible. Band-filtered aircraft are NOT counted in it: `+N` means
+    "aircraft you asked to see that did not fit", and folding in traffic
+    deliberately excluded would turn a useful number into a permanent one.
+
+    The band is applied HERE rather than on the board because the cap
+    saturates continuously — a real feed runs 54-65 aircraft against 32 slots.
+    Filtering at draw time would spend all 32 and then hide most of them,
+    leaving fewer aircraft on screen exactly when the sky is busy. Filtering
+    first means the 32 are the nearest 32 *in the band*.
+
+    `alt_min > alt_max` is ignored rather than obeyed: obeying it empties the
+    scope, and an empty scope reads as a broken board rather than as a setting
+    someone typed. Same principle as viewRangesSet() refusing a zero range —
+    the validator should have caught it, and this is the backstop that keeps
+    the failure visible instead of silent.
     """
     lon_scale = NM_PER_DEG_LAT * math.cos(math.radians(home_lat))
+    banded = (alt_min is not None and alt_max is not None
+              and alt_min <= alt_max)
     found = []
     for entry in aircraft:
         if not isinstance(entry, dict):
             continue
         contact = _to_contact(entry, home_lat, home_lon, lon_scale)
-        if contact is not None:
-            found.append(contact)
+        if contact is None:
+            continue
+        if banded and not in_alt_band(contact, alt_min, alt_max):
+            continue
+        found.append(contact)
     # Stable, so equal ranges keep feed order — as insertByRange's <= does.
     found.sort(key=lambda c: c.range_nm)
     return found[:max(0, limit)], len(found)
@@ -201,8 +260,9 @@ def pack(picked, total):
     return bytes(out)
 
 
-def build(aircraft, home_lat, home_lon, limit):
-    picked, total = select(aircraft, home_lat, home_lon, limit)
+def build(aircraft, home_lat, home_lon, limit, alt_min=None, alt_max=None):
+    picked, total = select(aircraft, home_lat, home_lon, limit,
+                           alt_min=alt_min, alt_max=alt_max)
     return pack(picked, total)
 
 

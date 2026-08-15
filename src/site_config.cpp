@@ -50,6 +50,8 @@ const char *K_OHSEC = "ohsec";
 const char *K_OHTURN = "ohturn";
 const char *K_SDIM = "sdim";
 const char *K_SDROP = "sdrop";
+const char *K_AMIN = "amin";
+const char *K_AMAX = "amax";
 
 SiteConfig s_cfg;
 bool s_fromNvs = false;
@@ -94,6 +96,12 @@ void loadDefaults(SiteConfig &c) {
   const radar::SeenAgeing &ag = radar::seenAgeingDefaults();
   c.seenDimS = (uint16_t)ag.dimS;
   c.seenDropS = (uint16_t)ag.dropS;
+  // The whole band, so the shipped behaviour is "show everything" and nobody
+  // has to know the feature exists to get the old picture. Not a DEFAULT_ in
+  // config.h: there is no site-specific answer, and a floor is something you
+  // discover you want after watching the scope for a week.
+  c.altMinFt = 0;
+  c.altMaxFt = radar::CFG_ALT_CEILING_FT;
   // Default to on wherever the feature is compiled in; the flag exists to let
   // it be turned off without a reflash, not to make it off by default.
   c.metarEnabled = 0;
@@ -210,6 +218,8 @@ void siteConfigBegin() {
     if (p.isKey(K_OHTURN)) { s_cfg.overheadMaxTurnDegPerNm = (uint8_t)p.getUInt(K_OHTURN); applied++; }
     if (p.isKey(K_SDIM)) { s_cfg.seenDimS = (uint16_t)p.getUInt(K_SDIM); applied++; }
     if (p.isKey(K_SDROP)) { s_cfg.seenDropS = (uint16_t)p.getUInt(K_SDROP); applied++; }
+    if (p.isKey(K_AMIN)) { s_cfg.altMinFt = p.getUInt(K_AMIN); applied++; }
+    if (p.isKey(K_AMAX)) { s_cfg.altMaxFt = p.getUInt(K_AMAX); applied++; }
     p.end();
   }
   s_fromNvs = applied > 0;
@@ -350,6 +360,8 @@ bool siteConfigReadU32(const char *key, uint32_t *out) {
   if (strcmp(key, K_OHTURN) == 0) { *out = s_cfg.overheadMaxTurnDegPerNm; return true; }
   if (strcmp(key, K_SDIM) == 0) { *out = s_cfg.seenDimS; return true; }
   if (strcmp(key, K_SDROP) == 0) { *out = s_cfg.seenDropS; return true; }
+  if (strcmp(key, K_AMIN) == 0) { *out = s_cfg.altMinFt; return true; }
+  if (strcmp(key, K_AMAX) == 0) { *out = s_cfg.altMaxFt; return true; }
   return false;
 }
 
