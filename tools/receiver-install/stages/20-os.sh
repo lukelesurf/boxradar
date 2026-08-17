@@ -21,8 +21,16 @@ else
 fi
 
 apt-get update -qq
+# dphys-swapfile is installed explicitly rather than assumed: bookworm's
+# Raspberry Pi OS image ships it, trixie's does not — that image uses
+# systemd-zram-generator instead, and /etc/dphys-swapfile simply is not there.
+# The swap block below was guarded on that file existing, so on trixie it
+# silently did nothing. zram is compressed RAM, not disk, so it buys very
+# little against the one allocation this box actually has to survive (see
+# below); a real swapfile is still wanted. Installing the package here is what
+# makes the block reachable on both releases.
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-  avahi-daemon ufw unattended-upgrades bc curl
+  avahi-daemon ufw unattended-upgrades bc curl dphys-swapfile
 
 # Persistent journal. Without this, logs live in /run and vanish on reboot —
 # which is precisely when you want them.
@@ -47,18 +55,36 @@ EOF
 # Swap. Raspberry Pi OS defaults to 100MB, which is not enough headroom for
 # the 367MB peak when the configuration UI reduces a coastline for a new area.
 # 512MB costs nothing on an 8GB+ card and keeps a 1GB board off the OOM killer
-# during the one step that needs the memory.
-if [[ -e /etc/dphys-swapfile ]]; then
-  current=$(awk -F= '/^CONF_SWAPSIZE/ {print $2}' /etc/dphys-swapfile)
-  if [[ ${current:-0} -lt 512 ]]; then
-    echo "swap ${current:-0}MB -> 512MB"
-    sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=512/' /etc/dphys-swapfile
-    grep -q '^CONF_SWAPSIZE' /etc/dphys-swapfile || \
-      echo 'CONF_SWAPSIZE=512' >>/etc/dphys-swapfile
-    systemctl restart dphys-swapfile
-  else
-    echo "swap already ${current}MB"
-  fi
+# during the one step that needs the memory. 1GB is not hypothetical: the Pi 4
+# Model B ships in a 1GB variant, and that is the board this was first run on.
+#
+# Not a `[[ -e ]]` guard any more. The file comes from the package installed
+# above, so by here it must exist — and the guard's failure mode was the worst
+# available one: absent file, block skipped, stage reports success, and the
+# shortfall surfaces hours later as an OOM kill during the coastline build,
+# nowhere near the thing that caused it. Fail here instead.
+if [[ ! -e /etc/dphys-swapfile ]]; then
+  echo "/etc/dphys-swapfile is missing even though the package installed" >&2
+  echo "check: dpkg -s dphys-swapfile" >&2
+  exit 1
+fi
+# A fresh install of the package leaves CONF_SWAPSIZE commented out, so this
+# awk yields the empty string rather than a number — hence ${current:-0}, and
+# hence the `grep -q || echo >>` fallback below, which is what actually adds
+# the line when sed's ^CONF_SWAPSIZE= pattern matches nothing.
+current=$(awk -F= '/^CONF_SWAPSIZE/ {print $2}' /etc/dphys-swapfile)
+if [[ ${current:-0} -lt 512 ]]; then
+  echo "swap ${current:-0}MB -> 512MB"
+  sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=512/' /etc/dphys-swapfile
+  grep -q '^CONF_SWAPSIZE' /etc/dphys-swapfile || \
+    echo 'CONF_SWAPSIZE=512' >>/etc/dphys-swapfile
+  # On trixie this coexists with systemd-zram-generator rather than replacing
+  # it: zram0 keeps priority 100 and the swapfile lands lower, so the kernel
+  # fills compressed RAM first and spills to disk only when that is not
+  # enough. That ordering is what we want, and needs nothing done to it.
+  systemctl restart dphys-swapfile
+else
+  echo "swap already ${current}MB"
 fi
 
 # Any inherited reboot cron is removed. A receiver that reboots on a timer is
