@@ -171,21 +171,57 @@ if [[ -n ${STATIC_IP:-} ]]; then
   # capture, never on the match.
   route_out="$(ip -4 route show default || true)"
   dev="$(awk '{print $5; exit}' <<<"$route_out")"
+  # Field 3 of "default via <gw> dev <dev> ...". The gateway and the resolvers
+  # are read from the DHCP lease that is live *right now*, because switching
+  # ipv4.method to manual discards that lease and nothing else supplies them.
+  # Setting ipv4.addresses alone left the box with an address, no default route
+  # and no DNS — and since it still answered on the LAN, the breakage looked
+  # like nothing at all until the first feeder connection or apt run. All three
+  # go on in one `nmcli con mod` below.
+  gw="$(awk '{print $3; exit}' <<<"$route_out")"
   conn=""
+  dns=""
   if [[ -n $dev ]]; then
     active_conns="$(nmcli -t -f NAME,DEVICE connection show --active || true)"
     conn="$(awk -F: -v d="$dev" '$2 == d { print $1; exit }' <<<"$active_conns")"
+    # One resolver per line from -g; ipv4.dns wants them comma-separated.
+    # Same capture-then-match shape as above: the awk consumes all of it, so
+    # nothing can SIGPIPE nmcli mid-write.
+    dns_out="$(nmcli -g IP4.DNS device show "$dev" || true)"
+    dns="$(awk 'NF { out = out sep $0; sep = "," } END { print out }' <<<"$dns_out")"
   fi
   if [[ -z $conn ]]; then
     echo "cannot determine which connection to give $STATIC_IP" >&2
     echo "active connections:" >&2
     nmcli -t -f NAME,DEVICE connection show --active >&2
     echo "set it by hand with: nmcli connection modify <name> \\" >&2
-    echo "  ipv4.method manual ipv4.addresses $STATIC_IP" >&2
+    echo "  ipv4.method manual ipv4.addresses $STATIC_IP \\" >&2
+    echo "  ipv4.gateway <gateway> ipv4.dns <resolver>" >&2
     exit 1
   fi
-  echo "setting static IP $STATIC_IP on '$conn' ($dev)"
-  nmcli connection modify "$conn" ipv4.method manual ipv4.addresses "$STATIC_IP"
+  # Refused rather than half-applied. Writing the address without these is the
+  # exact silent breakage described above, and "no default route" is not a
+  # state worth reaching by accident — better to stop with the box still on a
+  # working DHCP lease and let someone decide.
+  if [[ -z $gw || -z $dns ]]; then
+    missing=""
+    [[ -z $gw ]] && missing="gateway"
+    [[ -z $dns ]] && missing="${missing:+$missing and }resolver"
+    echo "refusing to set $STATIC_IP: no $missing found" >&2
+    echo "current default route: ${route_out:-<none>}" >&2
+    echo "resolvers seen on $dev: ${dns:-<none>}" >&2
+    echo "setting the address without both would leave this box with no" >&2
+    echo "default route or no DNS, which looks healthy from the LAN but" >&2
+    echo "breaks the feeders and apt. Set all three by hand, or leave" >&2
+    echo "STATIC_IP blank and use a DHCP reservation instead." >&2
+    exit 1
+  fi
+  echo "setting static IP $STATIC_IP on '$conn' ($dev), gw $gw, dns $dns"
+  nmcli connection modify "$conn" \
+    ipv4.method manual \
+    ipv4.addresses "$STATIC_IP" \
+    ipv4.gateway "$gw" \
+    ipv4.dns "$dns"
   echo "NOTE: the address changes on the next reboot or reconnect."
 fi
 
