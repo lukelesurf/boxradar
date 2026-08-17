@@ -1,0 +1,18 @@
+[Unit]
+Description=Weekly refresh of readsb's aircraft database
+
+[Timer]
+# Sunday small hours, clear of the box's other scheduled work — apt-daily
+# lands around 05:25 and e2scrub_all on Sunday at 03:10. Weekly because the
+# upstream database moves slowly and a stale entry costs one aircraft its
+# name, not the feed.
+OnCalendar=Sun 04:15
+# Persistent, because a receiver that was unplugged over the weekend should
+# catch up on boot rather than wait another seven days. The randomised delay
+# is what stops that catch-up landing in the middle of the boot storm — and
+# keeps every box built from this installer from hitting GitHub at once.
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

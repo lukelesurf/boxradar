@@ -1,8 +1,9 @@
 # Receiver installer
 
 Provisions a BOXRADAR receiver from a bare Raspberry Pi OS Lite install:
-readsb, tar1090, the ADSBExchange and Flightradar24 feeders, and the
-`boxradar-site` / `boxradar-config` services.
+readsb, tar1090, the aircraft database and its weekly refresh timer, the
+ADSBExchange and Flightradar24 feeders, and the `boxradar-site` /
+`boxradar-config` services.
 
 Runs on the **receiver Pi**. Not the display, not a server.
 

@@ -66,6 +66,42 @@ else
   fail "cannot read tar1090/data/stats.json"
 fi
 
+# --- the aircraft database --------------------------------------------------
+# A receiver with no --db-file decodes flawlessly and reports every aircraft
+# with no type, registration or operator. Nothing upstream complains, and the
+# one place an operator would look — the tar1090 map — still shows both,
+# because the browser holds its own copy. Only the JSON does not, and only
+# BOXRADAR reads the JSON. This shipped once already.
+#
+# Asked of live traffic rather than by testing for the file: a file that
+# exists but is the wrong format, or is truncated, fails identically from
+# here, and it is what readsb actually resolved that matters.
+if feed=$(curl -sf --max-time 10 http://127.0.0.1/tar1090/data/aircraft.json); then
+  # Same broad except and same reasoning as the stats parse above: a schema
+  # surprise should report as "no types" and let the remaining checks run,
+  # not abort the stage under set -e.
+  counts=$(printf '%s' "$feed" | python3 -c \
+    'import json,sys
+try:
+    ac = json.load(sys.stdin)["aircraft"]
+except Exception:
+    ac = []
+print(len(ac), sum(1 for a in ac if a.get("t")))')
+  read -r seen with_type <<<"$counts"
+  if (( with_type > 0 )); then
+    pass "the aircraft database is loaded ($with_type of $seen have a type)"
+  elif (( seen == 0 )); then
+    # Absence only means anything when there is traffic to be absent from.
+    warn "nothing in range — cannot confirm the aircraft database"
+  else
+    # Not every hex is in the table, but zero out of a skyful is the database
+    # missing, not a run of unlisted airframes.
+    fail "$seen aircraft and not one type — readsb's --db-file did not load"
+  fi
+else
+  fail "cannot read tar1090/data/aircraft.json"
+fi
+
 # --- MLAT return path -------------------------------------------------------
 # --net-bi-port 30104 is what lets mlat-client return results. Without it MLAT
 # does not error, it just never appears. Matched against the local

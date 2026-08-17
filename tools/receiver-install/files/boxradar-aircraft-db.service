@@ -1,0 +1,31 @@
+[Unit]
+Description=Refresh readsb's aircraft database
+Documentation=https://github.com/wiedehopf/tar1090-db
+# network-online rather than network: this is a oneshot that either has DNS
+# and a route or achieves nothing, and Persistent=true on the timer means a
+# boot-time catch-up run is a normal way for it to start.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/boxradar-aircraft-db
+
+# Root, because it writes into /usr/local/share/tar1090 and restarts readsb.
+# ProtectSystem=strict makes that the *only* thing it can write — the whole
+# hierarchy is read-only but for the one directory named below. Restarting
+# readsb still works: that goes over the bus socket in /run, and connecting
+# to a socket does not need a writable mount.
+ProtectSystem=strict
+ReadWritePaths=/usr/local/share/tar1090
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+# An 8MB download on a Pi sharing its CPU with a decoder that must not miss
+# frames. Nothing here is urgent — it runs at 04:15 on a Sunday.
+Nice=15
+IOSchedulingClass=idle
+# Generous, but bounded: a stalled TLS connection should not leave this
+# activating forever. curl's own --max-time 600 is the inner limit.
+TimeoutStartSec=15min

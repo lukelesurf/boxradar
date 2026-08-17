@@ -46,6 +46,48 @@ else
   echo "tar1090 already present"
 fi
 
+# --- the aircraft database --------------------------------------------------
+# readsb learns nothing about an aircraft from the air beyond its ICAO hex.
+# The type designator (A320), the registration (G-EUYB) and the operator are
+# all lookups against a table loaded once at startup — --db-file in
+# JSON_OPTIONS below. Without it every entry in aircraft.json arrives with no
+# "t", "r", "desc" or "ownOp".
+#
+# That failure is invisible from the map, which is why it survived a whole
+# install: tar1090 does its own lookup in the browser from html/db-<hash>/, so
+# the map keeps showing types and registrations while the JSON feed BOXRADAR
+# reads is bare. Only the display goes blank, and it goes blank twice over —
+# no designator to show, and nothing for aircraft_types.py to name.
+#
+# Nothing else here installs the file, and nothing else keeps it current:
+# tar1090's installer clones tar1090-db for the *web* copy only (git-db/db/),
+# and upstream's own csv.sh copies to this path guarded by `if [[ -f ... ]]` —
+# it refreshes a file, it never creates one. The hand-built receiver has
+# carried one since before this installer existed, so copying its config
+# across brought the flag and not the 8MB it points at.
+#
+# Both halves live in files/boxradar-aircraft-db rather than here. The
+# installer and the weekly timer run the same script for the same reason the
+# renderers are shared: two copies of "fetch, verify, swap in" would drift,
+# and the one that drifts is the one nobody watches.
+echo "installing the aircraft database updater"
+install -m 0755 "$SRC_DIR/files/boxradar-aircraft-db" \
+                /usr/local/bin/boxradar-aircraft-db
+install -m 0644 "$SRC_DIR/files/boxradar-aircraft-db.service" \
+                /etc/systemd/system/boxradar-aircraft-db.service
+install -m 0644 "$SRC_DIR/files/boxradar-aircraft-db.timer" \
+                /etc/systemd/system/boxradar-aircraft-db.timer
+systemctl daemon-reload
+systemctl enable --now boxradar-aircraft-db.timer >/dev/null
+
+# --no-restart because readsb is restarted a few lines below anyway, once its
+# config is written; letting the script do it here would restart it against
+# the previous /etc/default/readsb for nothing. A non-zero exit is the box
+# having no database at all, which is worth stopping the install for — the
+# display would show callsigns and nothing else.
+echo "fetching the aircraft database (8MB)"
+/usr/local/bin/boxradar-aircraft-db --no-restart
+
 # Written after the installers, which lay down their own defaults. This is the
 # file that unifies the position: the hand-built receiver had readsb and the
 # ADSBExchange feeder 15m apart, which MLAT solves hyperbolae from.

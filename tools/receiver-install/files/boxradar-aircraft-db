@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Refresh readsb's aircraft database.
+#
+# readsb learns nothing about an aircraft from the air beyond its ICAO hex.
+# The type designator, registration and operator are lookups against this
+# file, named by --db-file in /etc/default/readsb and read once at startup.
+#
+# Nothing upstream maintains it. tar1090's installer clones tar1090-db for
+# the *browser's* copy (html/db-<hash>/, a separate format), and upstream's
+# own csv.sh copies to this path guarded by `if [[ -f ]]` — it refreshes a
+# file, it never creates one. Without something like this the database is
+# whatever was current on install day, ageing out one new registration at a
+# time, and the failure is invisible: the map keeps showing types because the
+# browser holds its own copy, and only the JSON feed the display reads goes
+# quiet.
+#
+# Run by boxradar-aircraft-db.timer weekly, and once by the installer with
+# --no-restart (which writes /etc/default/readsb and restarts it anyway).
+set -euo pipefail
+
+DB=/usr/local/share/tar1090/aircraft.csv.gz
+URL=https://github.com/wiedehopf/tar1090-db/raw/csv/aircraft.csv.gz
+
+# `[[ ... ]] && restart=no` as a bare statement would be a landmine under
+# errexit: when the test fails the whole list is non-zero and the script
+# exits, which is the common case (no arguments at all).
+restart=yes
+if [[ ${1-} == --no-restart ]]; then
+  restart=no
+elif (( $# > 0 )); then
+  echo "usage: ${0##*/} [--no-restart]" >&2
+  exit 2
+fi
+
+before=""
+if [[ -s $DB ]]; then
+  before=$(sha256sum "$DB" | cut -d' ' -f1)
+fi
+
+# Downloaded beside the target and renamed, never written in place: readsb
+# reads this at startup, and a half-fetched file left at the real path is
+# indistinguishable from a good one until the next restart loads it. `gzip -t`
+# before the rename is that same argument one step earlier — curl -f catches
+# an HTTP error, but a connection that dies mid-body is a successful transfer
+# of a truncated file as far as curl is concerned.
+if curl -sfL --max-time 600 "$URL" -o "$DB.part" \
+   && gzip -t "$DB.part" 2>/dev/null; then
+  after=$(sha256sum "$DB.part" | cut -d' ' -f1)
+  if [[ $after == "$before" ]]; then
+    # The usual weekly outcome. Bailing here is what keeps this from
+    # restarting readsb — and resetting its cumulative stats and putting a
+    # gap in the graphs — 52 times a year for nothing.
+    rm -f "$DB.part"
+    echo "aircraft database unchanged"
+    exit 0
+  fi
+  mv -f "$DB.part" "$DB"
+  # readsb runs as User=readsb, not root. Left at the umask default this can
+  # come out unreadable to it, which fails exactly like the file being absent.
+  chmod 644 "$DB"
+  echo "aircraft database updated ($(du -h "$DB" | cut -f1))"
+else
+  rm -f "$DB.part"
+  if [[ -s $DB ]]; then
+    # A week-old database still names almost every aircraft in the sky. A
+    # failed refresh is not worth an alarm, and definitely not worth leaving
+    # the good copy in doubt.
+    echo "could not refresh the aircraft database; keeping the existing copy" >&2
+    exit 0
+  fi
+  echo "failed to download the aircraft database from $URL" >&2
+  echo "without it readsb reports no type, registration or operator, and" >&2
+  echo "the display has nothing to show but the callsign" >&2
+  exit 1
+fi
+
+# Only reached when the contents actually changed. readsb reads --db-file at
+# startup and never again, so a refresh that does not restart it is a refresh
+# that takes effect at the next reboot, whenever that is.
+if [[ $restart == yes ]] && systemctl is-active --quiet readsb; then
+  echo "restarting readsb to load it"
+  systemctl restart readsb
+fi
