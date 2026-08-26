@@ -82,10 +82,17 @@ if [[ ${current:-0} -lt 512 ]]; then
   sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=512/' /etc/dphys-swapfile
   grep -q '^CONF_SWAPSIZE' /etc/dphys-swapfile || \
     echo 'CONF_SWAPSIZE=512' >>/etc/dphys-swapfile
-  # On trixie this coexists with systemd-zram-generator rather than replacing
-  # it: zram0 keeps priority 100 and the swapfile lands lower, so the kernel
-  # fills compressed RAM first and spills to disk only when that is not
-  # enough. That ordering is what we want, and needs nothing done to it.
+  # On trixie this REPLACES systemd-zram-generator's swap rather than joining
+  # it. dphys-swapfile's own start path runs `swapoff -a`, which takes zram0
+  # down with everything else, and nothing puts it back: measured on the Pi 4
+  # rebuild, /proc/swaps went from a 904MB zram0 to a single 512MB /var/swap
+  # at priority -2.
+  #
+  # That is a smaller number and still the right trade. zram is compressed
+  # RAM, so its capacity comes out of the same 905MB the coastline build is
+  # trying to allocate from; 512MB on the card is capacity that actually
+  # exists. Swapping to an SD card is slow, but this runs during a one-off
+  # reduce, not in the contact path.
   systemctl restart dphys-swapfile
 else
   echo "swap already ${current}MB"
