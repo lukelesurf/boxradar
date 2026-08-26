@@ -127,6 +127,26 @@ class TestRenderFr24(unittest.TestCase):
     def test_mlat_is_enabled(self):
         self.assertIn('mlat="yes"', render("render_fr24"))
 
+    def test_mlat_is_given_a_position(self):
+        # The regression this class was missing. mlat="yes" plus
+        # mlat-without-gps="yes" asked FR24 for MLAT while never supplying the
+        # position that mlat-without-gps selects, and FR24 answered
+        # mlat_problem="no-config" for months while feed_status stayed
+        # "connected" and mlat-started stayed "YES". The assertion above
+        # passed throughout — it checks the switch, not the position.
+        out = render("render_fr24")
+        self.assertIn('mlat-without-gps="yes"', out)
+        self.assertIn('latitude="51.8849826"', out)
+        self.assertIn('longitude="0.2349914"', out)
+
+    def test_altitude_is_bare_feet(self):
+        # fr24feed wants a bare number ("antenna's altitude above the sea
+        # level (in feet)"), unlike ADSBExchange's ALTITUDE, which takes a
+        # "ft" suffix. Getting this backwards is silent in both directions.
+        out = render("render_fr24", ALT_FT="363")
+        self.assertIn('altitude="363"', out)
+        self.assertNotIn('altitude="363ft"', out)
+
 
 class TestSecretsAreNotEchoed(unittest.TestCase):
     def test_rendering_writes_nothing_to_stderr(self):

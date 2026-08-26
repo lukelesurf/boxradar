@@ -154,14 +154,56 @@ fi
 
 # --- feeders ------------------------------------------------------------
 if systemctl is-active --quiet fr24feed; then
-  status=$(curl -sf --max-time 10 http://127.0.0.1:8754/monitor.json \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("feed_status","?"))' \
-    2>/dev/null || echo "?")
+  # Fetched once and parsed once, rather than a curl per field: the two MLAT
+  # fields only mean anything read together, and a second request could
+  # straddle a state change and report a combination that never existed.
+  monitor="$(curl -sf --max-time 10 http://127.0.0.1:8754/monitor.json || true)"
+  # Broad except and a herestring, for the same two reasons as the readsb
+  # parses above: a shape surprise should read back as "?" and let the rest
+  # of the stage run rather than abort it under set -e, and nothing is left
+  # writing into a pipe that an early reader exit could SIGPIPE.
+  fields="$(python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(d.get("feed_status") or "?")
+print(d.get("mlat-ok") or "?")
+print(d.get("mlat_problem") or "none")' <<<"$monitor")"
+  { read -r status; read -r mlat_ok; read -r mlat_problem; } <<<"$fields"
+
   if [[ $status == connected ]]; then
     pass "FR24 is connected"
   else
     warn "FR24 status is '$status' (may still be connecting)"
   fi
+
+  # feed_status is not evidence about MLAT. The live receiver reported
+  # "connected" for months while contributing nothing to MLAT at all, because
+  # fr24feed.ini asked for MLAT (mlat="yes", mlat-without-gps="yes") and never
+  # gave it a position — and mlat-started reads "YES" throughout, since the
+  # thread does start before discovering it has nothing to work with. Only
+  # these two fields tell the truth.
+  case "$mlat_ok:$mlat_problem" in
+    YES:*)
+      pass "FR24 MLAT is contributing" ;;
+    *:no-config)
+      # The one MLAT verdict this installer owns: it means the fr24feed.ini
+      # rendered by render_fr24 is missing latitude/longitude/altitude. That
+      # is our bug, on our file, so it fails rather than warns.
+      fail "FR24 MLAT has no position — latitude/longitude/altitude missing from /etc/fr24feed.ini" ;;
+    NOT-PERMITTED:*)
+      # Server-side. FR24 downloads a per-receiver configuration at startup
+      # ("[feed][i]Downloading configuration") and MLAT permission comes down
+      # with it, so no amount of local configuration changes this one.
+      warn "FR24 has MLAT disabled for this key ($mlat_problem) — enable it on the FR24 account; nothing on this box can" ;;
+    *)
+      # Includes the first minutes after a restart, where mlat-ok is still
+      # "NO" with no problem recorded because the thread has not finished
+      # negotiating yet.
+      warn "FR24 MLAT is '$mlat_ok' (problem: $mlat_problem) — may still be starting" ;;
+  esac
 else
   fail "fr24feed is not running"
 fi
