@@ -10,10 +10,11 @@
 # this box installs avahi too, so a receiver called "boxradar" would race it.
 HOSTNAME="adsb"
 
-# Receiver position, decimal degrees. Used by readsb, both feeders and the
-# map. Get it from the aerial's location, not the house's postcode.
-LAT="51.8849826"
-LON="0.2349914"
+# Receiver position, decimal degrees. Used by readsb, every feeder and the
+# map. Get it from the aerial's location, not the house's postcode — and
+# from the aerial's *current* location: moving the mast moves this.
+LAT="51.8850413"
+LON="0.2350632"
 # Aerial height above mean sea level, whole feet. MLAT needs this.
 ALT_FT="363"
 
