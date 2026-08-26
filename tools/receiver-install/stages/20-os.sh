@@ -133,7 +133,7 @@ echo "configuring ufw"
 ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-for port in 22 80 8081 8082 8754; do ufw allow "$port/tcp" >/dev/null; done
+for port in 22 80 8081 8082 8754 12345; do ufw allow "$port/tcp" >/dev/null; done
 # tar1090's optional second instance. Only opened if it is configured.
 if [[ -e /etc/lighttpd/conf-enabled/95-tar1090-otherport.conf ]]; then
   ufw allow 8504/tcp >/dev/null
