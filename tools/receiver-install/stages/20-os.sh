@@ -29,8 +29,12 @@ apt-get update -qq
 # little against the one allocation this box actually has to survive (see
 # below); a real swapfile is still wanted. Installing the package here is what
 # makes the block reachable on both releases.
+# git is listed because 40-feeders.sh clones the ADSBExchange feedclient
+# itself. It used to arrive as a side effect of their feed.sh bootstrap, which
+# apt-installed git/wget/unzip before cloning; that bootstrap is no longer
+# called, so nothing else guarantees git on a bare Lite image.
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-  avahi-daemon ufw unattended-upgrades bc curl dphys-swapfile
+  avahi-daemon ufw unattended-upgrades bc curl dphys-swapfile git
 
 # Persistent journal. Without this, logs live in /run and vanish on reboot —
 # which is precisely when you want them.
