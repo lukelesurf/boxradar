@@ -62,6 +62,25 @@ for name in datasets.SOURCES:
     datasets.path_for(name, cache).chmod(0o644)
 PY
 
+# 0644 above settles who can *read* the datasets, which is all the UI needs to
+# use them. It says nothing about who can write the directory holding them,
+# and root created that directory by fetching into it. Refreshing a dataset
+# writes "<name>.part" alongside the real file and renames it (see
+# datasets.fetch — the rename is what makes a half-downloaded 14MB file
+# impossible to mistake for a good one), so a refresh needs the *directory*
+# writable by the service.
+#
+# Left alone, the cached copies keep working and only refreshes fail, with
+# four lines of
+#     airports failed: [Errno 13] Permission denied: '.../airports.csv.part'
+# on the /data page — which reads as a download problem and sends you to look
+# at the network rather than at ownership.
+#
+# --reference rather than a literal uid: DynamicUser=yes means systemd picks
+# the owner, and it is not ours to choose. Copying it off the CacheDirectory
+# systemd made keeps this correct whatever that uid turns out to be.
+chown -R --reference="$CACHE" "$CACHE/datasets"
+
 echo "deriving /etc/boxradar-site/config.json for $METAR_STATION"
 PYTHONPATH="$LIB_DIR" python3 - "$CACHE" "$METAR_STATION" "$CALM_KT" <<'PY'
 import sys
