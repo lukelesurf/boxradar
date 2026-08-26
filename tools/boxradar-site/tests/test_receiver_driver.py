@@ -202,7 +202,9 @@ class TestLogging(DriverCase):
 class TestWizard(DriverCase):
     # Matches run_wizard's actual prompt order in install.sh exactly:
     # HOSTNAME, LAT, LON, ALT_FT, GAIN, PPM, STATIC_IP, METAR_STATION,
-    # CALM_KT, ADSBX_USER, ADSBX_UUID, FR24_KEY.
+    # CALM_KT, ADSBX_USER, ADSBX_UUID, ADSBLOL_USER, ADSBLOL_UUID, FR24_KEY.
+    # Order is load-bearing: answers are piped, so an inserted prompt shifts
+    # every later answer into the wrong field rather than failing outright.
     ANSWERS = "\n".join([
         "boxradar",         # HOSTNAME
         "51.8849826",       # LAT
@@ -215,6 +217,8 @@ class TestWizard(DriverCase):
         "7",                # CALM_KT
         "example-feeder",      # ADSBX_USER
         "",                 # ADSBX_UUID (blank on a new box)
+        "",                 # ADSBLOL_USER (blank = don't feed adsb.lol)
+        "",                 # ADSBLOL_UUID (blank on a new box)
         "typedsecret999",   # FR24_KEY
     ]) + "\n"
 
@@ -291,6 +295,8 @@ class TestWizard(DriverCase):
             "7",                # CALM_KT
             "example-feeder",      # ADSBX_USER
             "",                 # ADSBX_UUID (blank on a new box)
+            "",                 # ADSBLOL_USER (blank = don't feed adsb.lol)
+            "",                 # ADSBLOL_UUID (blank on a new box)
             "typedsecret999",   # FR24_KEY
         ]) + "\n"
         result = self.run_driver(

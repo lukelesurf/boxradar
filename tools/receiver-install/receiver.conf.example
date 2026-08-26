@@ -35,4 +35,18 @@ CALM_KT="7"
 # your existing statistics.
 ADSBX_USER=""
 ADSBX_UUID=""
+
+# adsb.lol. Blank ADSBLOL_USER means don't feed them at all — nothing is
+# installed and no time daemon is changed. Set it and stage 40 installs their
+# feeder, which also grants access to https://re-api.adsb.lol, the whole
+# network's unfiltered readsb API. That is authorised by your station's source
+# IP, not a key, so anything sharing this box's public address can query it.
+#
+# Note it installs chrony, replacing systemd-timesyncd. Deliberate — MLAT is
+# timing — but it is a system-wide change, so it is called out here rather
+# than discovered later.
+ADSBLOL_USER=""
+# Leave blank on a new box, as with ADSBX_UUID.
+ADSBLOL_UUID=""
+
 FR24_KEY=""

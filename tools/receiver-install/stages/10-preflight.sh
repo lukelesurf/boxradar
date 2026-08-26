@@ -40,10 +40,15 @@ usb_devices="$(lsusb 2>/dev/null || true)"
 grep -qiE 'RTL2838|RTL2832|Realtek.*DVB-T' <<<"$usb_devices" || fail \
   "no RTL-SDR found in lsusb. Plug the dongle in and re-run."
 
-for host in deb.debian.org github.com overpass-api.de \
-            www.adsbexchange.com repo-feed.flightradar24.com \
-            davidmegginson.github.io download.geonames.org \
-            aviationweather.gov; do
+hosts=(deb.debian.org github.com overpass-api.de
+       www.adsbexchange.com repo-feed.flightradar24.com
+       davidmegginson.github.io download.geonames.org
+       aviationweather.gov)
+# Only when this site actually feeds adsb.lol. Checking them unconditionally
+# would fail a perfectly good install for a network the operator never asked
+# to use.
+[[ -n ${ADSBLOL_USER:-} ]] && hosts+=(feed.adsb.lol re-api.adsb.lol)
+for host in "${hosts[@]}"; do
   getent hosts "$host" >/dev/null || fail "cannot resolve $host — no internet?"
 done
 

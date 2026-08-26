@@ -2,8 +2,8 @@
 
 Provisions a BOXRADAR receiver from a bare Raspberry Pi OS Lite install:
 readsb, tar1090, the aircraft database and its weekly refresh timer, the
-ADSBExchange and Flightradar24 feeders, and the `boxradar-site` /
-`boxradar-config` services.
+ADSBExchange and Flightradar24 feeders (and adsb.lol, if you want it), and the
+`boxradar-site` / `boxradar-config` services.
 
 Runs on the **receiver Pi**. Not the display, not a server.
 
@@ -16,7 +16,8 @@ Runs on the **receiver Pi**. Not the display, not a server.
 - Internet access — preflight checks that `deb.debian.org`, `github.com`,
   `overpass-api.de`, `www.adsbexchange.com`, `repo-feed.flightradar24.com`,
   `davidmegginson.github.io`, `download.geonames.org` and
-  `aviationweather.gov` all resolve
+  `aviationweather.gov` all resolve (adsb.lol, if enabled, additionally needs
+  `feed.adsb.lol` and `re-api.adsb.lol`)
 - Wifi already configured and SSH reachable — use Raspberry Pi Imager's
   advanced options to pre-seed both before first boot
 - A Flightradar24 sharing key
@@ -66,14 +67,13 @@ automated.
 
 ## Rebuilding an existing receiver
 
-Restore `ADSBX_UUID` and `FR24_KEY` into `receiver.conf` from the old box.
-They carry your statistics and MLAT peer reputation; without them the rebuild
-registers as a brand-new receiver on both networks.
+Restore `ADSBX_UUID`, `ADSBLOL_UUID` and `FR24_KEY` into `receiver.conf` from
+the old box. They carry your statistics and MLAT peer reputation; without them
+the rebuild registers as a brand-new receiver on each network.
 
-On a genuinely new box, leave `ADSBX_UUID` blank — the ADSBExchange installer
-generates one, and `install.sh` writes it straight back into `receiver.conf`
-for you. Keep that file (or back up the value) and the *next* rebuild already
-has it.
+On a genuinely new box, leave both uuids blank — the feeder installers generate
+them, and `install.sh` writes them straight back into `receiver.conf` for you.
+Keep that file (or back up the values) and the *next* rebuild already has them.
 
 ## Notes
 
@@ -81,6 +81,28 @@ has it.
   fr24feed's systemd unit runs as user `fr24`, not root, so nothing wider is
   needed.
 - Every generated file (`/etc/default/readsb`, `/etc/default/adsbexchange`,
-  `/etc/fr24feed.ini`) is rewritten wholesale on every run. Hand edits to
-  them are lost the next time `install.sh` runs — edit `receiver.conf`
-  instead.
+  `/etc/default/adsblol`, `/etc/fr24feed.ini`) is rewritten wholesale on every
+  run. Hand edits to them are lost the next time `install.sh` runs — edit
+  `receiver.conf` instead.
+
+## adsb.lol
+
+Off unless `ADSBLOL_USER` is set in `receiver.conf`. Two things to know before
+turning it on:
+
+- **It installs chrony, which replaces `systemd-timesyncd`.** Their installer
+  would do this silently; stage 40 does it up front instead. chrony is the
+  better clock for MLAT, but it is a system-wide change.
+- **Feeding grants [re-api](https://re-api.adsb.lol) access** — the whole
+  network's unfiltered readsb API, including MLAT-only aircraft your own
+  aerial cannot see, and readsb's derived fields (`ias`/`tas`/`mach`, and
+  `wd`/`ws` winds aloft). It authorises by the station's **source IP**, not a
+  key, so any host sharing the receiver's public address can query it:
+
+  ```
+  curl 'https://re-api.adsb.lol/?circle=<lat>,<lon>,<nm>'
+  ```
+
+adsb.lol's ports are deliberately clear of ADSBExchange's (31420/31421/31422
+against 31003/30154/30157), so both feeders and both MLAT clients run together
+on one receiver. Only readsb's `30104` is shared, which is what it is for.

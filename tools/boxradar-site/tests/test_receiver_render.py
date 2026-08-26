@@ -148,17 +148,77 @@ class TestRenderFr24(unittest.TestCase):
         self.assertNotIn('altitude="363ft"', out)
 
 
+class TestRenderAdsblol(unittest.TestCase):
+    LOL = {"ADSBLOL_USER": "example-feeder"}
+
+    def test_station_name_and_position_come_from_the_conf(self):
+        out = render("render_adsblol", **self.LOL)
+        self.assertIn('USER="example-feeder"', out)
+        self.assertIn('LATITUDE="51.8849826"', out)
+        self.assertIn('LONGITUDE="0.2349914"', out)
+
+    def test_altitude_carries_the_ft_suffix(self):
+        # The opposite of render_fr24's rule, on the same ALT_FT. adsb.lol's
+        # configure.sh validates ^(-?[0-9]*)(ft|m)$ and mlat-client reads a
+        # bare number as metres — 363 without the suffix would place the
+        # receiver 100m underground, and nothing would report an error.
+        out = render("render_adsblol", ALT_FT="363", **self.LOL)
+        self.assertIn('ALTITUDE="363ft"', out)
+
+    def test_local_ports_do_not_collide_with_adsbexchange(self):
+        # The thing that makes running both feeders on one Pi possible.
+        # Upstream separated these deliberately ("avoid listen port overlap
+        # with ax scripts"); a merge that "tidied" them back together would
+        # leave the second mlat-client unable to bind, which does not stop
+        # its feed and so looks fine.
+        lol = render("render_adsblol", **self.LOL)
+        adsbx = render("render_adsbexchange")
+
+        def local_ports(out):
+            # >= 30000 only: these lines also carry --net-heartbeat 60,
+            # --net-ro-size 1280 and --net-ro-port 0, none of which are ports
+            # anything binds.
+            found = set()
+            for line in out.splitlines():
+                if line.startswith(("RESULTS", "NET_OPTIONS")):
+                    for part in line.replace(",", " ").split():
+                        if part.isdigit() and int(part) >= 30000:
+                            found.add(int(part))
+            return found
+
+        # 30104 is readsb's --net-bi-port: both MLAT clients connect out to
+        # it on purpose, so it is the one number allowed in both.
+        overlap = (local_ports(lol) & local_ports(adsbx)) - {30104}
+        # Both sides must actually have found ports, or this passes vacuously
+        # the day a line is renamed.
+        self.assertIn(31421, local_ports(lol))
+        self.assertIn(30154, local_ports(adsbx))
+        self.assertEqual(overlap, set(),
+                         f"adsb.lol and ADSBExchange share port(s): {overlap}")
+
+    def test_it_feeds_adsblol_not_adsbexchange(self):
+        out = render("render_adsblol", **self.LOL)
+        self.assertIn("feed.adsb.lol", out)
+        self.assertNotIn("adsbexchange.com", out)
+
+    def test_output_is_valid_shell(self):
+        # Sourced by adsblol-feed.sh and adsblol-mlat.sh, as well as update.sh.
+        out = render("render_adsblol", **self.LOL)
+        subprocess.run(["bash", "-n"], input=out, text=True, check=True)
+
+
 class TestSecretsAreNotEchoed(unittest.TestCase):
     def test_rendering_writes_nothing_to_stderr(self):
         # Stages tee stdout to a log. Anything a renderer puts on stderr could
         # carry a key into /var/log/boxradar-install.log.
         env = dict(os.environ)
         env.update(BASE)
+        env["ADSBLOL_USER"] = "example-feeder"
         result = subprocess.run(
             ["bash", "-c",
              f'set -euo pipefail; source "{RENDER_SH}"; '
              f'render_readsb >/dev/null; render_adsbexchange >/dev/null; '
-             f'render_fr24 >/dev/null'],
+             f'render_adsblol >/dev/null; render_fr24 >/dev/null'],
             env=env, capture_output=True, text=True)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.returncode, 0)

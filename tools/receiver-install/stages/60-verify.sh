@@ -234,6 +234,43 @@ else
   fail "adsbexchange-mlat is not running"
 fi
 
+# --- adsb.lol -------------------------------------------------------------
+# Only checked when this site feeds them at all. Absent ADSBLOL_USER, the
+# stage installed nothing and there is nothing here to be wrong.
+if [[ -n ${ADSBLOL_USER:-} ]]; then
+  if systemctl is-active --quiet adsblol-feed; then
+    pass "the adsb.lol feeder is running"
+  else
+    fail "adsblol-feed is not running"
+  fi
+  if systemctl is-active --quiet adsblol-mlat; then
+    # Same capture-then-match discipline as the mlat-client check above, and
+    # for the same SIGPIPE reason. "Results:" rather than peer_count: their
+    # mlat-client fork reports "Results:  N positions/minute", which is the
+    # line that proves MLAT solutions are actually coming back — 132.9/min
+    # within a minute of the first install on the live receiver.
+    lol_log="$(journalctl -u adsblol-mlat -n 50 --no-pager 2>/dev/null || true)"
+    if grep -q 'positions/minute' <<<"$lol_log"; then
+      pass "adsb.lol MLAT is returning positions"
+    else
+      warn "no adsb.lol MLAT results yet — normal for the first few minutes"
+    fi
+  else
+    fail "adsblol-mlat is not running"
+  fi
+
+  # The reason for feeding them, from this project's point of view. A 200 here
+  # proves the source-IP authorisation actually took, which is not something
+  # the feeder's own status can tell you. Warn, not fail: it depends on
+  # outbound HTTPS and on adsb.lol having registered the station, which lags
+  # the first feed by a few minutes.
+  if curl -sf --max-time 15 "https://re-api.adsb.lol/?circle=${LAT},${LON},10" >/dev/null; then
+    pass "re-api.adsb.lol answers this station"
+  else
+    warn "re-api.adsb.lol did not answer — it authorises by source IP and can lag the first feed"
+  fi
+fi
+
 (( FAILED == 0 )) || { echo; echo "verification failed. see $0" >&2; exit 1; }
 
 # `|| true`, matching the $metar pattern above: reached only once every check

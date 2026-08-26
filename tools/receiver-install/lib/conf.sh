@@ -53,6 +53,13 @@ conf_validate() {
   # being assigned — restricting the character set is not cosmetic here.
   [[ ${ADSBX_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
     _bad "ADSBX_USER may only contain letters, digits, dot, underscore and hyphen"
+  # Blank means this site does not feed adsb.lol at all — 40-feeders.sh skips
+  # its whole section — so unlike ADSBX_USER this is only constrained when
+  # present. adsb.lol's own configure.sh merely strips spaces out of the name;
+  # the same class as ADSBX_USER is stricter than they require, which is the
+  # right direction for a value that lands in a file root sources.
+  [[ -z ${ADSBLOL_USER:-} || ${ADSBLOL_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
+    _bad "ADSBLOL_USER may only contain letters, digits, dot, underscore and hyphen"
   # An 8-character floor, not just the character class: redact() builds its
   # sed patterns straight from these values (s|$FR24_KEY|<FR24_KEY>|g), so a
   # one-character key doesn't just under-validate — it turns every matching
@@ -73,6 +80,16 @@ conf_validate() {
       _bad "ADSBX_UUID must be at least 8 characters"
     fi
   fi
+  # Same rules, same reasons: adsb.lol's create-uuid.sh keeps whatever it
+  # finds in /usr/local/share/adsblol/adsblol-uuid as long as it parses as a
+  # uuid, so restoring this is what carries a rebuilt box's identity across.
+  if [[ -n ${ADSBLOL_UUID:-} ]]; then
+    if [[ ! ${ADSBLOL_UUID} =~ ^[A-Za-z0-9-]+$ ]]; then
+      _bad "ADSBLOL_UUID may only contain letters, digits and hyphen"
+    elif (( ${#ADSBLOL_UUID} < 8 )); then
+      _bad "ADSBLOL_UUID must be at least 8 characters"
+    fi
+  fi
 
   return $problems
 }
@@ -87,7 +104,8 @@ conf_write() {
   # time, only checked for emptiness by conf_validate — a value carrying
   # its own closing quote escaped into command context on source.)
   for key in HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION \
-             CALM_KT ADSBX_USER ADSBX_UUID FR24_KEY; do
+             CALM_KT ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID \
+             FR24_KEY; do
     value="${!key:-}"
     if [[ $value == *'"'* || $value == *'`'* || $value == *'$'* || \
           $value == *\\* || $value == *$'\n'* ]]; then
@@ -107,9 +125,11 @@ conf_write() {
 # Identity
 HOSTNAME="${HOSTNAME}"
 
-# Position. ONE source, fanned out to readsb, ADSBExchange, MLAT and
-# selection.json. The hand-built receiver carried four different positions
-# spanning ~15m; MLAT is the consumer for which that was not cosmetic.
+# Position. ONE source, fanned out to readsb, ADSBExchange, adsb.lol, MLAT
+# and selection.json. The hand-built receiver carried four different positions
+# spanning ~15m; MLAT is the consumer for which that was not cosmetic —
+# adsb.lol's own wizard puts it plainly: "a small error of 15m/45ft will cause
+# issues with MLAT".
 LAT="${LAT}"
 LON="${LON}"
 ALT_FT="${ALT_FT}"
@@ -129,6 +149,20 @@ CALM_KT="${CALM_KT}"
 # reputation survive a rebuild rather than starting from zero.
 ADSBX_USER="${ADSBX_USER}"
 ADSBX_UUID="${ADSBX_UUID}"
+
+# adsb.lol. Blank ADSBLOL_USER means this site does not feed them and stage 40
+# installs nothing for it. Feeding is also what grants re-api access, which is
+# gated on the station's source IP rather than a key — so there is no
+# credential here to restore, only the identity.
+#
+# :- on both, unlike every field above them: a receiver.conf written before
+# adsb.lol support existed has neither key, conf_load leaves them unset, and
+# install.sh runs under set -u. Without the default, rewriting an older conf
+# (which conf_write does whenever stage 40 records a new uuid) would abort on
+# an unbound variable instead of quietly filling in the blanks.
+ADSBLOL_USER="${ADSBLOL_USER:-}"
+ADSBLOL_UUID="${ADSBLOL_UUID:-}"
+
 FR24_KEY="${FR24_KEY}"
 EOF
 }
