@@ -7,6 +7,7 @@ step" into something the second operator can act on, so it is worth testing.
 
 import os
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -200,27 +201,54 @@ class TestLogging(DriverCase):
 
 
 class TestWizard(DriverCase):
-    # Matches run_wizard's actual prompt order in install.sh exactly:
-    # HOSTNAME, LAT, LON, ALT_FT, GAIN, PPM, STATIC_IP, METAR_STATION,
-    # CALM_KT, ADSBX_USER, ADSBX_UUID, ADSBLOL_USER, ADSBLOL_UUID, FR24_KEY.
+    # Answers keyed by the variable each prompt fills, piped in run_wizard's
+    # own order — read out of install.sh rather than restated here.
+    #
     # Order is load-bearing: answers are piped, so an inserted prompt shifts
     # every later answer into the wrong field rather than failing outright.
-    ANSWERS = "\n".join([
-        "boxradar",         # HOSTNAME
-        "51.8849826",       # LAT
-        "0.2349914",        # LON
-        "348",              # ALT_FT
-        "auto",             # GAIN
-        "0",                # PPM
-        "",                 # STATIC_IP (blank = DHCP)
-        "EGSS",             # METAR_STATION
-        "7",                # CALM_KT
-        "example-feeder",      # ADSBX_USER
-        "",                 # ADSBX_UUID (blank on a new box)
-        "",                 # ADSBLOL_USER (blank = don't feed adsb.lol)
-        "",                 # ADSBLOL_UUID (blank on a new box)
-        "typedsecret999",   # FR24_KEY
-    ]) + "\n"
+    # This used to be a flat list in prompt order, and adding the adsb.fi
+    # prompts duly broke three tests with symptoms (an invalid FR24 key, a
+    # hostname assertion) that named nothing to do with the actual cause.
+    # Deriving the order means a new prompt fails once, by name, saying what
+    # to add.
+    ANSWER_BY_VAR = {
+        "HOSTNAME": "boxradar",
+        "LAT": "51.8849826",
+        "LON": "0.2349914",
+        "ALT_FT": "348",
+        "GAIN": "auto",
+        "PPM": "0",
+        "STATIC_IP": "",            # blank = DHCP
+        "METAR_STATION": "EGSS",
+        "CALM_KT": "7",
+        "ADSBX_USER": "example-feeder",
+        "ADSBX_UUID": "",           # blank on a new box
+        "ADSBLOL_USER": "",         # blank = don't feed adsb.lol
+        "ADSBLOL_UUID": "",         # blank on a new box
+        "ADSBFI_USER": "",          # blank = don't feed adsb.fi
+        "ADSBFI_UUID": "",          # blank on a new box
+        "FR24_KEY": "typedsecret999",
+    }
+
+    @classmethod
+    def answers(cls, skip=()):
+        """run_wizard's prompts, in its order, answered from ANSWER_BY_VAR.
+
+        `skip` leaves a prompt unanswered so the caller can supply its own
+        line — used to press enter at HOSTNAME and take the default.
+        """
+        prompts = re.findall(r"^\s*ask (\w+)\s", INSTALL.read_text(), re.M)
+        assert prompts, "found no `ask` prompts in install.sh"
+        out = []
+        for var in prompts:
+            if var in skip:
+                continue
+            if var not in cls.ANSWER_BY_VAR:
+                raise AssertionError(
+                    f"install.sh prompts for {var}, which ANSWER_BY_VAR has no "
+                    f"answer for — add one")
+            out.append(cls.ANSWER_BY_VAR[var])
+        return "\n".join(out) + "\n"
 
     def test_the_wizard_completes_and_writes_a_valid_conf(self):
         # Drives the wizard end to end from piped answers and confirms it
@@ -235,7 +263,7 @@ class TestWizard(DriverCase):
         # structurally by test_the_wizard_runs_before_logging_starts below.
         (self.root / "receiver.conf").unlink(missing_ok=True)
         self.stage("10-first.sh", "echo ran-10")
-        result = self.run_driver(stdin=self.ANSWERS)
+        result = self.run_driver(stdin=self.answers())
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         log = (self.root / "install.log").read_text()
         self.assertNotIn("typedsecret999", log)
@@ -284,21 +312,9 @@ class TestWizard(DriverCase):
         # happening not to already be "adsb".
         (self.root / "receiver.conf").unlink(missing_ok=True)
         self.stage("10-first.sh", "echo ran-10")
-        answers = "\n" + "\n".join([
-            "51.8849826",       # LAT
-            "0.2349914",        # LON
-            "348",              # ALT_FT
-            "auto",             # GAIN
-            "0",                # PPM
-            "",                 # STATIC_IP (blank = DHCP)
-            "EGSS",             # METAR_STATION
-            "7",                # CALM_KT
-            "example-feeder",      # ADSBX_USER
-            "",                 # ADSBX_UUID (blank on a new box)
-            "",                 # ADSBLOL_USER (blank = don't feed adsb.lol)
-            "",                 # ADSBLOL_UUID (blank on a new box)
-            "typedsecret999",   # FR24_KEY
-        ]) + "\n"
+        # A bare newline first: that is the "pressed enter" at the HOSTNAME
+        # prompt, which answers() is told to leave for us.
+        answers = "\n" + self.answers(skip={"HOSTNAME"})
         result = self.run_driver(
             stdin=answers, extra_env={"HOSTNAME": "some-inherited-machine-name"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -309,7 +325,7 @@ class TestWizard(DriverCase):
         # Proves conf_write is actually wired up — it had no caller before
         # this task.
         (self.root / "receiver.conf").unlink(missing_ok=True)
-        self.run_driver(stdin=self.ANSWERS)
+        self.run_driver(stdin=self.answers())
         conf_path = self.root / "receiver.conf"
         conf = conf_path.read_text()
         self.assertIn("METAR_STATION=", conf)

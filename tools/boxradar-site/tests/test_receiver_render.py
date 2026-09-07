@@ -8,6 +8,7 @@ each carried a slightly different home position.
 
 import os
 import pathlib
+import re
 import subprocess
 import unittest
 
@@ -29,6 +30,31 @@ def render(function, **overrides):
     if result.returncode != 0:
         raise AssertionError(f"{function} failed: {result.stderr}")
     return result.stdout
+
+
+def local_ports(rendered):
+    """The ports a feeder's env file makes something bind or connect to.
+
+    Every run of digits on the RESULTS/NET_OPTIONS lines, keeping those
+    >= 30000. The threshold is what separates ports from the other numbers
+    those lines carry (--net-heartbeat 60, --net-ro-size 1280,
+    --net-ro-port 0, the octets of 127.0.0.1, and the trailing digit of
+    "RESULTS3" itself).
+
+    Regex rather than splitting on commas and whitespace, which is what this
+    did first: that left the last field of every RESULTS line holding its
+    closing quote — "30157\"" — which is not .isdigit(), so it was silently
+    dropped. The effect was that only the --net-bi-port values were ever
+    compared and the mlat-client listen ports, the ones that actually
+    collide, were invisible. The test read as though it covered them and
+    passed either way.
+    """
+    found = set()
+    for line in rendered.splitlines():
+        if line.startswith(("RESULTS", "NET_OPTIONS")):
+            found.update(n for n in map(int, re.findall(r"\d+", line))
+                         if n >= 30000)
+    return found
 
 
 class TestRenderReadsb(unittest.TestCase):
@@ -165,37 +191,6 @@ class TestRenderAdsblol(unittest.TestCase):
         out = render("render_adsblol", ALT_FT="363", **self.LOL)
         self.assertIn('ALTITUDE="363ft"', out)
 
-    def test_local_ports_do_not_collide_with_adsbexchange(self):
-        # The thing that makes running both feeders on one Pi possible.
-        # Upstream separated these deliberately ("avoid listen port overlap
-        # with ax scripts"); a merge that "tidied" them back together would
-        # leave the second mlat-client unable to bind, which does not stop
-        # its feed and so looks fine.
-        lol = render("render_adsblol", **self.LOL)
-        adsbx = render("render_adsbexchange")
-
-        def local_ports(out):
-            # >= 30000 only: these lines also carry --net-heartbeat 60,
-            # --net-ro-size 1280 and --net-ro-port 0, none of which are ports
-            # anything binds.
-            found = set()
-            for line in out.splitlines():
-                if line.startswith(("RESULTS", "NET_OPTIONS")):
-                    for part in line.replace(",", " ").split():
-                        if part.isdigit() and int(part) >= 30000:
-                            found.add(int(part))
-            return found
-
-        # 30104 is readsb's --net-bi-port: both MLAT clients connect out to
-        # it on purpose, so it is the one number allowed in both.
-        overlap = (local_ports(lol) & local_ports(adsbx)) - {30104}
-        # Both sides must actually have found ports, or this passes vacuously
-        # the day a line is renamed.
-        self.assertIn(31421, local_ports(lol))
-        self.assertIn(30154, local_ports(adsbx))
-        self.assertEqual(overlap, set(),
-                         f"adsb.lol and ADSBExchange share port(s): {overlap}")
-
     def test_it_feeds_adsblol_not_adsbexchange(self):
         out = render("render_adsblol", **self.LOL)
         self.assertIn("feed.adsb.lol", out)
@@ -207,6 +202,94 @@ class TestRenderAdsblol(unittest.TestCase):
         subprocess.run(["bash", "-n"], input=out, text=True, check=True)
 
 
+class TestRenderAdsbfi(unittest.TestCase):
+    FI = {"ADSBFI_USER": "example-feeder"}
+
+    def test_station_name_and_position_come_from_the_conf(self):
+        out = render("render_adsbfi", **self.FI)
+        self.assertIn('USER="example-feeder"', out)
+        self.assertIn('LATITUDE="51.8849826"', out)
+        self.assertIn('LONGITUDE="0.2349914"', out)
+
+    def test_altitude_carries_the_ft_suffix(self):
+        # adsb.fi's configure.sh validates ^(-?[0-9]*)(ft|m)$ exactly as
+        # adsb.lol's does, and the same mlat-client reads a bare number as
+        # metres.
+        out = render("render_adsbfi", ALT_FT="363", **self.FI)
+        self.assertIn('ALTITUDE="363ft"', out)
+
+    def test_it_does_not_ship_adsbexchanges_beast_listen_port(self):
+        # The whole reason this renderer deviates from upstream. adsb.fi
+        # forked the feedclient before the "avoid listen port overlap with ax
+        # scripts" commit, so their configure.sh still writes 30157 — which
+        # adsbexchange-mlat listens on. Asserted by value, not just via the
+        # disjointness test below, so that "someone pasted upstream's block
+        # back in" fails with a message that says what happened.
+        out = render("render_adsbfi", **self.FI)
+        self.assertNotIn("30157", out)
+        self.assertIn("--results beast,listen,30170", out)
+
+    def test_the_uuid_file_stays_in_net_options(self):
+        # Upstream's, and unlike the ADSBExchange and adsb.lol copies.
+        # Dropping it to "match the others" would make the feed client stop
+        # identifying by uuid, so every rebuild would register as a new
+        # receiver however faithfully ADSBFI_UUID was restored.
+        out = render("render_adsbfi", **self.FI)
+        self.assertIn("--uuid-file /usr/local/share/adsbfi/adsbfi-uuid", out)
+
+    def test_it_feeds_adsbfi_not_the_others(self):
+        out = render("render_adsbfi", **self.FI)
+        self.assertIn("feed.adsb.fi", out)
+        self.assertNotIn("adsbexchange.com", out)
+        self.assertNotIn("adsb.lol", out)
+
+    def test_output_is_valid_shell(self):
+        # Sourced by adsbfi-feed.sh and adsbfi-mlat.sh, as well as update.sh.
+        out = render("render_adsbfi", **self.FI)
+        subprocess.run(["bash", "-n"], input=out, text=True, check=True)
+
+
+class TestFeederPortsAreDisjoint(unittest.TestCase):
+    """What makes three feeders and three MLAT clients share one Pi.
+
+    Two of these blocks were separated by upstream ("avoid listen port overlap
+    with ax scripts") and the third, adsb.fi's, was not — it predates that
+    commit and still ships 30157. A merge that "tidied" any of them together
+    would leave an mlat-client unable to bind, which does not stop its feed
+    and so looks fine from every angle except the missing results.
+    """
+
+    # 30104 is readsb's --net-bi-port. Every MLAT client connects out to it on
+    # purpose, so it is the one number allowed to appear in all three.
+    SHARED = {30104}
+
+    RENDERED = {
+        # The third element is that feeder's mlat-client beast listen port —
+        # the one that collides, and the one local_ports() used to miss. Used
+        # below as the guard against this passing vacuously, so it has to be
+        # a port from a RESULTS line rather than a --net-bi-port.
+        "ADSBExchange": ("render_adsbexchange", {}, 30157),
+        "adsb.lol": ("render_adsblol", {"ADSBLOL_USER": "example-feeder"}, 31422),
+        "adsb.fi": ("render_adsbfi", {"ADSBFI_USER": "example-feeder"}, 30170),
+    }
+
+    def test_no_two_feeders_bind_the_same_port(self):
+        ports = {}
+        for name, (fn, env, expected) in self.RENDERED.items():
+            ports[name] = local_ports(render(fn, **env))
+            # Each side must actually have found its ports, or a renamed line
+            # would make every pair below pass vacuously.
+            self.assertIn(expected, ports[name],
+                          f"{name}: local_ports() found nothing recognisable")
+
+        names = sorted(ports)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                overlap = (ports[a] & ports[b]) - self.SHARED
+                self.assertEqual(overlap, set(),
+                                 f"{a} and {b} share port(s): {sorted(overlap)}")
+
+
 class TestSecretsAreNotEchoed(unittest.TestCase):
     def test_rendering_writes_nothing_to_stderr(self):
         # Stages tee stdout to a log. Anything a renderer puts on stderr could
@@ -214,11 +297,13 @@ class TestSecretsAreNotEchoed(unittest.TestCase):
         env = dict(os.environ)
         env.update(BASE)
         env["ADSBLOL_USER"] = "example-feeder"
+        env["ADSBFI_USER"] = "example-feeder"
         result = subprocess.run(
             ["bash", "-c",
              f'set -euo pipefail; source "{RENDER_SH}"; '
              f'render_readsb >/dev/null; render_adsbexchange >/dev/null; '
-             f'render_adsblol >/dev/null; render_fr24 >/dev/null'],
+             f'render_adsblol >/dev/null; render_adsbfi >/dev/null; '
+             f'render_fr24 >/dev/null'],
             env=env, capture_output=True, text=True)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.returncode, 0)

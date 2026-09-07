@@ -50,4 +50,15 @@ ADSBLOL_USER=""
 # Leave blank on a new box, as with ADSBX_UUID.
 ADSBLOL_UUID=""
 
+# adsb.fi. Same deal: blank ADSBFI_USER means don't feed them, nothing is
+# installed. Set it and stage 40 installs their feeder, which also opens
+# https://opendata.adsb.fi/api/v2/snapshot — every aircraft the network sees,
+# refreshed twice a minute, open only to feeder IPs. Rate limited to one
+# request per 30 seconds, and a rejected request counts against that.
+#
+# Also installs chrony if adsb.lol has not already, for the same reason.
+ADSBFI_USER=""
+# Leave blank on a new box, as with ADSBX_UUID.
+ADSBFI_UUID=""
+
 FR24_KEY=""

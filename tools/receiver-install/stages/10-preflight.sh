@@ -48,6 +48,7 @@ hosts=(deb.debian.org github.com overpass-api.de
 # would fail a perfectly good install for a network the operator never asked
 # to use.
 [[ -n ${ADSBLOL_USER:-} ]] && hosts+=(feed.adsb.lol re-api.adsb.lol)
+[[ -n ${ADSBFI_USER:-} ]] && hosts+=(feed.adsb.fi opendata.adsb.fi)
 for host in "${hosts[@]}"; do
   getent hosts "$host" >/dev/null || fail "cannot resolve $host — no internet?"
 done

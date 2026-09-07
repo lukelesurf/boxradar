@@ -2,7 +2,8 @@
 
 Provisions a BOXRADAR receiver from a bare Raspberry Pi OS Lite install:
 readsb, tar1090, the aircraft database and its weekly refresh timer, the
-ADSBExchange and Flightradar24 feeders (and adsb.lol, if you want it), and the
+ADSBExchange and Flightradar24 feeders (and adsb.lol and adsb.fi, if you want
+them), and the
 `boxradar-site` / `boxradar-config` services.
 
 Runs on the **receiver Pi**. Not the display, not a server.
@@ -17,7 +18,8 @@ Runs on the **receiver Pi**. Not the display, not a server.
   `overpass-api.de`, `www.adsbexchange.com`, `repo-feed.flightradar24.com`,
   `davidmegginson.github.io`, `download.geonames.org` and
   `aviationweather.gov` all resolve (adsb.lol, if enabled, additionally needs
-  `feed.adsb.lol` and `re-api.adsb.lol`)
+  `feed.adsb.lol` and `re-api.adsb.lol`; adsb.fi needs `feed.adsb.fi` and
+  `opendata.adsb.fi`)
 - Wifi already configured and SSH reachable — use Raspberry Pi Imager's
   advanced options to pre-seed both before first boot
 - A Flightradar24 sharing key
@@ -67,7 +69,8 @@ automated.
 
 ## Rebuilding an existing receiver
 
-Restore `ADSBX_UUID`, `ADSBLOL_UUID` and `FR24_KEY` into `receiver.conf` from
+Restore `ADSBX_UUID`, `ADSBLOL_UUID`, `ADSBFI_UUID` and `FR24_KEY` into
+`receiver.conf` from
 the old box. They carry your statistics and MLAT peer reputation; without them
 the rebuild registers as a brand-new receiver on each network.
 
@@ -106,3 +109,34 @@ turning it on:
 adsb.lol's ports are deliberately clear of ADSBExchange's (31420/31421/31422
 against 31003/30154/30157), so both feeders and both MLAT clients run together
 on one receiver. Only readsb's `30104` is shared, which is what it is for.
+
+## adsb.fi
+
+Off unless `ADSBFI_USER` is set. The same upstream scripts a third time, so
+the same chrony note applies — whichever of adsb.lol and adsb.fi is enabled
+installs it, and enabling both installs it once.
+
+- **Feeding opens [`/v2/snapshot`](https://opendata.adsb.fi/api/v2/snapshot)**
+  — every aircraft the network can see, refreshed twice a minute, source-IP
+  authorised exactly as re-api is:
+
+  ```
+  curl 'https://opendata.adsb.fi/api/v2/snapshot'
+  ```
+
+  It is rate limited to **one request per 30 seconds**, and a rejected request
+  counts against that limit, so do not poll it while waiting for access to
+  come up. The public endpoints (1 request/second) need no feed at all:
+
+  ```
+  curl 'https://opendata.adsb.fi/api/v2/lat/<lat>/lon/<lon>/dist/<nm>'
+  ```
+
+**Their scripts still ship one of ADSBExchange's ports.** adsb.fi forked the
+feedclient before upstream's "avoid listen port overlap with ax scripts"
+commit, so their `configure.sh` writes `RESULTS3=30157` — which
+`adsbexchange-mlat` already listens on. `lib/render.sh` writes `30170`
+instead, and that is the one value in `/etc/default/adsbfi` that is not what
+upstream would write. Running their wizard by hand would put the collision
+back; a bind failure there does not stop the feed, so the box would look
+healthy with one MLAT results path dead.

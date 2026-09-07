@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ADSBExchange, adsb.lol and Flightradar24.
+# ADSBExchange, adsb.lol, adsb.fi and Flightradar24.
 #
 # The uuid and the sharing key are what tie this box to its existing
 # statistics and MLAT peer reputation. Regenerating them silently restarts
@@ -24,6 +24,33 @@ source "$SRC_DIR/lib/conf.sh"
 # 30-readsb.sh. It went with the curl|bash call to adsbexchange.com/feed.sh:
 # this stage now clones the feedclient with git and runs update.sh from it, so
 # there is nothing left here to pipe into a shell.
+
+# chrony is installed here, deliberately and visibly, because the adsb.lol
+# and adsb.fi update.sh scripts would otherwise install it as a side effect:
+# both carry the same check, `systemctl status chrony || systemctl status
+# ntp`, which systemd-timesyncd does not satisfy. chrony declares
+# Conflicts: time-daemon, which timesyncd provides, so apt *removes* timesyncd
+# to make room — a receiver's clock daemon being swapped as a silent
+# by-product of adding a feeder is exactly the kind of thing this installer
+# exists to make explicit.
+#
+# Not fought, because chrony is the better clock here: MLAT is timing, and
+# chrony disciplines and reports offset far more tightly than timesyncd
+# (measured on the live receiver immediately after the swap: 1.4us from NTP
+# time). fr24feed recognises it too — its "[time][i]Time synchronization
+# confirmed" line names whichever daemon it finds.
+#
+# Guarded exactly as they guard it, so a box already running ntp or chrony is
+# left alone rather than having a second time daemon pushed onto it. That
+# guard is also what makes this safe to call from both opt-in blocks below
+# rather than hoisting it to the top of the stage: a site feeding neither
+# network keeps timesyncd, and a site feeding both installs chrony once.
+ensure_ntp_daemon() {
+  if ! systemctl is-active --quiet chrony && ! systemctl is-active --quiet ntp; then
+    echo "installing chrony (the feeder needs a real NTP daemon; this replaces systemd-timesyncd)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chrony
+  fi
+}
 
 # --- ADSBExchange ---------------------------------------------------------
 ADSBX_PATH=/usr/local/share/adsbexchange
@@ -131,26 +158,7 @@ if [[ -n ${ADSBLOL_USER:-} ]]; then
   # The unit file, not the directory — same reasoning as ADSBX_UNIT above.
   ADSBLOL_UNIT=/lib/systemd/system/adsblol-feed.service
 
-  # chrony is installed here, deliberately and visibly, because their
-  # update.sh would otherwise install it as a side effect: its check is
-  # `systemctl status chrony || systemctl status ntp`, which systemd-timesyncd
-  # does not satisfy. chrony declares Conflicts: time-daemon, which timesyncd
-  # provides, so apt *removes* timesyncd to make room — a receiver's clock
-  # daemon being swapped as a silent by-product of adding a feeder is exactly
-  # the kind of thing this installer exists to make explicit.
-  #
-  # Not fought, because chrony is the better clock here: MLAT is timing, and
-  # chrony disciplines and reports offset far more tightly than timesyncd
-  # (measured on the live receiver immediately after the swap: 1.4us from NTP
-  # time). fr24feed recognises it too — its "[time][i]Time synchronization
-  # confirmed" line names whichever daemon it finds.
-  #
-  # Guarded exactly as they guard it, so a box already running ntp or chrony
-  # is left alone rather than having a second time daemon pushed onto it.
-  if ! systemctl is-active --quiet chrony && ! systemctl is-active --quiet ntp; then
-    echo "installing chrony (adsb.lol needs a real NTP daemon; this replaces systemd-timesyncd)"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq chrony
-  fi
+  ensure_ntp_daemon
 
   # Seeded before their installer runs, for the same reason as the
   # ADSBExchange uuid above: create-uuid.sh keeps whatever it finds as long as
@@ -200,6 +208,76 @@ if [[ -n ${ADSBLOL_USER:-} ]]; then
   systemctl enable adsblol-feed adsblol-mlat >/dev/null
 else
   echo "adsb.lol: ADSBLOL_USER is blank — not feeding adsb.lol"
+fi
+
+# --- adsb.fi ---------------------------------------------------------------
+# Opt-in, exactly as adsb.lol above: a blank ADSBFI_USER means nothing here
+# runs. Their scripts are the same ADSBExchange feedclient a third time, so
+# this block is the adsb.lol one with the names changed — see lib/render.sh
+# for the one place they genuinely differ, which is the local port block.
+#
+# Feeding grants the feeder-only /v2/snapshot endpoint on opendata.adsb.fi
+# (all aircraft, refreshed twice a minute), authorised by the station's source
+# IP rather than a key — the same arrangement re-api.adsb.lol uses, so there
+# is no credential to restore here either.
+if [[ -n ${ADSBFI_USER:-} ]]; then
+  ADSBFI_PATH=/usr/local/share/adsbfi
+  # The unit file, not the directory — same reasoning as ADSBX_UNIT above.
+  ADSBFI_UNIT=/lib/systemd/system/adsbfi-feed.service
+
+  ensure_ntp_daemon
+
+  if [[ -n ${ADSBFI_UUID:-} ]]; then
+    echo "restoring the existing adsb.fi uuid"
+    mkdir -p "$ADSBFI_PATH"
+    printf '%s' "$ADSBFI_UUID" >"$ADSBFI_PATH/adsbfi-uuid"
+    chmod 0644 "$ADSBFI_PATH/adsbfi-uuid"
+  fi
+
+  if [[ ! -f $ADSBFI_UNIT ]]; then
+    echo "installing the adsb.fi feeder"
+    # Deliberately NOT https://adsb.fi/feed.sh — the same bootstrap-runs-
+    # whiptail problem spelled out in the ADSBExchange block above. Their
+    # setup.sh runs configure.sh (five dialogs) and then a yes/no box, none of
+    # which can draw through install.sh's log pipe. update.sh is the
+    # non-interactive half.
+    #
+    # One extra reason to skip configure.sh here beyond the others: it is the
+    # thing that would write RESULTS3=30157 and collide with
+    # adsbexchange-mlat. Rendering /etc/default/adsbfi ourselves is what fixes
+    # that, so running their wizard would actively undo it.
+    mkdir -p "$ADSBFI_PATH"
+    if [[ -d $ADSBFI_PATH/git/.git ]]; then
+      git -C "$ADSBFI_PATH/git" fetch --depth 1 origin master
+      git -C "$ADSBFI_PATH/git" reset --hard FETCH_HEAD
+    else
+      rm -rf "$ADSBFI_PATH/git"
+      git clone --depth 1 --single-branch --branch master \
+        https://github.com/adsbfi/adsb-fi-scripts.git "$ADSBFI_PATH/git"
+    fi
+    # Rendered before update.sh runs, which sources it. update.sh also treats
+    # an unset INPUT/USER/TARGET/NET_OPTIONS as "never configured" and drops
+    # into setup.sh's wizard, so this file existing and being complete is what
+    # keeps the stage unattended.
+    render_adsbfi >/etc/default/adsbfi
+    bash "$ADSBFI_PATH/git/update.sh"
+  else
+    echo "adsb.fi feeder already present"
+  fi
+
+  if [[ -z ${ADSBFI_UUID:-} && -s $ADSBFI_PATH/adsbfi-uuid ]]; then
+    ADSBFI_UUID="$(cat "$ADSBFI_PATH/adsbfi-uuid")"
+    conf_write "$CONF"
+    echo "recorded the new adsb.fi uuid in $CONF"
+  fi
+
+  echo "writing /etc/default/adsbfi"
+  render_adsbfi >/etc/default/adsbfi
+  systemctl restart adsbfi-feed adsbfi-mlat
+  # Not swallowed, same as the ADSBExchange enable above.
+  systemctl enable adsbfi-feed adsbfi-mlat >/dev/null
+else
+  echo "adsb.fi: ADSBFI_USER is blank — not feeding adsb.fi"
 fi
 
 # --- Flightradar24 ---------------------------------------------------------
@@ -296,8 +374,15 @@ fr24feed --validate-config --config-file=/etc/fr24feed.ini >/dev/null || {
 systemctl restart fr24feed
 systemctl enable fr24feed >/dev/null
 
-if [[ -n ${ADSBLOL_USER:-} ]]; then
-  echo "feeders: adsbexchange + adsb.lol + fr24feed configured"
-else
-  echo "feeders: adsbexchange + fr24feed configured"
-fi
+# Built from what actually ran rather than spelled out per combination: with
+# two independent opt-ins there are four sentences to keep in step, and the
+# one that goes stale is the one nobody is feeding when they read it.
+configured=(adsbexchange)
+[[ -n ${ADSBLOL_USER:-} ]] && configured+=(adsb.lol)
+[[ -n ${ADSBFI_USER:-} ]] && configured+=(adsb.fi)
+configured+=(fr24feed)
+# Not "${configured[*]}" with IFS=' + ': ${array[*]} joins on the *first
+# character* of IFS, so that produces a plain space-separated list and looks
+# like it worked.
+printf -v feeder_list '%s + ' "${configured[@]}"
+echo "feeders: ${feeder_list% + } configured"

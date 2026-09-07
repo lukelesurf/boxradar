@@ -74,11 +74,15 @@ EOF
   ask ADSBX_UUID   "ADSBExchange uuid (blank on a new box)" " "
   ask ADSBLOL_USER "adsb.lol station name (blank to not feed adsb.lol)" " "
   ask ADSBLOL_UUID "adsb.lol uuid (blank on a new box)" " "
+  ask ADSBFI_USER  "adsb.fi station name (blank to not feed adsb.fi)" " "
+  ask ADSBFI_UUID  "adsb.fi uuid (blank on a new box)" " "
   ask FR24_KEY     "Flightradar24 sharing key"
   STATIC_IP="${STATIC_IP// /}"
   ADSBX_UUID="${ADSBX_UUID// /}"
   ADSBLOL_USER="${ADSBLOL_USER// /}"
   ADSBLOL_UUID="${ADSBLOL_UUID// /}"
+  ADSBFI_USER="${ADSBFI_USER// /}"
+  ADSBFI_UUID="${ADSBFI_UUID// /}"
   conf_write "$CONF"
   echo "wrote $CONF (0600)"
 }
@@ -88,10 +92,24 @@ check_mode() {
   render_readsb
   echo "--- rendered /etc/default/adsbexchange"
   render_adsbexchange
+  # The opt-in feeders render only when this site actually feeds them —
+  # render_adsblol/render_adsbfi would otherwise print a config with an empty
+  # USER=, which is not a file that exists anywhere and reads as a bug.
+  if [[ -n ${ADSBLOL_USER:-} ]]; then
+    echo "--- rendered /etc/default/adsblol"
+    render_adsblol
+  fi
+  if [[ -n ${ADSBFI_USER:-} ]]; then
+    echo "--- rendered /etc/default/adsbfi"
+    render_adsbfi
+  fi
   echo "--- rendered /etc/fr24feed.ini (key redacted above)"
   render_fr24
-  for pair in "/etc/default/readsb:render_readsb" \
-              "/etc/default/adsbexchange:render_adsbexchange"; do
+  local pairs=("/etc/default/readsb:render_readsb"
+               "/etc/default/adsbexchange:render_adsbexchange")
+  [[ -n ${ADSBLOL_USER:-} ]] && pairs+=("/etc/default/adsblol:render_adsblol")
+  [[ -n ${ADSBFI_USER:-} ]] && pairs+=("/etc/default/adsbfi:render_adsbfi")
+  for pair in "${pairs[@]}"; do
     local live="${pair%%:*}" fn="${pair##*:}"
     if [[ -r $live ]]; then
       echo "--- diff against live $live"
@@ -138,6 +156,7 @@ redact() {
   [[ -n ${FR24_KEY:-} ]] && patterns+=(-e "s|${FR24_KEY}|<FR24_KEY>|g")
   [[ -n ${ADSBX_UUID:-} ]] && patterns+=(-e "s|${ADSBX_UUID}|<ADSBX_UUID>|g")
   [[ -n ${ADSBLOL_UUID:-} ]] && patterns+=(-e "s|${ADSBLOL_UUID}|<ADSBLOL_UUID>|g")
+  [[ -n ${ADSBFI_UUID:-} ]] && patterns+=(-e "s|${ADSBFI_UUID}|<ADSBFI_UUID>|g")
   # -u (unbuffered): sed defaults to full 4KB buffering on its stdout when
   # that's a pipe rather than a terminal, which is exactly what it is here.
   # scrub_log below relies on output reaching $LOG promptly to know when a
@@ -147,9 +166,9 @@ redact() {
 }
 
 # redact()'s patterns are built once, from whatever FR24_KEY/ADSBX_UUID/
-# ADSBLOL_UUID were at the moment logging started — empty for both uuids on a
-# fresh box, since stage 40 (the feeder installers) is what generates them. A uuid it
-# echoes reaches the log verbatim. Called once after every stage has had its
+# ADSBLOL_UUID/ADSBFI_UUID were at the moment logging started — empty for all
+# three uuids on a fresh box, since stage 40 (the feeder installers) is what
+# generates them. A uuid it echoes reaches the log verbatim. Called once after every stage has had its
 # chance to run, this re-reads $CONF (picking up whatever 40-feeders.sh just
 # wrote) and rewrites $LOG in place with today's actual secret values
 # scrubbed. Truncate-and-rewrite via a temp file, not `mv` onto $LOG: the
@@ -242,7 +261,8 @@ if ! conf_validate; then
 fi
 
 export HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION CALM_KT
-export ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID FR24_KEY
+export ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID
+export ADSBFI_USER ADSBFI_UUID FR24_KEY
 
 if [[ $CHECK -eq 1 ]]; then
   check_mode

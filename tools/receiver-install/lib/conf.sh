@@ -60,6 +60,10 @@ conf_validate() {
   # right direction for a value that lands in a file root sources.
   [[ -z ${ADSBLOL_USER:-} || ${ADSBLOL_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
     _bad "ADSBLOL_USER may only contain letters, digits, dot, underscore and hyphen"
+  # adsb.fi, identical shape and identical reasoning. Their configure.sh is
+  # the same fork and does the same nothing-but-strip-spaces to the name.
+  [[ -z ${ADSBFI_USER:-} || ${ADSBFI_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
+    _bad "ADSBFI_USER may only contain letters, digits, dot, underscore and hyphen"
   # An 8-character floor, not just the character class: redact() builds its
   # sed patterns straight from these values (s|$FR24_KEY|<FR24_KEY>|g), so a
   # one-character key doesn't just under-validate — it turns every matching
@@ -90,6 +94,20 @@ conf_validate() {
       _bad "ADSBLOL_UUID must be at least 8 characters"
     fi
   fi
+  # And again for adsb.fi — all three create-uuid.sh copies are byte-for-byte
+  # the same file, so the same reasoning holds unchanged. Worth knowing what
+  # "as long as it parses" costs when it does not: their regex wants the full
+  # 8-4-4-4-12 form and silently mints a new uuid for anything else, so a
+  # half-pasted restore loses the station's history without failing anything
+  # here or in 60-verify.sh. The looser check below is deliberate all the
+  # same — it guards redact() (see FR24_KEY), which is a different job.
+  if [[ -n ${ADSBFI_UUID:-} ]]; then
+    if [[ ! ${ADSBFI_UUID} =~ ^[A-Za-z0-9-]+$ ]]; then
+      _bad "ADSBFI_UUID may only contain letters, digits and hyphen"
+    elif (( ${#ADSBFI_UUID} < 8 )); then
+      _bad "ADSBFI_UUID must be at least 8 characters"
+    fi
+  fi
 
   return $problems
 }
@@ -105,7 +123,7 @@ conf_write() {
   # its own closing quote escaped into command context on source.)
   for key in HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION \
              CALM_KT ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID \
-             FR24_KEY; do
+             ADSBFI_USER ADSBFI_UUID FR24_KEY; do
     value="${!key:-}"
     if [[ $value == *'"'* || $value == *'`'* || $value == *'$'* || \
           $value == *\\* || $value == *$'\n'* ]]; then
@@ -162,6 +180,17 @@ ADSBX_UUID="${ADSBX_UUID}"
 # an unbound variable instead of quietly filling in the blanks.
 ADSBLOL_USER="${ADSBLOL_USER:-}"
 ADSBLOL_UUID="${ADSBLOL_UUID:-}"
+
+# adsb.fi. Blank ADSBFI_USER means this site does not feed them and stage 40
+# installs nothing for it. Feeding grants the feeder-only /v2/snapshot
+# endpoint on opendata.adsb.fi, authorised by source IP exactly as adsb.lol's
+# re-api is — so again there is no credential here, only the identity.
+#
+# :- for the same reason as the adsb.lol pair above: a receiver.conf written
+# before adsb.fi support existed has neither key, and conf_write is called
+# under set -u whenever stage 40 records a new uuid.
+ADSBFI_USER="${ADSBFI_USER:-}"
+ADSBFI_UUID="${ADSBFI_UUID:-}"
 
 FR24_KEY="${FR24_KEY}"
 EOF

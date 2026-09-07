@@ -271,6 +271,56 @@ if [[ -n ${ADSBLOL_USER:-} ]]; then
   fi
 fi
 
+# --- adsb.fi ---------------------------------------------------------------
+# Only checked when this site feeds them, same as adsb.lol above.
+if [[ -n ${ADSBFI_USER:-} ]]; then
+  if systemctl is-active --quiet adsbfi-feed; then
+    pass "the adsb.fi feeder is running"
+  else
+    fail "adsbfi-feed is not running"
+  fi
+  if systemctl is-active --quiet adsbfi-mlat; then
+    # Same capture-then-match discipline and the same "positions/minute"
+    # marker as the adsb.lol check: it is the same mlat-client fork.
+    fi_log="$(journalctl -u adsbfi-mlat -n 50 --no-pager 2>/dev/null || true)"
+    if grep -q 'positions/minute' <<<"$fi_log"; then
+      pass "adsb.fi MLAT is returning positions"
+    else
+      warn "no adsb.fi MLAT results yet — normal for the first few minutes"
+    fi
+  else
+    fail "adsbfi-mlat is not running"
+  fi
+
+  # The point of feeding them, from this project's side: /v2/snapshot is
+  # open only to feeder IPs. A 200 proves the source-IP authorisation took,
+  # which nothing on the receiver itself can tell you.
+  #
+  # Exactly one request, no retry. The feeder endpoint is rate limited to one
+  # request per 30 seconds and a 403 counts against that limit, so a check
+  # that politely retried would be the thing keeping itself locked out.
+  #
+  # --max-filesize caps the body at 64KB: the snapshot is every aircraft the
+  # network can see and runs to megabytes, and none of it is wanted here.
+  # curl aborts mid-transfer with exit 63 once the cap is passed, which is why
+  # this reads %{http_code} instead of relying on -f — and why the `|| true`
+  # is not hiding anything. Verified against the live endpoint: exit 63 still
+  # emits the status code.
+  #
+  # 403 and 000 are reported apart on purpose. 403 is the expected answer for
+  # the first few minutes and means the feed simply has not registered yet;
+  # 000 means curl never got an answer at all, which is a network problem and
+  # worth different words. `curl -f` collapses both into one exit status,
+  # which is why the re-api check above can only say "did not answer".
+  fi_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+    --max-filesize 65536 "https://opendata.adsb.fi/api/v2/snapshot" || true)"
+  case "$fi_code" in
+    200) pass "opendata.adsb.fi/v2/snapshot answers this station" ;;
+    403) warn "adsb.fi has not authorised this IP yet — it can lag the first feed by a few minutes" ;;
+    *)   warn "opendata.adsb.fi did not answer (HTTP '${fi_code:-none}')" ;;
+  esac
+fi
+
 (( FAILED == 0 )) || { echo; echo "verification failed. see $0" >&2; exit 1; }
 
 # `|| true`, matching the $metar pattern above: reached only once every check
