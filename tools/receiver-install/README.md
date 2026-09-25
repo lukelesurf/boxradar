@@ -10,7 +10,8 @@ Runs on the **receiver Pi**. Not the display, not a server.
 
 ## Requirements
 
-- Raspberry Pi with **64-bit** Raspberry Pi OS Lite (Bookworm), **≥1GB RAM**
+- Raspberry Pi with **64-bit** Raspberry Pi OS Lite (Bookworm), or an x86_64 PC
+  running Debian or Ubuntu server, **≥1GB RAM**
   (2GB recommended — the first coastline build for a new area peaks at
   367MB), **≥8GB free disk**
 - An RTL-SDR dongle, connected

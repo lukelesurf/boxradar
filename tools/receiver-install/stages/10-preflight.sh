@@ -10,12 +10,14 @@ set -euo pipefail
 fail() { echo "preflight: $*" >&2; exit 1; }
 warn() { echo "preflight: WARNING: $*"; }
 
+# x86_64 is allowed: FR24 publishes amd64 in the same apt component, and
+# readsb and the feedclients build from source.
 arch="$(uname -m)"
-[[ $arch == aarch64 ]] || fail \
-  "architecture is $arch, needs aarch64.
+[[ $arch == aarch64 || $arch == x86_64 ]] || fail \
+  "architecture is $arch, needs aarch64 or x86_64.
    Flightradar24's armhf binary is built for ARMv7 (Tag_CPU_arch v7), so
    ARMv6 boards such as the Pi Zero W cannot feed it at all. Use a 64-bit
-   Raspberry Pi OS on a Pi 3, Pi 4 or Pi 5."
+   OS on a Pi 3, Pi 4, Pi 5 or a PC."
 
 mem_mb=$(( $(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 ))
 (( mem_mb >= 900 )) || fail \
