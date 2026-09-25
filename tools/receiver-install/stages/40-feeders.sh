@@ -19,6 +19,13 @@ source "$SRC_DIR/lib/render.sh"
 # shellcheck source=../lib/conf.sh
 # shellcheck disable=SC1091
 source "$SRC_DIR/lib/conf.sh"
+# shellcheck source=../lib/build.sh
+# shellcheck disable=SC1091
+source "$SRC_DIR/lib/build.sh"
+
+# Inherited by every update.sh below; see lib/build.sh for why.
+feed_cc="$(feedclient_cc)"
+[[ -n $feed_cc ]] && export CC="$feed_cc"
 
 # fetch_and_run used to live here too, byte-for-byte identical to the copy in
 # 30-readsb.sh. It went with the curl|bash call to adsbexchange.com/feed.sh:
