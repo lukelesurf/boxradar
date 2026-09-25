@@ -22,6 +22,10 @@ ALT_FT="363"
 GAIN="auto"
 PPM="0"
 
+# The 1090 dongle, by rtl-sdr index or serial (`rtl_test` lists both). Use the
+# serial on a box with more than one dongle: indexes follow USB order.
+SDR_DEVICE="0"
+
 # Blank for DHCP.
 STATIC_IP=""
 

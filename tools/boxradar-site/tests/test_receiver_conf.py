@@ -54,6 +54,25 @@ class TestValidate(unittest.TestCase):
         # break every site in the western half of the country.
         self.assertEqual(run("conf_validate", LON="-0.368333").returncode, 0)
 
+    def test_sdr_device_accepts_an_index_or_a_serial(self):
+        self.assertEqual(run("conf_validate", SDR_DEVICE="0").returncode, 0)
+        self.assertEqual(run("conf_validate", SDR_DEVICE="00000011").returncode, 0)
+
+    def test_sdr_device_rejects_anything_that_would_split_the_argument(self):
+        # It is interpolated unquoted into readsb's RECEIVER_OPTIONS.
+        for bad in ("0 --gain 0", "", "abc;x"):
+            result = run("conf_validate", SDR_DEVICE=bad)
+            self.assertEqual(result.returncode, 1, bad)
+            self.assertIn("SDR_DEVICE", result.stderr)
+
+    def test_sdr_device_may_be_absent_from_an_older_conf(self):
+        env = {k: v for k, v in os.environ.items() if k != "SDR_DEVICE"}
+        env.update(GOOD)
+        result = subprocess.run(
+            ["bash", "-c", f'set -uo pipefail; source "{LIB}"; conf_validate'],
+            env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_icao_must_be_four_letters(self):
         self.assertEqual(run("conf_validate", METAR_STATION="EGS").returncode, 1)
         self.assertEqual(run("conf_validate", METAR_STATION="EG55").returncode, 1)
@@ -152,10 +171,11 @@ class TestRoundTrip(unittest.TestCase):
             path = pathlib.Path(d) / "receiver.conf"
             self.assertEqual(run(f'conf_write "{path}"').returncode, 0)
             result = run(f'conf_load "{path}"; '
-                         f'echo "$LAT|$METAR_STATION|$FR24_KEY|$ALT_FT"',
-                         LAT="0", METAR_STATION="ZZZZ", FR24_KEY="", ALT_FT="0")
+                         f'echo "$LAT|$METAR_STATION|$FR24_KEY|$ALT_FT|$SDR_DEVICE"',
+                         LAT="0", METAR_STATION="ZZZZ", FR24_KEY="", ALT_FT="0",
+                         SDR_DEVICE="9")
             self.assertEqual(result.stdout.strip(),
-                             "51.8849826|EGSS|key98765|348")
+                             "51.8849826|EGSS|key98765|348|0")
 
     def test_written_file_is_owner_read_write_only(self):
         with tempfile.TemporaryDirectory() as d:

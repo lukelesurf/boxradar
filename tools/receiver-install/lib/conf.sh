@@ -35,6 +35,11 @@ conf_validate() {
   [[ ${GAIN:-} == "auto" ]] || conf_number "${GAIN:-}" || \
     _bad "GAIN must be 'auto' or a number: '${GAIN:-}'"
   conf_number "${PPM:-}" || _bad "PPM must be a number: '${PPM:-}'"
+  # An rtl-sdr index or serial. Interpolated unquoted into readsb's
+  # RECEIVER_OPTIONS, so nothing that could split into a second argument.
+  # Absent from confs written before it existed, which means index 0.
+  [[ ${SDR_DEVICE-0} =~ ^[A-Za-z0-9]+$ ]] || \
+    _bad "SDR_DEVICE must be a dongle index or serial: '${SDR_DEVICE-}'"
   [[ ${METAR_STATION:-} =~ ^[A-Za-z]{4}$ ]] || \
     _bad "METAR_STATION must be a 4-letter ICAO code: '${METAR_STATION:-}'"
   conf_integer "${CALM_KT:-}" || _bad "CALM_KT must be a whole number"
@@ -121,7 +126,7 @@ conf_write() {
   # shell. (This is what caught STATIC_IP: quoted by conf_write but, at the
   # time, only checked for emptiness by conf_validate — a value carrying
   # its own closing quote escaped into command context on source.)
-  for key in HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION \
+  for key in HOSTNAME LAT LON ALT_FT GAIN PPM SDR_DEVICE STATIC_IP METAR_STATION \
              CALM_KT ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID \
              ADSBFI_USER ADSBFI_UUID FR24_KEY; do
     value="${!key:-}"
@@ -155,6 +160,9 @@ ALT_FT="${ALT_FT}"
 # Radio
 GAIN="${GAIN}"
 PPM="${PPM}"
+# rtl-sdr index or serial of the 1090 dongle. Set the serial on a box with
+# more than one dongle: indexes follow USB enumeration order.
+SDR_DEVICE="${SDR_DEVICE:-0}"
 
 # Network. Blank STATIC_IP means DHCP.
 STATIC_IP="${STATIC_IP}"

@@ -218,6 +218,7 @@ class TestWizard(DriverCase):
         "ALT_FT": "348",
         "GAIN": "auto",
         "PPM": "0",
+        "SDR_DEVICE": "0",
         "STATIC_IP": "",            # blank = DHCP
         "METAR_STATION": "EGSS",
         "CALM_KT": "7",

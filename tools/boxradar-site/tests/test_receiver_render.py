@@ -73,6 +73,21 @@ class TestRenderReadsb(unittest.TestCase):
         self.assertIn("--gain 49.6", out)
         self.assertIn("--ppm -2", out)
 
+    def test_sdr_device_selects_the_dongle_by_serial(self):
+        # Index 0 is whichever dongle enumerated first; on a box with more
+        # than one, only the serial pins the 1090 dongle.
+        out = render("render_readsb", SDR_DEVICE="00000011")
+        self.assertIn("--device 00000011 ", out)
+
+    def test_sdr_device_defaults_to_index_zero(self):
+        # A receiver.conf written before SDR_DEVICE existed has no such key.
+        env_without = {k: v for k, v in os.environ.items() if k != "SDR_DEVICE"}
+        result = subprocess.run(
+            ["bash", "-c", f'set -euo pipefail; source "{RENDER_SH}"; render_readsb'],
+            env={**env_without, **BASE}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--device 0 ", result.stdout)
+
     def test_every_expected_variable_is_defined(self):
         out = render("render_readsb")
         for key in ("RECEIVER_OPTIONS", "DECODER_OPTIONS", "NET_OPTIONS",

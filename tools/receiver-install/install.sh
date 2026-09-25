@@ -67,6 +67,7 @@ EOF
   ask ALT_FT       "Aerial height above sea level, whole feet"
   ask GAIN         "Tuner gain ('auto' or a number)" "auto"
   ask PPM          "Tuner frequency correction, ppm" "0"
+  ask SDR_DEVICE   "1090 dongle serial or index (see rtl_test)" "0"
   ask STATIC_IP    "Static IP (blank for DHCP)" " "
   ask METAR_STATION "Nearest airport with a METAR, 4-letter ICAO"
   ask CALM_KT      "Below this windspeed, recommend no runway" "7"
@@ -260,7 +261,7 @@ if ! conf_validate; then
   exit 1
 fi
 
-export HOSTNAME LAT LON ALT_FT GAIN PPM STATIC_IP METAR_STATION CALM_KT
+export HOSTNAME LAT LON ALT_FT GAIN PPM SDR_DEVICE STATIC_IP METAR_STATION CALM_KT
 export ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID
 export ADSBFI_USER ADSBFI_UUID FR24_KEY
 
