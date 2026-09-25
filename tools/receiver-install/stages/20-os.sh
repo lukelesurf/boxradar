@@ -7,6 +7,11 @@
 # putting wifi power-save back.
 set -euo pipefail
 
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../lib/os.sh
+# shellcheck disable=SC1091
+source "$SRC_DIR/lib/os.sh"
+
 echo "hostname -> $HOSTNAME"
 hostnamectl set-hostname "$HOSTNAME"
 # 127.0.1.1 must track the hostname or sudo warns on every invocation.
@@ -47,6 +52,10 @@ EOF
 mkdir -p /var/log/journal
 systemd-tmpfiles --create --prefix /var/log/journal >/dev/null 2>&1 || true
 systemctl restart systemd-journald
+
+# Feeders present the LAN's shared IPv4 address rather than this box's own
+# IPv6 one. Before stage 40, so the feeders start with it already in place.
+gai_prefer_ipv4 /etc/gai.conf
 
 # Wifi power-save off, via NetworkManager rather than a cron that fights it.
 # 2 = disable.
@@ -236,4 +245,4 @@ if [[ -n ${STATIC_IP:-} ]]; then
   echo "NOTE: the address changes on the next reboot or reconnect."
 fi
 
-echo "os: hostname=$HOSTNAME, journal persistent, ufw enabled"
+echo "os: hostname=$HOSTNAME, journal persistent, IPv4 preferred, ufw enabled"
