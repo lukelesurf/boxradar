@@ -6,6 +6,11 @@
 # cannot reach upstream, a feeder that installs but never connects.
 set -euo pipefail
 
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../lib/verify.sh
+# shellcheck disable=SC1091
+source "$SRC_DIR/lib/verify.sh"
+
 pass() { echo "  ok    $*"; }
 fail() { echo "  FAIL  $*" >&2; FAILED=1; }
 warn() { echo "  warn  $*"; }
@@ -250,7 +255,7 @@ if [[ -n ${ADSBLOL_USER:-} ]]; then
     # line that proves MLAT solutions are actually coming back — 132.9/min
     # within a minute of the first install on the live receiver.
     lol_log="$(journalctl -u adsblol-mlat -n 50 --no-pager 2>/dev/null || true)"
-    if grep -q 'positions/minute' <<<"$lol_log"; then
+    if mlat_returning_positions "$lol_log"; then
       pass "adsb.lol MLAT is returning positions"
     else
       warn "no adsb.lol MLAT results yet — normal for the first few minutes"
@@ -283,7 +288,7 @@ if [[ -n ${ADSBFI_USER:-} ]]; then
     # Same capture-then-match discipline and the same "positions/minute"
     # marker as the adsb.lol check: it is the same mlat-client fork.
     fi_log="$(journalctl -u adsbfi-mlat -n 50 --no-pager 2>/dev/null || true)"
-    if grep -q 'positions/minute' <<<"$fi_log"; then
+    if mlat_returning_positions "$fi_log"; then
       pass "adsb.fi MLAT is returning positions"
     else
       warn "no adsb.fi MLAT results yet — normal for the first few minutes"
