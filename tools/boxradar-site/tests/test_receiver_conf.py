@@ -157,6 +157,50 @@ class TestValidate(unittest.TestCase):
         self.assertIn("ADSBX_UUID", result.stderr)
 
 
+    def test_blank_aerodatabox_user_means_not_feeding(self):
+        self.assertEqual(run("conf_validate", AERODATABOX_USER="",
+                             AERODATABOX_UUID="").returncode, 0)
+
+    def test_aerodatabox_user_with_a_breakout_character_is_rejected(self):
+        result = run("conf_validate", AERODATABOX_USER="a$(id)b")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AERODATABOX_USER", result.stderr)
+
+    def test_aerodatabox_uuid_must_be_a_full_guid(self):
+        # AeroDataBox keys the receiver on it; a truncated paste would
+        # register a new receiver rather than fail.
+        result = run("conf_validate", AERODATABOX_USER="example-feeder",
+                     AERODATABOX_UUID="0f8e2b4c-6a1d-4e3f")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AERODATABOX_UUID", result.stderr)
+
+    def test_a_full_aerodatabox_guid_is_accepted(self):
+        self.assertEqual(run("conf_validate", AERODATABOX_USER="example-feeder",
+                             AERODATABOX_UUID="0f8e2b4c-6a1d-4e3f-9b70-2c5d8a1e4f60"
+                             ).returncode, 0)
+
+
+class TestMintAeroDataBoxUuid(unittest.TestCase):
+    GUID = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
+    def test_mints_one_when_feeding_and_blank(self):
+        result = run('conf_mint_aerodatabox_uuid && echo "$AERODATABOX_UUID"',
+                     AERODATABOX_USER="example-feeder", AERODATABOX_UUID="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stdout.strip(), self.GUID)
+
+    def test_keeps_an_existing_one(self):
+        keep = "0f8e2b4c-6a1d-4e3f-9b70-2c5d8a1e4f60"
+        result = run('conf_mint_aerodatabox_uuid; echo "$AERODATABOX_UUID"',
+                     AERODATABOX_USER="example-feeder", AERODATABOX_UUID=keep)
+        self.assertEqual(result.stdout.strip(), keep)
+
+    def test_mints_nothing_when_not_feeding(self):
+        result = run('conf_mint_aerodatabox_uuid; echo "[${AERODATABOX_UUID-}]"',
+                     AERODATABOX_USER="", AERODATABOX_UUID="")
+        self.assertEqual(result.stdout.strip(), "[]")
+
+
 class TestRoundTrip(unittest.TestCase):
     def test_conf_write_refuses_a_breakout_character(self):
         # The write-side guard, independent of conf_validate — proves a field
@@ -169,13 +213,19 @@ class TestRoundTrip(unittest.TestCase):
     def test_write_then_load_recovers_every_value(self):
         with tempfile.TemporaryDirectory() as d:
             path = pathlib.Path(d) / "receiver.conf"
-            self.assertEqual(run(f'conf_write "{path}"').returncode, 0)
+            self.assertEqual(run(f'conf_write "{path}"',
+                                 AERODATABOX_USER="example-feeder",
+                                 AERODATABOX_UUID="0f8e2b4c-6a1d-4e3f-9b70-2c5d8a1e4f60"
+                                 ).returncode, 0)
             result = run(f'conf_load "{path}"; '
-                         f'echo "$LAT|$METAR_STATION|$FR24_KEY|$ALT_FT|$SDR_DEVICE"',
+                         f'echo "$LAT|$METAR_STATION|$FR24_KEY|$ALT_FT|$SDR_DEVICE|'
+                         f'$AERODATABOX_USER|$AERODATABOX_UUID"',
                          LAT="0", METAR_STATION="ZZZZ", FR24_KEY="", ALT_FT="0",
-                         SDR_DEVICE="9")
+                         SDR_DEVICE="9", AERODATABOX_USER="x",
+                         AERODATABOX_UUID="y")
             self.assertEqual(result.stdout.strip(),
-                             "51.8849826|EGSS|key98765|348|0")
+                             "51.8849826|EGSS|key98765|348|0|example-feeder|"
+                             "0f8e2b4c-6a1d-4e3f-9b70-2c5d8a1e4f60")
 
     def test_written_file_is_owner_read_write_only(self):
         with tempfile.TemporaryDirectory() as d:

@@ -77,6 +77,8 @@ EOF
   ask ADSBLOL_UUID "adsb.lol uuid (blank on a new box)" " "
   ask ADSBFI_USER  "adsb.fi station name (blank to not feed adsb.fi)" " "
   ask ADSBFI_UUID  "adsb.fi uuid (blank on a new box)" " "
+  ask AERODATABOX_USER "AeroDataBox station name (blank to not feed AeroDataBox)" " "
+  ask AERODATABOX_UUID "AeroDataBox uuid (blank to mint one)" " "
   ask FR24_KEY     "Flightradar24 sharing key"
   STATIC_IP="${STATIC_IP// /}"
   ADSBX_UUID="${ADSBX_UUID// /}"
@@ -84,6 +86,8 @@ EOF
   ADSBLOL_UUID="${ADSBLOL_UUID// /}"
   ADSBFI_USER="${ADSBFI_USER// /}"
   ADSBFI_UUID="${ADSBFI_UUID// /}"
+  AERODATABOX_USER="${AERODATABOX_USER// /}"
+  AERODATABOX_UUID="${AERODATABOX_UUID// /}"
   conf_write "$CONF"
   echo "wrote $CONF (0600)"
 }
@@ -104,12 +108,17 @@ check_mode() {
     echo "--- rendered /etc/default/adsbfi"
     render_adsbfi
   fi
+  if [[ -n ${AERODATABOX_USER:-} ]]; then
+    echo "--- rendered /etc/default/aerodatabox-mlat"
+    render_aerodatabox_mlat
+  fi
   echo "--- rendered /etc/fr24feed.ini (key redacted above)"
   render_fr24
   local pairs=("/etc/default/readsb:render_readsb"
                "/etc/default/adsbexchange:render_adsbexchange")
   [[ -n ${ADSBLOL_USER:-} ]] && pairs+=("/etc/default/adsblol:render_adsblol")
   [[ -n ${ADSBFI_USER:-} ]] && pairs+=("/etc/default/adsbfi:render_adsbfi")
+  [[ -n ${AERODATABOX_USER:-} ]] && pairs+=("/etc/default/aerodatabox-mlat:render_aerodatabox_mlat")
   for pair in "${pairs[@]}"; do
     local live="${pair%%:*}" fn="${pair##*:}"
     if [[ -r $live ]]; then
@@ -158,6 +167,7 @@ redact() {
   [[ -n ${ADSBX_UUID:-} ]] && patterns+=(-e "s|${ADSBX_UUID}|<ADSBX_UUID>|g")
   [[ -n ${ADSBLOL_UUID:-} ]] && patterns+=(-e "s|${ADSBLOL_UUID}|<ADSBLOL_UUID>|g")
   [[ -n ${ADSBFI_UUID:-} ]] && patterns+=(-e "s|${ADSBFI_UUID}|<ADSBFI_UUID>|g")
+  [[ -n ${AERODATABOX_UUID:-} ]] && patterns+=(-e "s|${AERODATABOX_UUID}|<AERODATABOX_UUID>|g")
   # -u (unbuffered): sed defaults to full 4KB buffering on its stdout when
   # that's a pipe rather than a terminal, which is exactly what it is here.
   # scrub_log below relies on output reaching $LOG promptly to know when a
@@ -234,6 +244,14 @@ if [[ $WIZARD -eq 1 ]]; then
   conf_load "$CONF"
 fi
 
+# Before logging, so redact() knows the uuid from the start. Not in --check,
+# which promises to change nothing; its readsb render simply omits the
+# AeroDataBox connector until a real run has minted the uuid.
+if [[ $CHECK -eq 0 && -r $CONF ]] && conf_mint_aerodatabox_uuid; then
+  conf_write "$CONF"
+  echo "minted an AeroDataBox uuid and recorded it in $CONF"
+fi
+
 mkdir -p "$(dirname "$LOG")" "$STAMP_DIR"
 # tee would otherwise create $LOG under the process's default umask (0644 —
 # world-readable) the first time it's written. Created explicitly at 0600
@@ -263,7 +281,7 @@ fi
 
 export HOSTNAME LAT LON ALT_FT GAIN PPM SDR_DEVICE STATIC_IP METAR_STATION CALM_KT
 export ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID
-export ADSBFI_USER ADSBFI_UUID FR24_KEY
+export ADSBFI_USER ADSBFI_UUID AERODATABOX_USER AERODATABOX_UUID FR24_KEY
 
 if [[ $CHECK -eq 1 ]]; then
   check_mode

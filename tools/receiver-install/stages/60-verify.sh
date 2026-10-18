@@ -326,6 +326,33 @@ if [[ -n ${ADSBFI_USER:-} ]]; then
   esac
 fi
 
+# --- AeroDataBox -----------------------------------------------------------
+# The feed has no unit of its own — it is a connector inside readsb — so the
+# check is the TCP session itself: readsb holding an established connection
+# to their port 30004.
+if [[ -n ${AERODATABOX_USER:-} ]]; then
+  adb_feed="$(ss -tnH state established '( dport = :30004 )' 2>/dev/null || true)"
+  adb_ok=0
+  for ip in $(getent ahostsv4 feed.aerodatabox.com | awk '{print $1}' | sort -u); do
+    grep -qF " $ip:30004" <<<"$adb_feed" && adb_ok=1
+  done
+  if (( adb_ok )); then
+    pass "readsb is feeding AeroDataBox"
+  else
+    fail "readsb has no connection to feed.aerodatabox.com:30004"
+  fi
+  if systemctl is-active --quiet aerodatabox-mlat; then
+    adb_log="$(journalctl -u aerodatabox-mlat -n 50 --no-pager 2>/dev/null || true)"
+    if mlat_returning_positions "$adb_log"; then
+      pass "AeroDataBox MLAT is returning positions"
+    else
+      warn "no AeroDataBox MLAT results yet — normal for the first few minutes"
+    fi
+  else
+    fail "aerodatabox-mlat is not running"
+  fi
+fi
+
 (( FAILED == 0 )) || { echo; echo "verification failed. see $0" >&2; exit 1; }
 
 # `|| true`, matching the $metar pattern above: reached only once every check

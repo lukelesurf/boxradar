@@ -1,0 +1,33 @@
+[Unit]
+Description=AeroDataBox MLAT client
+Documentation=https://aerodatabox.com/feed
+Wants=network-online.target
+After=network-online.target readsb.service
+
+[Service]
+EnvironmentFile=/etc/default/aerodatabox-mlat
+# ADSBExchange's mlat-client, borrowed rather than built a fourth time: every
+# BOXRADAR receiver feeds ADSBExchange, so this venv is always present, and
+# it is the same wiedehopf fork the other three feeders run.
+ExecStart=/usr/local/share/adsbexchange/venv/bin/mlat-client \
+    --input-type dump1090 --no-udp \
+    --input-connect ${INPUT} \
+    --server ${SERVER} \
+    --user ${STATION} \
+    --lat ${LAT} --lon ${LON} --alt ${ALT} \
+    --uuid-file ${UUID_FILE} \
+    --results ${RESULTS}
+# Nothing to keep between runs, and the uuid file is world-readable.
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+Restart=always
+RestartSec=30
+SyslogIdentifier=aerodatabox-mlat
+# Matches the feedclients' mlat units: MLAT is timing-sensitive.
+Nice=-1
+
+[Install]
+WantedBy=multi-user.target

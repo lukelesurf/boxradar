@@ -228,6 +228,8 @@ class TestWizard(DriverCase):
         "ADSBLOL_UUID": "",         # blank on a new box
         "ADSBFI_USER": "",          # blank = don't feed adsb.fi
         "ADSBFI_UUID": "",          # blank on a new box
+        "AERODATABOX_USER": "",     # blank = don't feed AeroDataBox
+        "AERODATABOX_UUID": "",     # blank = mint one
         "FR24_KEY": "typedsecret999",
     }
 

@@ -51,6 +51,7 @@ hosts=(deb.debian.org github.com overpass-api.de
 # to use.
 [[ -n ${ADSBLOL_USER:-} ]] && hosts+=(feed.adsb.lol re-api.adsb.lol)
 [[ -n ${ADSBFI_USER:-} ]] && hosts+=(feed.adsb.fi opendata.adsb.fi)
+[[ -n ${AERODATABOX_USER:-} ]] && hosts+=(feed.aerodatabox.com)
 for host in "${hosts[@]}"; do
   getent hosts "$host" >/dev/null || fail "cannot resolve $host — no internet?"
 done

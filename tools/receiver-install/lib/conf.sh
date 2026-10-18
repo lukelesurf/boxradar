@@ -114,7 +114,27 @@ conf_validate() {
     fi
   fi
 
+  # AeroDataBox. Blank AERODATABOX_USER means this site does not feed them.
+  # The uuid is checked as a full GUID, not just the redact() floor the
+  # others get: nothing upstream validates it, so a truncated paste would be
+  # accepted by their server as a brand new receiver and lose its credits.
+  [[ -z ${AERODATABOX_USER:-} || ${AERODATABOX_USER:-} =~ ^[A-Za-z0-9_.-]+$ ]] || \
+    _bad "AERODATABOX_USER may only contain letters, digits, dot, underscore and hyphen"
+  if [[ -n ${AERODATABOX_UUID:-} && ! ${AERODATABOX_UUID} =~ \
+        ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    _bad "AERODATABOX_UUID must be a full 8-4-4-4-12 uuid"
+  fi
+
   return $problems
+}
+
+# AeroDataBox has no installer to mint a uuid for us, and the uuid is needed
+# by stage 30 (readsb's connector) before stage 40 ever runs — so install.sh
+# mints it up front, before logging starts and before redact() builds its
+# patterns. Returns 0 only when it minted one, so the caller knows to write.
+conf_mint_aerodatabox_uuid() {
+  [[ -n ${AERODATABOX_USER:-} && -z ${AERODATABOX_UUID:-} ]] || return 1
+  AERODATABOX_UUID="$(cat /proc/sys/kernel/random/uuid)"
 }
 
 conf_write() {
@@ -128,7 +148,8 @@ conf_write() {
   # its own closing quote escaped into command context on source.)
   for key in HOSTNAME LAT LON ALT_FT GAIN PPM SDR_DEVICE STATIC_IP METAR_STATION \
              CALM_KT ADSBX_USER ADSBX_UUID ADSBLOL_USER ADSBLOL_UUID \
-             ADSBFI_USER ADSBFI_UUID FR24_KEY; do
+             ADSBFI_USER ADSBFI_UUID AERODATABOX_USER AERODATABOX_UUID \
+             FR24_KEY; do
     value="${!key:-}"
     if [[ $value == *'"'* || $value == *'`'* || $value == *'$'* || \
           $value == *\\* || $value == *$'\n'* ]]; then
@@ -199,6 +220,13 @@ ADSBLOL_UUID="${ADSBLOL_UUID:-}"
 # under set -u whenever stage 40 records a new uuid.
 ADSBFI_USER="${ADSBFI_USER:-}"
 ADSBFI_UUID="${ADSBFI_UUID:-}"
+
+# AeroDataBox. Blank AERODATABOX_USER means this site does not feed them.
+# Feeding earns API credits on the AeroDataBox account the receiver is
+# claimed under. The uuid is minted by install.sh on first use; keep it, a new
+# one is a new receiver.
+AERODATABOX_USER="${AERODATABOX_USER:-}"
+AERODATABOX_UUID="${AERODATABOX_UUID:-}"
 
 FR24_KEY="${FR24_KEY}"
 EOF

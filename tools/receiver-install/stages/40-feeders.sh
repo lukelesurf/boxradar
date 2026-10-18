@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ADSBExchange, adsb.lol, adsb.fi and Flightradar24.
+# ADSBExchange, adsb.lol, adsb.fi, AeroDataBox and Flightradar24.
 #
 # The uuid and the sharing key are what tie this box to its existing
 # statistics and MLAT peer reputation. Regenerating them silently restarts
@@ -288,6 +288,35 @@ else
 fi
 
 # --- Flightradar24 ---------------------------------------------------------
+# --- AeroDataBox ------------------------------------------------------------
+# Opt-in. The feed itself is a connector on the main readsb, rendered by
+# stage 30 (see render_readsb); all that lives here is their MLAT client.
+# install.sh has already minted AERODATABOX_UUID by the time this runs.
+if [[ -n ${AERODATABOX_USER:-} ]]; then
+  ensure_ntp_daemon
+
+  mkdir -p /usr/local/share/aerodatabox
+  printf '%s' "$AERODATABOX_UUID" >/usr/local/share/aerodatabox/aerodatabox-uuid
+  chmod 0644 /usr/local/share/aerodatabox/aerodatabox-uuid
+
+  echo "writing /etc/default/aerodatabox-mlat"
+  render_aerodatabox_mlat >/etc/default/aerodatabox-mlat
+  install -m 0644 "$SRC_DIR/files/aerodatabox-mlat.service" \
+                  /etc/systemd/system/aerodatabox-mlat.service
+  systemctl daemon-reload
+  systemctl restart aerodatabox-mlat
+  systemctl enable aerodatabox-mlat >/dev/null
+else
+  echo "AeroDataBox: AERODATABOX_USER is blank — not feeding AeroDataBox"
+  # Switching a site off must actually stop it: readsb's connector goes with
+  # the next render, but nothing else would ever remove this unit.
+  if [[ -f /etc/systemd/system/aerodatabox-mlat.service ]]; then
+    systemctl disable --now aerodatabox-mlat >/dev/null
+    rm -f /etc/systemd/system/aerodatabox-mlat.service
+    systemctl daemon-reload
+  fi
+fi
+
 if ! command -v fr24feed >/dev/null 2>&1; then
   echo "adding the Flightradar24 apt repository"
   install -d -m 0755 /etc/apt/keyrings
@@ -387,6 +416,7 @@ systemctl enable fr24feed >/dev/null
 configured=(adsbexchange)
 [[ -n ${ADSBLOL_USER:-} ]] && configured+=(adsb.lol)
 [[ -n ${ADSBFI_USER:-} ]] && configured+=(adsb.fi)
+[[ -n ${AERODATABOX_USER:-} ]] && configured+=(AeroDataBox)
 configured+=(fr24feed)
 # Not "${configured[*]}" with IFS=' + ': ${array[*]} joins on the *first
 # character* of IFS, so that produces a plain space-separated list and looks

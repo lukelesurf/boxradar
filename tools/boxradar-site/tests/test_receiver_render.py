@@ -305,6 +305,54 @@ class TestFeederPortsAreDisjoint(unittest.TestCase):
                                  f"{a} and {b} share port(s): {sorted(overlap)}")
 
 
+
+ADB = {"AERODATABOX_USER": "example-feeder",
+       "AERODATABOX_UUID": "0f8e2b4c-6a1d-4e3f-9b70-2c5d8a1e4f60"}
+
+
+class TestRenderReadsbAeroDataBox(unittest.TestCase):
+    """AeroDataBox is fed straight from the main readsb, not a feedclient."""
+
+    def test_no_connector_when_the_site_does_not_feed_them(self):
+        self.assertNotIn("aerodatabox", render("render_readsb"))
+
+    def test_connector_carries_the_uuid(self):
+        # Without uuid= the feed is accepted but cannot be credited to us.
+        out = render("render_readsb", **ADB)
+        net = next(l for l in out.splitlines() if l.startswith("NET_OPTIONS="))
+        self.assertIn("--net-connector feed.aerodatabox.com,30004,"
+                      "beast_reduce_plus_out,uuid=" + ADB["AERODATABOX_UUID"],
+                      net)
+
+    def test_output_is_valid_shell_with_the_connector(self):
+        out = render("render_readsb", **ADB)
+        subprocess.run(["bash", "-n"], input=out, text=True, check=True)
+
+
+class TestRenderAeroDataBoxMlat(unittest.TestCase):
+    def test_server_station_and_position(self):
+        out = render("render_aerodatabox_mlat", **ADB)
+        self.assertIn('SERVER="feed.aerodatabox.com:31090"', out)
+        self.assertIn('STATION="example-feeder"', out)
+        self.assertIn('LAT="51.8849826"', out)
+        self.assertIn('LON="0.2349914"', out)
+
+    def test_altitude_carries_the_ft_suffix(self):
+        # mlat-client reads a bare number as metres.
+        self.assertIn('ALT="348ft"', render("render_aerodatabox_mlat", **ADB))
+
+    def test_results_return_to_readsb_and_listen_nowhere(self):
+        # A listen port here could collide with the three feedclients'
+        # mlat-clients; connecting out to 30104 cannot.
+        out = render("render_aerodatabox_mlat", **ADB)
+        self.assertIn('RESULTS="beast,connect,127.0.0.1:30104"', out)
+        self.assertNotIn("listen", out)
+
+    def test_output_is_valid_shell(self):
+        out = render("render_aerodatabox_mlat", **ADB)
+        subprocess.run(["bash", "-n"], input=out, text=True, check=True)
+
+
 class TestSecretsAreNotEchoed(unittest.TestCase):
     def test_rendering_writes_nothing_to_stderr(self):
         # Stages tee stdout to a log. Anything a renderer puts on stderr could
@@ -313,12 +361,13 @@ class TestSecretsAreNotEchoed(unittest.TestCase):
         env.update(BASE)
         env["ADSBLOL_USER"] = "example-feeder"
         env["ADSBFI_USER"] = "example-feeder"
+        env.update(ADB)
         result = subprocess.run(
             ["bash", "-c",
              f'set -euo pipefail; source "{RENDER_SH}"; '
              f'render_readsb >/dev/null; render_adsbexchange >/dev/null; '
              f'render_adsblol >/dev/null; render_adsbfi >/dev/null; '
-             f'render_fr24 >/dev/null'],
+             f'render_aerodatabox_mlat >/dev/null; render_fr24 >/dev/null'],
             env=env, capture_output=True, text=True)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.returncode, 0)

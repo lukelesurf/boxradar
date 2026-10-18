@@ -2,8 +2,8 @@
 
 Provisions a BOXRADAR receiver from a bare Raspberry Pi OS Lite install:
 readsb, tar1090, the aircraft database and its weekly refresh timer, the
-ADSBExchange and Flightradar24 feeders (and adsb.lol and adsb.fi, if you want
-them), and the
+ADSBExchange and Flightradar24 feeders (and adsb.lol, adsb.fi and AeroDataBox,
+if you want them), and the
 `boxradar-site` / `boxradar-config` services.
 
 Runs on the **receiver Pi**. Not the display, not a server.
@@ -20,7 +20,7 @@ Runs on the **receiver Pi**. Not the display, not a server.
   `davidmegginson.github.io`, `download.geonames.org` and
   `aviationweather.gov` all resolve (adsb.lol, if enabled, additionally needs
   `feed.adsb.lol` and `re-api.adsb.lol`; adsb.fi needs `feed.adsb.fi` and
-  `opendata.adsb.fi`)
+  `opendata.adsb.fi`; AeroDataBox needs `feed.aerodatabox.com`)
 - Wifi already configured and SSH reachable — use Raspberry Pi Imager's
   advanced options to pre-seed both before first boot
 - A Flightradar24 sharing key
@@ -70,7 +70,8 @@ automated.
 
 ## Rebuilding an existing receiver
 
-Restore `ADSBX_UUID`, `ADSBLOL_UUID`, `ADSBFI_UUID` and `FR24_KEY` into
+Restore `ADSBX_UUID`, `ADSBLOL_UUID`, `ADSBFI_UUID`, `AERODATABOX_UUID` and
+`FR24_KEY` into
 `receiver.conf` from
 the old box. They carry your statistics and MLAT peer reputation; without them
 the rebuild registers as a brand-new receiver on each network.
@@ -141,3 +142,23 @@ instead, and that is the one value in `/etc/default/adsbfi` that is not what
 upstream would write. Running their wizard by hand would put the collision
 back; a bind failure there does not stop the feed, so the box would look
 healthy with one MLAT results path dead.
+
+## AeroDataBox
+
+Off unless `AERODATABOX_USER` is set. Unlike the other three there is no
+feedclient: the main readsb gets one extra
+`--net-connector feed.aerodatabox.com,30004,beast_reduce_plus_out,uuid=…`
+(stage 30), and stage 40 adds `aerodatabox-mlat.service`, which runs
+ADSBExchange's mlat-client against `feed.aerodatabox.com:31090` and returns
+results to readsb's `30104`. It listens on no port of its own.
+
+AeroDataBox has no installer to mint the uuid, so `install.sh` does it on the
+first real run (not `--check`) and writes it into `receiver.conf`. Read it
+back with:
+
+```
+sudo grep AERODATABOX_UUID /etc/boxradar/receiver.conf
+```
+
+That is the value to claim the receiver with on aerodatabox.com; credits go
+to the account it is claimed under.

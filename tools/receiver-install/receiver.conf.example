@@ -65,4 +65,13 @@ ADSBFI_USER=""
 # Leave blank on a new box, as with ADSBX_UUID.
 ADSBFI_UUID=""
 
+# AeroDataBox. Blank AERODATABOX_USER means don't feed them. Set it and the
+# main readsb gains a connector to feed.aerodatabox.com and stage 40 installs
+# an MLAT client — no feedclient, nothing else. Feeding earns API credits once
+# the receiver is claimed on aerodatabox.com. Needs chrony, as above.
+AERODATABOX_USER=""
+# Leave blank: install.sh mints one. Keep it afterwards — a new uuid is a new
+# receiver, and the credits stay with the old one.
+AERODATABOX_UUID=""
+
 FR24_KEY=""
