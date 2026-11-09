@@ -4,7 +4,7 @@
 
 namespace radar {
 
-// One airfield's conditions, as published by tools/metar-feed on the
+// One airfield's conditions, as published by boxradar-site's /metar on the
 // receiver Pi. Every field is fixed-type and always present — the Pi has
 // already absorbed the upstream API's loose typing (visibility as "6+",
 // wind direction as "VRB", null gusts), precisely so nothing here has to

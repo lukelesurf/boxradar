@@ -1,21 +1,21 @@
 # boxradar-site
 
-The Pi-side application for BOXRADAR. Runs on the **receiver** Pi — the box
-running readsb/tar1090 — not on the display and not on a separate server.
+The Pi-side application for BOXRADAR. Runs on the receiver Pi (the box
+running readsb/tar1090), not on the display and not on a separate server.
 
 Three things live here:
 
-- the **display service** (`boxradar_site`) — the contact feed and METAR proxy
-  the board polls, on **:8081**
-- the **geography generator** (`boxradar_site.geo`) — codegen for the map
-- the **configuration UI** (`boxradar_config`) — a browser UI for picking
-  geography and publishing the map, on **:8082**
+- the display service (`boxradar_site`): the contact feed and METAR proxy
+  the board polls, on :8081
+- the geography generator (`boxradar_site.geo`): codegen for the map
+- the configuration UI (`boxradar_config`): a browser UI for picking
+  geography and publishing the map, on :8082
 
-They have deliberately different dependencies — see Dependencies below. The
+They have deliberately different dependencies. See Dependencies below. The
 display service is stdlib-only so it can run on a Debian Pi with no venv; the
 generator needs shapely, and the UI needs Flask on top of that.
 
-**Two systemd units, not one.** The display service is what the board polls
+Two systemd units, not one. The display service is what the board polls
 about every two seconds, and it should not gain shapely, Flask, or a reason to
 restart when the configuration UI is touched. The split costs one extra unit
 file and buys a feed that config-UI work cannot break.
@@ -49,7 +49,7 @@ asked for, and the station list stops being configuration on both sides.
 | `GET /healthz` | `{"ok":true,"version":"..."}` |
 
 `400` for anything that is not one to eight four-letter ICAO codes. `503`
-when there is no observation cached and none available upstream — the
+when there is no observation cached and none available upstream: the
 firmware keeps its last good reading on a non-200, whereas an empty
 `stations` array would look like a successful publish with no weather in it.
 
@@ -74,14 +74,14 @@ upstream: fetched EGSS -> 1 obs in 214ms
 ```
 
 TTL and backoff are measured on `time.monotonic()`, not the wall clock. A Pi
-has no RTC, so it boots with a wildly wrong time and NTP then steps it — a
+has no RTC, so it boots with a wildly wrong time and NTP then steps it, so a
 wall-clock TTL would either flush the whole cache on that step or freeze it
 until the clock caught up. The wall clock is recorded only for the envelope's
 `t`, which has to be a real timestamp.
 
 ## Install
 
-**The Pi has no git checkout**, so this runs from the machine that does:
+The Pi has no git checkout, so this runs from the machine that does:
 
 ```bash
 rsync -a --delete --exclude '__pycache__' --exclude '*.pyc' \
@@ -91,14 +91,14 @@ ssh pi@<receiver> 'cd /tmp/boxradar-site-staging && sudo ./install.sh'
 
 Re-run it to upgrade; it restarts the services and keeps an existing
 `config.json`, the selection and the published blob. Worth running the suite
-on the Pi first — `test_receiver_*` fail there because they test
+on the Pi first: `test_receiver_*` fail there because they test
 `tools/receiver-install`, which the staging directory does not contain, and
 everything else should pass. The configuration UI is installed and enabled only if Flask,
-shapely and yaml are all present — a receiver that only wants weather still
+shapely and yaml are all present. A receiver that only wants weather still
 works without them.
 
 Runway headings live in `/etc/boxradar-site/config.json` and are **TRUE, not
-magnetic** — designators are magnetic and rounded to 10 degrees, so 05 is not
+magnetic**: designators are magnetic and rounded to 10 degrees, so 05 is not
 050. A station with no runway table still returns wind, cloud and visibility;
 it just gets `"rwy":""` and `"conf":0`.
 
@@ -122,7 +122,7 @@ From the repo root:
 python3 -m unittest discover -s tools/boxradar-site/tests -t tools/boxradar-site -v
 ```
 
-stdlib only — no venv, no pip. Debian's Python is externally managed
+stdlib only: no venv, no pip. Debian's Python is externally managed
 (PEP 668) and this must stay installable on a receiver box without either.
 `upstream.py` is the only module that opens a socket, which is what lets the
 cache be tested against a fake fetcher and a fake clock.
@@ -138,8 +138,8 @@ Two profiles in one package, and the split is enforced by
 | geography generator (`boxradar_site/geo/*`) | PyYAML, shapely | polygon union and simplification have no stdlib equivalent |
 | configuration UI (`boxradar_config/*`) | Flask, plus the above | a real form-and-table UI over templates, rather than hand-rolled string building |
 
-The rule is **"nothing comes from pip"**, not "nothing but stdlib". Debian's
-Python is externally managed under PEP 668, so pip and a venv are both out —
+The rule is "nothing comes from pip", not "nothing but stdlib". Debian's
+Python is externally managed under PEP 668, so pip and a venv are both out,
 but apt is outside PEP 668's scope, which is why all three of these are
 acceptable:
 
@@ -176,7 +176,7 @@ python3 -m boxradar_site.geo suggest --selection $SEL           # a starting set
 # the binary blob, which is what the board draws from
 python3 -m boxradar_site.geo build --selection $SEL --blob site.bin --coastline
 
-# C headers, the superseded path — kept because they cost nothing and preserve
+# C headers, the superseded path, kept because they cost nothing and preserve
 # a known-good map one build flag away (MAP_FROM_BLOB in config.h)
 python3 -m boxradar_site.geo build --selection $SEL \
   --out ../../src/ui/airspace_data.h \
@@ -184,13 +184,13 @@ python3 -m boxradar_site.geo build --selection $SEL \
 ```
 
 `list` prints every airspace feature whose geometry intersects the box, with
-its on-screen size at the 50nm overview, distance from home and vertex count —
+its on-screen size at the 50nm overview, distance from home and vertex count,
 so you never need to know your local CTRs by their YAIXM names. `suggest` ticks
 what the four measured rules would pick and says why it rejected the rest.
 Those rules only ever suggest; `$SEL` is what gets drawn.
 
-Airspace is selected by rule-assisted picking, and **point references are
-still picked rather than filtered** — the configuration UI offers what is in
+Airspace is selected by rule-assisted picking, and point references are
+still picked rather than filtered: the configuration UI offers what is in
 the box and you choose, because a marker is cheap orientation while a
 centreline is a strong claim about where traffic goes. The bounding box is a
 search scope, not a selection.
@@ -205,7 +205,7 @@ The blob format is specified in `SPEC.md`.
 
 `boxradar_config` is the browser front end for all of the above, so picking
 airspace no longer means editing a JSON file by hand. On the Pi it is
-`boxradar-config.service` on **:8082**; run it locally with:
+`boxradar-config.service` on :8082; run it locally with:
 
 ```bash
 BOXRADAR_CONFIG_SELECTION=/tmp/site/selection.json \
@@ -229,12 +229,12 @@ Six steps in dependency order, shown as a progress strip on every page:
 | 6 | `/preview` | what the panel will draw, at each range |
 | | `/healthz` | selection, source, blob and dataset ages |
 
-Every step is a plain link — the order is guidance, not a state machine, and
+Every step is a plain link: the order is guidance, not a state machine, and
 nothing is bookmark-hostile. `/datasets` still resolves, as an alias for
 `/data`.
 
-All four picker pages filter **as you type**, in the browser, over rows the
-server has already sent. `_filter.html` is the whole implementation — 40 lines,
+All four picker pages filter as you type, in the browser, over rows the
+server has already sent. `_filter.html` is the whole implementation: 40 lines,
 no library.
 
 That is a correctness decision as much as a speed one. Every one of these pages
@@ -247,9 +247,9 @@ rendered was silently deleted on save. Three cases were live before this:
 | a selected small airfield | the class toggle, on by default |
 | a selected sub-floor town | the population floor, on by default |
 
-The last two needed no search at all — visiting the page and pressing Save was
+The last two needed no search at all: visiting the page and pressing Save was
 enough. Hiding rows in the browser leaves their checkboxes submitting, so the
-form is always complete; and anything **selected** is now rendered whatever the
+form is always complete; and anything selected is now rendered whatever the
 coarse gate says (`picks.merge_selected`).
 
 Two gates stay server-side because the browser cannot do them: the airfield
@@ -257,19 +257,19 @@ class toggle and the town population floor. At a floor of 0 the box holds
 12,102 towns and an 8MB page the Pi takes 20s to render; at the 2,000 default
 it is 1,179 rows the browser filters instantly.
 
-Every picker lists **nearest first**. The datasets' own orders — airport class,
-ident, population — all bury the nearest thing in the middle.
+Every picker lists nearest first. The datasets' own orders (airport class,
+ident, population) all bury the nearest thing in the middle.
 
 The town map is gone. It was 293KB of a 788KB page, and a dot cloud answered
 "which of these do I know" worse than a distance column does.
 
-**Publishing is on every page**, in a bar at the bottom that also says whether
+Publishing is on every page, in a bar at the bottom that also says whether
 the board is drawing the current selection or a publish behind. It used to be a
 button on the Airspace tab while every other page flashed "Publish to rebuild
 the map" at you from somewhere you could not publish from.
 
 The progress strip is computed by `steps.py`, which may only `stat()` files and
-read the already-parsed selection — about 0.2ms per render. It must never reach
+read the already-parsed selection, about 0.2ms per render. It must never reach
 for the catalog or a dataset filter, which cost a second or more each and are
 the reason `app.py` memoises them on mtime; a strip that touched them would put
 that cost onto every page including the cheap ones.
@@ -279,7 +279,7 @@ raise.
 ### Device settings
 
 Thirty settings that used to need an edit to `include/config.h` and a
-reflash — and, for four of them, a rebuild rather than an edit:
+reflash, and for four of them a rebuild rather than an edit:
 
 | group | keys | collapsed |
 |---|---|---|
@@ -296,25 +296,25 @@ reflash — and, for four of them, a rebuild rather than an edit:
 Groups are `<details>` blocks and four of them start shut. That is not
 decoration: at twenty-six fields the page stopped being something you scan, and
 the settings anyone actually reaches for were buried under timings nobody has
-touched since they were set. A closed group still submits — `display:none`
-hides a control without withdrawing it from the form — which is what makes
+touched since they were set. A closed group still submits: `display:none`
+hides a control without withdrawing it from the form, which is what makes
 collapsing safe on a page whose Save re-reads the board and pushes a diff.
 
 The ranges are whole nautical miles: `ovnm` is the overview you tap out of,
 `d1nm` and `d2nm` are the two detail levels the zoom toggle steps between, and
 `tlnm` is where datablocks drop to callsign only. 50/10/5/10 is a London-area
-choice — a quiet GA field wants 20/5/2, and nothing about that was reachable
+choice: a quiet GA field wants 20/5/2, and nothing about that was reachable
 without a flash. There are exactly two detail levels because the count sizes an
 array in the firmware; the count is fixed, the values are not. Nothing checks
-them against each other, so an overview narrower than a detail level is allowed
-— it looks strange and works fine.
+them against each other, so an overview narrower than a detail level is allowed:
+it looks strange and works fine.
 
 The Preview page still draws the *shipped* ranges. It never talks to the board
 (nothing on the Pi holds a copy of the board's settings, on purpose), so after
 changing these, read its crowding numbers at the ranges you chose.
 
-`types` is the one worth explaining. It is a whitelist of **boring** — anything
-not on it gets highlighted — and the built-in list is the short-haul fleet that
+`types` is the one worth explaining. It is a whitelist of boring (anything
+not on it gets highlighted), and the built-in list is the short-haul fleet that
 saturates a London feed. Both the list and its polarity are regional: at a GA
 field the everyday traffic is light singles, none of which are on it, so
 everything would read as interesting. That is why it is configurable rather
@@ -322,14 +322,14 @@ than merely long. Clearing it restores the built-in one; an empty setting is
 never read as "nothing is boring", since a cleared box is far likelier than a
 deliberate choice to light up every aircraft at once.
 
-`metaron` and `geoon` cannot turn on a feature that was compiled out — the
+`metaron` and `geoon` cannot turn on a feature that was compiled out: the
 `#ifdef` still decides whether the code exists. They decide whether it runs,
 which is what makes "is this a display problem or a feed problem?" answerable
 without a reflash.
 
-`coaston`, `ohon`, `nighton` and `nclkon` are the same shape **without** that
-caveat. They were `#ifdef`s in `config.h` — `DRAW_COASTLINE`,
-`OVERHEAD_PREDICTION`, `NIGHT_BLANKING`, `NIGHT_CLOCK` — so changing one meant
+`coaston`, `ohon`, `nighton` and `nclkon` are the same shape without that
+caveat. They were `#ifdef`s in `config.h` (`DRAW_COASTLINE`,
+`OVERHEAD_PREDICTION`, `NIGHT_BLANKING`, `NIGHT_CLOCK`), so changing one meant
 a rebuild, and the firmware now compiles both paths and lets those defines pick
 only the starting value. Measured cost for all four: 1368 bytes of flash and 32
 of RAM. Turning one on always works, with one exception noted in
@@ -342,12 +342,12 @@ whether it is drawn.
 `nclkon` is subordinate to `nighton`: with nothing going dark there is nothing
 for a clock to appear on. `night_mode.cpp` ANDs them rather than making that a
 cross-field rule in the validator, which would fail on some orderings of the
-same edit — the config server writes one key at a time.
+same edit: the config server writes one key at a time.
 
 The overhead thresholds are the "is it really overhead?" numbers, and each one
 used to cost a flash to try. `ohrnm` is the only field on the page carried in
-something other than its natural unit: **tenths of a nautical mile**, because
-the shipped radius is 1.0nm and whole miles would make the default the floor —
+something other than its natural unit: tenths of a nautical mile, because
+the shipped radius is 1.0nm and whole miles would make the default the floor:
 half a mile and two miles are exactly the two experiments worth running, and a
 `DEV_FLOAT` would have to be threaded through validation, the config server and
 the field table to buy them.
@@ -356,7 +356,7 @@ the field table to buy them.
 it leaves the scope. 30/60 suits a rooftop antenna with a clean horizon; one
 indoors loses the same aircraft every few polls, and raising both is the fix.
 
-`amin`, `amax` and `mlaton` are the only settings the **board never acts on**. They
+`amin`, `amax` and `mlaton` are the only settings the board never acts on. They
 ride on the `/contacts` request and the display service filters before it
 sorts and caps. That placement is the whole point: a real feed runs 54-65
 aircraft against 32 slots, so a filter at draw time would spend every slot and
@@ -367,40 +367,40 @@ meaning "aircraft you asked to see that did not fit".
 Three rules are worth knowing, and each exists because the obvious reading is
 wrong somewhere real:
 
-- **A floor of 0 means no floor**, not "at or above zero". Barometric altitude
+- A floor of 0 means no floor, not "at or above zero". Barometric altitude
   genuinely reads slightly negative at a low airfield on a high-pressure day,
   so a literal floor would hide ground and early-climb traffic at the
   *shipped* setting.
-- **The ceiling is literal.** 70000ft is above every airframe that transmits,
+- The ceiling is literal. 70000ft is above every airframe that transmits,
   so a record claiming more is a spoof or a decode error and is better hidden
   than drawn. Asymmetric with the floor on purpose.
-- **An unknown altitude always passes.** `alt_baro` simply absent lands as 0
+- An unknown altitude always passes. `alt_baro` simply absent lands as 0
   through `_number`'s default, indistinguishable from a real 0, so `Contact`
   carries an `alt_known` flag that is never transmitted. Without it a jet with
   a dropped altitude field would vanish behind any floor. Same reasoning as an
   unknown *type* counting as ordinary rather than rare.
 
-`amin` above `amax` is refused by neither validator — each field is checked
+`amin` above `amax` is refused by neither validator: each field is checked
 alone, because the config server writes one key at a time and a cross-field
-rule would make some orderings of the same edit fail. `select()` **ignores**
+rule would make some orderings of the same edit fail. `select()` ignores
 an inverted band rather than obeying it: obeying it blanks the scope, and a
 blank scope reads as a dead board rather than as a setting someone typed.
 
 `mlaton` is the third of these and the same shape: `&mlat=0` drops
 multilaterated positions before the cap, freeing slots for positions the
 aircraft transmitted itself. Note what it costs, because it is not purely a
-precision question — an MLAT target is a few hundred metres softer than ADS-B,
-but in saturated airspace an airframe not sending ADS-B **at all** is unusual
+precision question: an MLAT target is a few hundred metres softer than ADS-B,
+but in saturated airspace an airframe not sending ADS-B at all is unusual
 in its own right. The hollow ring says both things at once, so switching this
 off is a decision to stop asking rather than a tidy-up. Nothing on the board
 changes: the status strip's `(n)` is already conditional on there being any,
 so it simply stops appearing.
 
-Only `0` and `1` are accepted for `mlat`, not any truthy string — the board
+Only `0` and `1` are accepted for `mlat`, not any truthy string: the board
 sends exactly one of those two, and taking `false` or `no` as well would be
 inventing a wire format nothing writes.
 
-`watch` is the odd one out and the difference matters: it **marks** rather
+`watch` is the odd one out and the difference matters: it marks rather
 than filters. A matching aircraft gets a ring on the scope and first claim on
 datablock space; nothing is ever withheld because of it, so a typo here cannot
 empty the scope the way a typo in the altitude band could.
@@ -415,16 +415,16 @@ A pattern matches three ways, because no one of them is enough:
 
 The last is why the matching is here rather than on the board: the board holds
 a four-character designator and has never seen a name. And it is genuinely
-needed — the 737 MAX designators are `B37M`/`B38M`/`B39M` and share no prefix
+needed: the 737 MAX designators are `B37M`/`B38M`/`B39M` and share no prefix
 with `B732`–`B739`, so no designator pattern catches a 737 family.
 
 Name matching is loose in ways nobody guesses right first time, which is what
 `GET /watch/<pattern>` is for:
 
-- **`A380` matches nothing at all.** The name is `AIRBUS A-380-800` — Airbus
+- `A380` matches nothing at all. The name is `AIRBUS A-380-800`. Airbus
   hyphenates before the model number and Boeing does not, so `A-380` is the
   pattern that works and `747` is.
-- **`C-130` also catches `EC30`**, because `EUROCOPTER EC-130` contains it.
+- `C-130` also catches `EC30`, because `EUROCOPTER EC-130` contains it.
   `Hercules` is the pattern that means what you meant.
 
 Patterns below three characters are matched against designators and callsigns
@@ -441,7 +441,7 @@ typo cannot cost you the network that makes the board reflashable, or the OTA
 password that makes it flashable at all.
 
 Nothing is stored on the Pi. The board's NVS stays the single authority for its
-own configuration — the Pi reads it, renders a form, and pushes back a diff:
+own configuration: the Pi reads it, renders a form, and pushes back a diff:
 
 ```
 1. GET  127.0.0.1:8081/board       where the board is (display service)
@@ -451,33 +451,33 @@ own configuration — the Pi reads it, renders a form, and pushes back a diff:
 ```
 
 No address is ever typed in. The board polls the display service every two
-seconds, so the Pi has known where it is since it booted — and if it has not
+seconds, so the Pi has known where it is since it booted, and if it has not
 polled for ten seconds the page says so instead of offering a form that could
 only fail.
 
-**Publishing rings a bell.** A second header, `X-Boxradar-Geo`, goes out after
+Publishing rings a bell. A second header, `X-Boxradar-Geo`, goes out after
 a map is written, and the board refetches within a poll or two instead of
-waiting out its geography interval. Measured on the receiver: **0.5s**, against
+waiting out its geography interval. Measured on the receiver: 0.5s, against
 a control run that saw no fetch at all in 20s.
 
-The 10-minute poll **stays**, as the fallback. It is not what it looks like: it
+The 10-minute poll stays, as the fallback. It is not what it looks like: it
 sends `If-None-Match` and gets a 197-byte 304 in 19ms, so 144 polls a day cost
-about 28KB. A push that is missed — board rebooting, off, off-wifi — is silent,
+about 28KB. A push that is missed (board rebooting, off, off-wifi) is silent,
 and a map that never updates with nothing to say so is worse than one that
 updates late. Ringing the bell is also best-effort: the blob is on disk before
 the call is made, so a display service that is down costs you the poll interval
 and never a failed publish.
 
-**The board is identified by its HTTP version.** `net_task.cpp` calls
+The board is identified by its HTTP version. `net_task.cpp` calls
 `useHTTP10(true)`, and nothing else on the LAN speaks 1.0 by default. Without
-that check `/board` reported whichever workstation last opened the feed — which
+that check `/board` reported whichever workstation last opened the feed, which
 happened live, from this project's own diagnostics, and would have pointed the
 Device page's push at a laptop. `test_config_device_contract.py` fails if the
 firmware stops using 1.0.
 
 `POST /restart` reboots the board, offered as a button on the Device page
-beside the health block — and the same thing is available at the panel by
-**holding a finger anywhere on it for three seconds**, with a countdown that
+beside the health block, and the same thing is available at the panel by
+holding a finger anywhere on it for three seconds, with a countdown that
 borrows the status strip for the duration and cancels if you let go.
 
 Duration is the only interaction axis that panel had left: position is fully
@@ -487,10 +487,10 @@ rather than a count. Holding previously did nothing at all, so the gesture
 collides with nothing and costs no pixels at rest.
 
 Restarting matters because it is currently the workaround for a published map
-that will not load — see the geo status below.
+that will not load. See the geo status below.
 
-`GET /config` also returns a **health** block — uptime, why the board last
-reset, free and minimum-free heap, and RSSI — shown on the Device page. Without
+`GET /config` also returns a health block (uptime, why the board last
+reset, free and minimum-free heap, and RSSI), shown on the Device page. Without
 a USB cable that is the only view of the board's condition, and "it reset and I
 do not know why" is otherwise unanswerable: brownout is the power supply, panic
 or watchdog is firmware, software restart is something asking it to.
@@ -508,9 +508,9 @@ to allocate a whole second blob as scratch while the live one was still held,
 wanting ~37.5KB in two contiguous chunks; after hours of running there is 76KB
 free and no 18.8KB block in it, so the map only ever updated at boot.
 
-The download is now **streamed to a file and validated on the way past**.
+The download is now streamed to a file and validated on the way past.
 Magic, version, CRC and home are all checkable against the bytes as they
-arrive — see `lib/radarcore/geostream.h` — so nothing is allocated until the
+arrive (see `lib/radarcore/geostream.h`), so nothing is allocated until the
 blob is known to be intact and for the right site. Only then is the old buffer
 freed, and only then is the new one allocated, which means it asks for a block
 the same size as the one just handed back rather than for a second one beside
@@ -525,37 +525,37 @@ Verified on the board: seven consecutive in-flight reloads, all successful,
 where every one failed before. Peak heap improved (minimum free 11.2KB to
 13.2KB) and settled rather than marching down. Free heap does drift about
 200 bytes per load, which is immaterial at a few publishes a session but is
-not nothing — it has not been chased.
+not nothing. It has not been chased.
 
 `geoStoreLock()` closes a pre-existing race while it is there. geoblob is
 zero-copy, so every outline the UI task draws is a pointer into the buffer the
 net task may be freeing; the store holds the lock only for pointer
 assignments, never across the download or the file read.
 
-**The wake signal is an HTTP response header** (`X-Boxradar-Config`) on the
+The wake signal is an HTTP response header (`X-Boxradar-Config`) on the
 ordinary `/contacts` poll, not a field in the payload. The contact format is
 fixed-size with no reserved field, so a flag byte would have meant bumping
-`CONTACT_VERSION` — and `contact_feed.h` rejects an unknown version outright,
+`CONTACT_VERSION`, and `contact_feed.h` rejects an unknown version outright,
 blanking the scope of any board not reflashed in step with the Pi. An
 unrecognised response header costs old firmware nothing. It rides a 503 as well
 as a 200, because a receiver that is down must not also cost you the ability to
 configure the board.
 
 The board's settings server is allocated when asked and freed when the window
-closes, exactly as the setup portal already does — the render sprite leaves the
+closes, exactly as the setup portal already does: the render sprite leaves the
 heap floor around 43KB, and a permanently-listening `WebServer` would spend
 several KB of that to serve a page touched twice a year.
 
-**Only differences are written.** Writing a key to NVS shadows its compiled
+Only differences are written. Writing a key to NVS shadows its compiled
 default permanently and silently, so a form that submitted all twenty-six
 fields would make `config.h` dead code for all twenty-six the first time you
 pressed Save. Each
 field that *is* overridden says so and offers "use built-in default", which
-removes just that key — previously only `siteConfigClear()` could, and that
+removes just that key. Previously only `siteConfigClear()` could, and that
 takes the WiFi credentials with it.
 
-The two field tables — `DEVICE_FIELDS` in `lib/radarcore/device_config.cpp` and
-`FIELDS` in `boxradar_config/device.py` — are checked against each other by
+The two field tables (`DEVICE_FIELDS` in `lib/radarcore/device_config.cpp` and
+`FIELDS` in `boxradar_config/device.py`) are checked against each other by
 `tests/test_config_device_contract.py`. Drift between them fails nowhere else:
 a key spelled differently on the two sides is not a compile error and not an
 exception, just a setting that silently never applies.
@@ -564,7 +564,7 @@ exception, just a setting that silently never applies.
 
 Five sources, not four: the airspace dataset is a git checkout and the other
 four are HTTP downloads, but they are the same thing from the UI's point of
-view — something that has to be on disk before a page works. `sources.py` joins
+view: something that has to be on disk before a page works. `sources.py` joins
 them so the Data page and the progress strip both ask one list. The two fetch
 mechanisms stay separate underneath, because a git URL does not fit
 `datasets.SOURCES`' `(url, filename, member)` shape.
@@ -574,10 +574,10 @@ strip counted the airspace source as a dataset while the UI did not. There is
 also no longer a separate `source.html` interstitial: a missing airspace source
 lands on the Data page with that row ticked, exactly as a missing `towns` does.
 
-**Downloads are streamed, and so is the page that reports them.** About 32MB
+Downloads are streamed, and so is the page that reports them. About 32MB
 over a Pi's wifi is long enough that a plain POST-and-redirect looked
-indistinguishable from a hang. The response is generated as the work happens —
-no polling, no background job to supervise, no second request — with a
+indistinguishable from a hang. The response is generated as the work happens:
+no polling, no background job to supervise, no second request, with a
 `<progress>` per source fed by script fragments flushed as bytes land. Without
 JavaScript a line still appears per completed source.
 
@@ -588,7 +588,7 @@ to the desktop; the zip member is extracted from disk for the same reason.
 
 `tests/test_config_fetch_stream.py` holds a fake fetch open and insists a
 fragment has already reached the client. That test exists because the obvious
-implementation — collect the fragments, yield them when the fetch returns —
+implementation (collect the fragments, yield them when the fetch returns)
 produces exactly the right bytes in exactly the right order and defeats the
 entire feature, so nothing else catches it.
 
@@ -597,13 +597,13 @@ entire feature, so nothing else catches it.
 | picker | source | note |
 |---|---|---|
 | airfields | OurAirports `airports.csv` | large and medium by default; small on request. A field with no ICAO cannot be drawn, since the label *is* the ICAO |
-| centrelines | OurAirports `runways.csv` | both thresholds or nothing — the axis is the two points, never a published heading, which is magnetic and rounded to ten degrees |
+| centrelines | OurAirports `runways.csv` | both thresholds or nothing: the axis is the two points, never a published heading, which is magnetic and rounded to ten degrees |
 | fixes | OurAirports `navaids.csv` + eAIP ENR 4.4 | 3-letter navaids download; the ~1000 5-letter RNAV points ship, extracted by `tools_import_eaip_fixes.py` |
 | towns | GeoNames `GB.txt` | population ranks and never gates; the label is yours to choose |
 
 Everything is scoped to the search box before it is offered, which is a
 correctness requirement rather than a convenience: OurAirports idents are not
-globally unique. `BKY` is Barkway in Hertfordshire **and** Bouaké in Côte
+globally unique. `BKY` is Barkway in Hertfordshire and Bouaké in Côte
 d'Ivoire, so an unscoped search by ident can put a West African VOR on an
 Essex map.
 
@@ -638,20 +638,20 @@ outside them it is allowed to write.
 
 Three things worth knowing:
 
-- **Suggest never saves.** It pre-ticks what the rules would pick and prints
+- Suggest never saves. It pre-ticks what the rules would pick and prints
   the reason it rejected everything else. Nothing is stored until Save.
-- **A selection naming a feature that no longer exists publishes nothing.**
+- A selection naming a feature that no longer exists publishes nothing.
   It would otherwise produce a perfectly valid blob with a hole in it, and
   neither the CRC nor the board could tell that from a site with no airspace
   there. Publish is disabled and the names are listed.
-- **Saving a tick rewrites the whole file**, so it carries the curated
+- Saving a tick rewrites the whole file, so it carries the curated
   airfields, runway centrelines, fixes and towns through untouched. Envelope
-  grouping is preserved too — a tick on a feature that is not already in a
+  grouping is preserved too: a tick on a feature that is not already in a
   group makes it a group of its own, and envelopes are still edited in the
   file.
 
-There is no authentication, deliberately. Nothing else on this Pi has any —
-the display service and tar1090 are both open on the LAN — so adding it here
+There is no authentication, deliberately. Nothing else on this Pi has any:
+the display service and tar1090 are both open on the LAN, so adding it here
 alone would be security theatre. Revisit if the Pi ever faces the internet.
 
 Flask's own development server is what runs it. This is a single-user tool on
@@ -666,7 +666,7 @@ root and read by lighttpd as `www-data`. Three separate things have to line
 up, and each one fails differently:
 
 - `ReadWritePaths=/var/www/html` in the unit lifts systemd's read-only mount.
-  It does **not** change POSIX ownership, which is a distinction easy to miss:
+  It does not change POSIX ownership, which is a distinction easy to miss:
   the service still gets `EACCES` without the next line.
 - `install.sh` creates a system group `boxradar-pub`, gives the document root
   `2775` and that group, and the unit joins it with `SupplementaryGroups=`.
@@ -674,7 +674,7 @@ up, and each one fails differently:
   on whichever dynamic UID happened to write them.
 - The blob is written `0644` explicitly. `tempfile.mkstemp` creates at `0600`,
   so an atomic write that did not chmod would publish a file lighttpd cannot
-  read — the board would get a 403 on its geography fetch and fall back to its
+  read: the board would get a 403 on its geography fetch and fall back to its
   cache, with nothing in the Pi's logs to say why.
 
 ### First deployment at a site that already has a map

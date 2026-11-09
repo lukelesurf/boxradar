@@ -1,6 +1,6 @@
 {
-  "home_lat": 51.5714000000000,
-  "home_lon": 0.6956000000000000,
+  "home_lat": 51.5714,
+  "home_lon": 0.6956,
   "reach_nm": 65,
   "airspace": [
     {

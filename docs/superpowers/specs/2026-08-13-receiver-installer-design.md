@@ -16,7 +16,7 @@ The driver is the same one that produced
 configuration out of compile-time headers into a Pi application. This work
 moves the *receiver itself* out of a hand-configured box and into a script.
 
-The receiver documented in [docs/receiver-pi.md](../../receiver-pi.md) is the
+The original hand-built receiver is the
 counter-example that motivates this. Nothing on it was hand-compiled — every
 component came from an upstream installer — yet it has drifted into a state
 nobody could reproduce: a desktop stack on a headless receiver, a cron that

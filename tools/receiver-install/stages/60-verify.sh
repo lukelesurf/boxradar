@@ -35,7 +35,7 @@ if stats=$(curl -sf --max-time 10 http://127.0.0.1/tar1090/data/stats.json); the
   # exist in readsb's stats.json (confirmed on the live receiver —
   # total.messages was present and climbing, e.g. 6868511), so this is not
   # a missing-field workaround. position_count_by_type is used because it
-  # is the field docs/receiver-pi.md documents as answering "is this
+  # is the field that answers "is this
   # working": cumulative since readsb started, and broken down by source,
   # so a non-zero sum proves a position was actually solved, and which kind
   # (adsb_icao, mlat, ...) it came from. A raw message count can climb on

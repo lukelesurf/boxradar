@@ -16,7 +16,7 @@ HOSTNAME="adsb"
 LAT="51.8850413"
 LON="0.2350632"
 # Aerial height above mean sea level, whole feet. MLAT needs this.
-ALT_FT="363"
+ALT_FT="348"
 
 # 'auto', or a number from `rtl_test` if you have tuned it by hand.
 GAIN="auto"

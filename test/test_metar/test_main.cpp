@@ -6,7 +6,7 @@
 
 using namespace radar;
 
-// Shape published by tools/metar-feed on the receiver Pi.
+// Shape published by boxradar-site's /metar endpoint on the receiver Pi.
 static const char SAMPLE[] = R"({"t":1786139838,"stations":[
   {"id":"EGGW","wdir":70,"wspd":2,"gust":0,"vis":9999,"ceil":0,"cov":"NCD",
    "qnh":1022,"temp":17,"rwy":"07","conf":0,"obs":1786139400},

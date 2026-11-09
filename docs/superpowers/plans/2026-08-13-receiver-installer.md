@@ -1906,8 +1906,6 @@ cd tools/receiver-install && sudo ./install.sh
 ```
 
 See [tools/receiver-install/README.md](tools/receiver-install/README.md).
-An as-built inventory of the current receiver is in
-[docs/receiver-pi.md](docs/receiver-pi.md).
 ```
 
 - [ ] **Step 3: Run the full test suite**

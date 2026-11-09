@@ -32,18 +32,18 @@
 // match it — the firmware picks that id out of the response's "stations"
 // array.
 // ---------------------------------------------------------------------------
-#if defined(BOXRADAR_SITE_HOME)
+#if defined(BOXRADAR_SITE_STANSTED)
 
 #define DEFAULT_RECEIVER_URL  "http://receiver.lan:8081/contacts"
-#define DEFAULT_HOME_LAT      51.5000
-#define DEFAULT_HOME_LON      -0.1000
+#define DEFAULT_HOME_LAT      51.8850   // must match selection.example.json
+#define DEFAULT_HOME_LON      0.2350
 #define DEFAULT_OTA_HOSTNAME  "boxradar"
 #define DEFAULT_METAR_URL     "http://receiver.lan:8081/metar/EGSS"
 #define DEFAULT_METAR_STATION "EGSS"
 #define DEFAULT_GEO_URL       "http://receiver.lan/site.bin"
 
 #else
-#error "No site selected. Build a site env, e.g. -e home or -e home-usb."
+#error "No site selected. Build a site env, e.g. -e stansted or -e stansted-usb."
 #endif
 
 #define DEFAULT_POLL_INTERVAL_MS 2000
