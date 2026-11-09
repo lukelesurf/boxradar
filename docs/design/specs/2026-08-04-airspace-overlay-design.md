@@ -1,13 +1,13 @@
-# Airspace Overlay — Design
+# Airspace Overlay: Design
 
-**Date:** 2026-08-04
-**Status:** Approved (design), implementation pending
+Date: 2026-08-04  
+Status: Approved (design), implementation pending
 
 ## Purpose
 
 Draw the local controlled airspace on the radar scope for situational
 awareness: Stansted CTR + CTA and Luton CTR + CTA as dim outlines under
-the existing rings/trails/blips. Minimal chart fidelity by choice — the
+the existing rings/trails/blips. Minimal chart fidelity by choice. The
 operator knows the airspace; the outlines just anchor traffic behaviour
 to the zones.
 
@@ -15,8 +15,8 @@ to the zones.
 
 Per airport (Stansted, Luton), two closed outlines:
 
-1. **CTR ring** — the surface zone boundary as published.
-2. **CTA envelope** — the exterior ring of the union of all CTA step
+1. CTR ring: the surface zone boundary as published.
+2. CTA envelope: the exterior ring of the union of all CTA step
    polygons plus the CTR. Internal step boundaries are deliberately not
    drawn.
 
@@ -25,20 +25,20 @@ ATZ etc. excluded).
 
 ## Data pipeline
 
-`tools/build_airspace.py` — one-shot maintainer script, adapted from the
+`tools/build_airspace.py` is a one-shot maintainer script, adapted from the
 existing `build-airspace.py` (which moves to `tools/` and loses its
 webui/GeoJSON output stage):
 
-- **Source:** clone/pull `github.com/ahsparrow/airspace` into
+- Source: clone/pull `github.com/ahsparrow/airspace` into
   `~/.cache/` (existing fetch behaviour), read `airspace.yaml` (YAIXM).
-- **Reused unchanged:** DMS coordinate parsing, arc→polyline
+- Reused unchanged: DMS coordinate parsing, arc→polyline
   interpolation (10° steps, from-point radius taking precedence over
   the stated radius), boundary→ring assembly.
-- **Selection:** curated name list — `LONDON STANSTED CTR`,
+- Selection: curated name list: `LONDON STANSTED CTR`,
   `LONDON STANSTED CTA`, `LONDON LUTON CTR`, `LONDON LUTON CTA`.
-- **Union:** shapely `unary_union` of each airport's CTA steps + CTR;
+- Union: shapely `unary_union` of each airport's CTA steps + CTR;
   take the exterior ring as the envelope. Keep the CTR ring separately.
-- **Output:** `src/ui/airspace_data.h`, committed. `const` flash arrays
+- Output: `src/ui/airspace_data.h`, committed. `const` flash arrays
   of `{float lat, lon}` vertices plus an index of outlines
   (`{const Vertex *pts; uint16_t count;}`). Estimated ~200 vertices
   total ≈ 1.6KB flash, zero heap.
@@ -46,7 +46,7 @@ webui/GeoJSON output stage):
 The script is run manually when airspace changes (AIRAC-cycle rare); it
 is not wired into the PlatformIO build.
 
-**devShell:** add `(python3.withPackages (ps: [ ps.pyyaml ps.shapely ]))`
+devShell: add `(python3.withPackages (ps: [ ps.pyyaml ps.shapely ]))`
 to `flake.nix`. Nix-provided Python rather than a venv: this is a
 maintainer script in a C++ repo, not a Python project.
 
@@ -62,7 +62,7 @@ airspace sits under everything else.
 - Re-projected every frame (~200 projections is microseconds); no
   caching, so range cycling needs no invalidation logic.
 - One colour for all outlines: dim blue-grey, RGB565 `0x2124`, defined
-  as a named constant — expect to tune on the physical panel.
+  as a named constant; expect to tune on the physical panel.
 - Sprite `drawLine` clips per-pixel; off-scope vertices at close range
   are safe (worst-case coords ~±1500px, well inside int16).
 
@@ -83,7 +83,7 @@ airspace sits under everything else.
 
 ## Out of scope (explicitly considered, rejected)
 
-- Per-step CTA polygons / altitude-layered styling (option b/c) —
+- Per-step CTA polygons / altitude-layered styling (option b/c):
   rejected for scope clutter; operator knows the vertical structure.
-- Runtime YAML/GeoJSON parsing on the ESP32 — static codegen instead.
+- Runtime YAML/GeoJSON parsing on the ESP32; static codegen instead.
 - Labels on outlines; London TMA; Stansted TMZ.

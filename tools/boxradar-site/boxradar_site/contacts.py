@@ -9,7 +9,7 @@ Pure functions, no I/O — the fetch lives in feed.py so these stay testable
 without a network. Filtering is field-for-field parity with
 lib/radarcore/parse.cpp: this is a transport change, not a behaviour change.
 
-The wire format is specified in docs/superpowers/specs/2026-08-08-contact-feed.md.
+The wire format is specified in docs/design/specs/2026-08-08-contact-feed.md.
 Nothing derived is transmitted: no range, no bearing, no screen position. The
 Pi needs home to decide *which* contacts to send, but the board projects them
 itself, so a home disagreement can never silently move traffic on the display.

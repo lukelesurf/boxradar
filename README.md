@@ -592,7 +592,7 @@ test/           native Unity tests for radarcore — 230 cases
 tools/          boxradar-site (display service, geography codegen and the
                 config UI), receiver-install (provisions a receiver Pi from
                 bare OS)
-docs/           design notes; superpowers/ holds the specs and plans
+docs/           design notes; design/ holds the specs and plans
 ARCHITECTURE.md how a frame is built, and why
 case.scad       parametric OpenSCAD enclosure (see Case, above)
 ```
@@ -616,14 +616,14 @@ None of it is fit for navigation. It's a desk toy.
 ## How this was built
 
 I wrote this with Claude Code, directing the design and checking every
-change on the hardware. `docs/superpowers/` holds the specs and the
+change on the hardware. `docs/design/` holds the specs and the
 step-by-step plans the work ran from, kept as they were written, so they
 record the dead ends as well as the decisions. Line counts in them are from
 the day they were written.
 
-This repo is a published copy of a private one, with a fresh history. The
-home position is now Stansted airport's reference point and the second site
-is Southend. The LAN addresses are TEST-NET, and the feeder handles and
+This repo is a published copy of a private one. The history is the real
+one, rewritten for publication: the home position is now Stansted
+airport's reference point and the second site is Southend. The LAN addresses are TEST-NET, and the feeder handles and
 hostnames are placeholders. Everything else is as it runs on my desk.
 
 ## Licence

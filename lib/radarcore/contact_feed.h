@@ -11,7 +11,7 @@
 // Here the Pi has already filtered, range-sorted and capped, so what arrives
 // is at most MAX_AIRCRAFT fixed-size records and the allocation is a constant.
 //
-// Format: docs/superpowers/specs/2026-08-08-contact-feed.md.
+// Format: docs/design/specs/2026-08-08-contact-feed.md.
 //
 // Portable on purpose: stdint and string.h only, no Arduino and no
 // ArduinoJson, so it links in [env:native] and is tested off device. It must

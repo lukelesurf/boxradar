@@ -1,6 +1,6 @@
 # Contact feed: preprocessing the traffic feed on the Pi
 
-**Status: decisions, being built.** Supersedes the board's direct
+Status: decisions, being built. Supersedes the board's direct
 `tar1090/data/aircraft.json` fetch.
 
 The board currently deserialises the entire receiver feed into an ArduinoJson
@@ -11,18 +11,18 @@ wire.
 ## Why
 
 The measured problem is not the 20KB the stores occupy. It is that the parse
-peak is a function of something the board does not control — how many aircraft
+peak is a function of something the board does not control: how many aircraft
 happen to be airborne:
 
-- Free heap ~87KB at fetch time; low watermark **5–21KB**, tracking feed size.
-- `sizeof(Aircraft)` is 156 bytes across **four** stores, so `MAX_AIRCRAFT`
+- Free heap ~87KB at fetch time; low watermark 5–21KB, tracking feed size.
+- `sizeof(Aircraft)` is 156 bytes across four stores, so `MAX_AIRCRAFT`
   costs 624 bytes a slot. Raising 32 → 64 costs ~19.5KB, which the watermark
-  cannot absorb — and the moment it would be needed (busy airspace) is the
+  cannot absorb, and the moment it would be needed (busy airspace) is the
   moment the watermark is lowest, for the same reason.
 
 A 40-byte wire record removes the JSON document entirely and cuts the stored
-form to roughly 84 bytes a slot, so **64 contacts costs about what 32 costs
-today** and the peak stops varying with traffic.
+form to roughly 84 bytes a slot, so 64 contacts costs about what 32 costs
+today and the peak stops varying with traffic.
 
 Secondary: ~2.5KB per poll instead of tens of KB of JSON every second, and the
 size-dependent logic moves to the side with a fast test loop.
@@ -33,7 +33,7 @@ Phase 4 splits the services so the display's dependency stays stdlib-only. This
 endpoint needs `math.cos` and `struct.pack` and nothing else, so it belongs on
 the proxy side of that boundary.
 
-**It raises the stakes on that split.** Phase 4's scoping justifies it with "the
+It raises the stakes on that split. Phase 4's scoping justifies it with "the
 thing the display depends on every 60 seconds"; after this it is every second,
 and it is the primary display feed rather than the weather. Keeping
 `boxradar-site` free of Flask and shapely stops being tidiness and becomes the
@@ -44,8 +44,8 @@ reliability boundary for the whole display.
 The Pi needs home to range-sort and cap, and could just as easily project. It
 must not.
 
-This is the blob's rule — *stores nothing derived, because a stored value can
-disagree with its source and fail silently* — applied to the wire. If the Pi
+This is the blob's rule (*stores nothing derived, because a stored value can
+disagree with its source and fail silently*) applied to the wire. If the Pi
 projected with a home that disagreed with NVS, every contact would be drawn in
 the wrong place with nothing to detect it. Carrying raw positions and
 projecting on the board with `projectWith()` makes that disagreement
@@ -62,7 +62,7 @@ different homes work off one service. This is the same shape as the blob, which
 
 ## Decision: no config knob for the count
 
-The bound is the board's static array, so the board asks for what it can hold —
+The bound is the board's static array, so the board asks for what it can hold:
 `n=MAX_AIRCRAFT`. There is no user-meaningful decision left to expose, and if
 there were it would be board config in NVS, unreachable from the Pi, excluded
 for the same reason as WiFi credentials.
@@ -82,7 +82,7 @@ done.
 ## Wire format
 
 Little-endian throughout, 4-byte aligned, so the board can cast the receive
-buffer to `const Contact*` with no copy — as the geo blob already does.
+buffer to `const Contact*` with no copy, as the geo blob already does.
 
 Header, 12 bytes (records start 4-aligned):
 
@@ -90,9 +90,9 @@ Header, 12 bytes (records start 4-aligned):
 |---|---|---|
 | 0 | `char[4]` | magic `BXAC` |
 | 4 | `uint16` | version (1) |
-| 6 | `uint16` | record length (40) — an explicit mismatch beats a misparse |
-| 8 | `uint16` | count — records that follow, after the cap |
-| 10 | `uint16` | total — contacts that passed filtering, **before** the cap |
+| 6 | `uint16` | record length (40); an explicit mismatch beats a misparse |
+| 8 | `uint16` | count: records that follow, after the cap |
+| 10 | `uint16` | total: contacts that passed filtering, before the cap |
 
 `total` exists so the board can render "32/58" and make the cap's cliff
 visible. The README documents that cliff as silent; it need not stay silent
@@ -105,9 +105,9 @@ Record, 40 bytes:
 | 0 | `uint32` | hex | leading `~` stripped, as `parse.cpp` does |
 | 4 | `int32` | lat | degrees × 1e7 |
 | 8 | `int32` | lon | degrees × 1e7 |
-| 12 | `char[8]` | callsign | space-trimmed, **not** NUL-terminated when full |
+| 12 | `char[8]` | callsign | space-trimmed, not NUL-terminated when full |
 | 20 | `char[4]` | type | ICAO type code |
-| 24 | `char[4]` | squawk | string, not an int — leading zeros are significant |
+| 24 | `char[4]` | squawk | string, not an int; leading zeros are significant |
 | 28 | `int16` | altitude | feet ÷ 25 |
 | 30 | `uint16` | groundspeed | knots |
 | 32 | `uint16` | track | degrees |
@@ -124,7 +124,7 @@ Nothing derived: no range, no bearing, no screen position.
 Same rules, same order, so the change is a transport change and not a
 behaviour change:
 
-- position required — `lat` and `lon` both present
+- position required: `lat` and `lon` both present
 - `seen > 60s` dropped (`SEEN_DROP_S`), using `seen` rather than `seen_pos` for
   parity with what the board does today
 - sorted ascending by range, then truncated to `n`
@@ -133,16 +133,16 @@ behaviour change:
 
     GET /contacts?lat=51.885018&lon=0.235027&n=32
 
-Validated, not trusted — same reasoning as `parse_ids()`. Out-of-range
+Validated, not trusted, same reasoning as `parse_ids()`. Out-of-range
 latitude, unparseable floats or an absent `n` are a 400. `n` is clamped to a
 service-side ceiling so one request cannot ask for an unbounded response.
 
 ## Follow-on, not in this change
 
-- **Trails stay on the board.** Spacing is a function of the current zoom
+- Trails stay on the board. Spacing is a function of the current zoom
   (`g_trailSpacingNm`), so moving them upstream would put live UI state in the
   request and show mis-spaced trails until the next poll.
-- **No JSON fallback on the board.** Sizing the store for a world without the
+- No JSON fallback on the board. Sizing the store for a world without the
   parse peak means the fallback path would OOM exactly when it fired. The Pi is
-  the receiver — if it is down there is no traffic data anyway — so the honest
+  the receiver (if it is down there is no traffic data anyway), so the honest
   answer is `Restart=always`, not a fallback that cannot work.

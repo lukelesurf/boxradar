@@ -17,7 +17,7 @@ change shape: it iterates root["stations"] matching on "id". Extra keys are
 safe — ArduinoJson ignores what it does not read.
 
 /contacts is a fixed-size binary format, specified in
-docs/superpowers/specs/2026-08-08-contact-feed.md, and is the display's primary
+docs/design/specs/2026-08-08-contact-feed.md, and is the display's primary
 feed at 1Hz. Its shape is fixed by the board's reader in the same way.
 
 The config-wake signal rides on a /contacts RESPONSE HEADER rather than in that

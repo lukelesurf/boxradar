@@ -192,7 +192,7 @@ One binary file per site, written by `boxradar_site.geo` and read by
 `lib/radarcore/geoblob.{h,cpp}`. The board fetches it from `GEO_URL`, caches
 it in flash and draws from it (`src/geo_store.cpp`). The generated C headers in
 `src/ui/` are the fallback for a board with neither a cached blob nor a
-reachable receiver. See `docs/superpowers/specs/2026-08-08-runtime-site-config-design.md`.
+reachable receiver. See `docs/design/specs/2026-08-08-runtime-site-config-design.md`.
 
 Little-endian throughout, since both the ESP32 and the native test host are.
 

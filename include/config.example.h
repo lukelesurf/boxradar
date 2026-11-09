@@ -25,7 +25,7 @@
 // RECEIVER_URL is the boxradar-site contact feed, NOT tar1090 directly. The
 // board appends "?lat=&lon=&n=" and gets back fixed-size binary records the Pi
 // has already filtered, range-sorted and capped — see
-// docs/superpowers/specs/2026-08-08-contact-feed.md. Pointing this at
+// docs/design/specs/2026-08-08-contact-feed.md. Pointing this at
 // aircraft.json will not work: the board no longer parses JSON traffic.
 //
 // The URL's last path segment names the METAR station, and METAR_STATION must
